@@ -1,6 +1,4 @@
-use std::collections::HashMap;
 use std::env;
-use std::ops::Index;
 
 #[derive(Debug)]
 pub struct Arguments {
@@ -10,6 +8,12 @@ pub struct Arguments {
 }
 
 impl Arguments {
+    pub fn dedicated(&self) -> bool { self.dedicated }
+
+    pub fn windowed(&self) -> bool { self.windowed }
+
+    pub fn base(&self) -> &Vec<String> { &self.base }
+
     fn has_option(v: &Vec<String>, opt: &str) -> bool {
         v.iter().any(|s| {
             *s == opt
@@ -24,11 +28,11 @@ impl Arguments {
         })
     }
 
-    pub fn new() -> Arguments {
+    pub fn parse() -> Self {
         let args: Vec<String> = env::args().collect();
-        let dedicated = Self::has_option(&args, "-dedicated");
-        let windowed = Self::has_option(&args, "-windowed");
-        let base: Vec<String> = Self::get_value(&args, "-base")
+        let dedicated = Self::has_option(&args, "--dedicated") || Self::has_option(&args, "-D");
+        let windowed = Self::has_option(&args, "--windowed") || Self::has_option(&args, "-W");
+        let base: Vec<String> = Self::get_value(&args, "--base")
             .unwrap_or(&"".to_string())
             .split(",")
             .map(String::from)
