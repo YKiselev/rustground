@@ -836,4 +836,17 @@ mod test {
             },
         );
     }
+
+    #[test]
+    fn orthographic() {
+        let m = Matrix::orthographic(0., 100., 200., 0., -1., 1.);
+        let mut vec = v(0., 0., 0.);
+        assert_v(v(-1., -1., 0.), m * vec);
+
+        vec.set(50., 100., 0.);
+        assert_v(v(0., 0., 0.), m * vec);
+
+        vec.set(100., 200., 0.);
+        assert_v(v(1., 1., 0.), m * vec);
+    }
 }
