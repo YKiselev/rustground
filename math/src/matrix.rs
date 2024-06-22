@@ -268,12 +268,12 @@ impl Matrix {
         let d2_15 = a[2] * a[15] - a[3] * a[14];
         let d2_7 = a[2] * a[7] - a[3] * a[6];
 
-        let Asubd = a[5] * d10_15 - a[9] * d6_15 + a[13] * d6_11;
-        let Bsubd = a[1] * d10_15 - a[9] * d2_15 + a[13] * d2_11;
-        let Csubd = a[1] * d6_15 - a[5] * d2_15 + a[13] * d2_7;
-        let Dsubd = a[1] * d6_11 - a[5] * d2_11 + a[9] * d2_7;
+        let a_subd = a[5] * d10_15 - a[9] * d6_15 + a[13] * d6_11;
+        let b_subd = a[1] * d10_15 - a[9] * d2_15 + a[13] * d2_11;
+        let c_subd = a[1] * d6_15 - a[5] * d2_15 + a[13] * d2_7;
+        let d_subd = a[1] * d6_11 - a[5] * d2_11 + a[9] * d2_7;
 
-        return a[0] * Asubd - a[4] * Bsubd + a[8] * Csubd - a[12] * Dsubd;
+        return a[0] * a_subd - a[4] * b_subd + a[8] * c_subd - a[12] * d_subd;
     }
 
     /// Calculate inverse matrix.
@@ -301,69 +301,66 @@ impl Matrix {
     ///      6 10 14        2 10 14        2 6 14        2 6 10
     ///```
     pub fn inverse(&self) -> Self {
-        let a = &self.m;
-        let d6_11 = a[6] * a[11] - a[7] * a[10];
-        let d6_15 = a[6] * a[15] - a[7] * a[14];
-        let d10_15 = a[10] * a[15] - a[11] * a[14];
-        let d2_11 = a[2] * a[11] - a[3] * a[10];
-        let d2_15 = a[2] * a[15] - a[3] * a[14];
-        let d2_7 = a[2] * a[7] - a[3] * a[6];
-        let d9_14 = a[9] * a[14] - a[10] * a[13];
-        let d9_15 = a[9] * a[15] - a[11] * a[13];
-        let d5_14 = a[5] * a[14] - a[6] * a[13];
-        let d5_15 = a[5] * a[15] - a[7] * a[13];
-        let d1_14 = a[1] * a[14] - a[2] * a[13];
-        let d1_15 = a[1] * a[15] - a[3] * a[13];
-        let d5_10 = a[5] * a[10] - a[6] * a[9];
-        let d5_11 = a[5] * a[11] - a[7] * a[9];
-        let d1_11 = a[1] * a[11] - a[3] * a[9];
-        let d1_6 = a[1] * a[6] - a[2] * a[5];
-        let d1_7 = a[1] * a[7] - a[3] * a[5];
-        let d1_10 = a[1] * a[10] - a[2] * a[9];
+        assert_eq!(self.m.len(), 16);
+        let ma = &self.m;
+        let d6_11 = ma[6] * ma[11] - ma[7] * ma[10];
+        let d6_15 = ma[6] * ma[15] - ma[7] * ma[14];
+        let d10_15 = ma[10] * ma[15] - ma[11] * ma[14];
+        let d2_11 = ma[2] * ma[11] - ma[3] * ma[10];
+        let d2_15 = ma[2] * ma[15] - ma[3] * ma[14];
+        let d2_7 = ma[2] * ma[7] - ma[3] * ma[6];
+        let d9_14 = ma[9] * ma[14] - ma[10] * ma[13];
+        let d9_15 = ma[9] * ma[15] - ma[11] * ma[13];
+        let d5_14 = ma[5] * ma[14] - ma[6] * ma[13];
+        let d5_15 = ma[5] * ma[15] - ma[7] * ma[13];
+        let d1_14 = ma[1] * ma[14] - ma[2] * ma[13];
+        let d1_15 = ma[1] * ma[15] - ma[3] * ma[13];
+        let d5_10 = ma[5] * ma[10] - ma[6] * ma[9];
+        let d5_11 = ma[5] * ma[11] - ma[7] * ma[9];
+        let d1_11 = ma[1] * ma[11] - ma[3] * ma[9];
+        let d1_6 = ma[1] * ma[6] - ma[2] * ma[5];
+        let d1_7 = ma[1] * ma[7] - ma[3] * ma[5];
+        let d1_10 = ma[1] * ma[10] - ma[2] * ma[9];
 
         // row 0
-        let A = a[5] * d10_15 - a[9] * d6_15 + a[13] * d6_11;
-        let B = a[1] * d10_15 - a[9] * d2_15 + a[13] * d2_11;
-        let C = a[1] * d6_15 - a[5] * d2_15 + a[13] * d2_7;
-        let D = a[1] * d6_11 - a[5] * d2_11 + a[9] * d2_7;
+        let a = ma[5] * d10_15 - ma[9] * d6_15 + ma[13] * d6_11;
+        let b = ma[1] * d10_15 - ma[9] * d2_15 + ma[13] * d2_11;
+        let c = ma[1] * d6_15 - ma[5] * d2_15 + ma[13] * d2_7;
+        let d = ma[1] * d6_11 - ma[5] * d2_11 + ma[9] * d2_7;
 
         // row 1
-        let E = a[4] * d10_15 - a[8] * d6_15 + a[12] * d6_11;
-        let F = a[0] * d10_15 - a[8] * d2_15 + a[12] * d2_11;
-        let G = a[0] * d6_15 - a[4] * d2_15 + a[12] * d2_7;
-        let H = a[0] * d6_11 - a[4] * d2_11 + a[8] * d2_7;
+        let e = ma[4] * d10_15 - ma[8] * d6_15 + ma[12] * d6_11;
+        let f = ma[0] * d10_15 - ma[8] * d2_15 + ma[12] * d2_11;
+        let g = ma[0] * d6_15 - ma[4] * d2_15 + ma[12] * d2_7;
+        let h = ma[0] * d6_11 - ma[4] * d2_11 + ma[8] * d2_7;
 
         // row 2
-        let I = a[4] * d9_15 - a[8] * d5_15 + a[12] * d5_11;
-        let J = a[0] * d9_15 - a[8] * d1_15 + a[12] * d1_11;
-        let K = a[0] * d5_15 - a[4] * d1_15 + a[12] * d1_7;
-        let L = a[0] * d5_11 - a[4] * d1_11 + a[8] * d1_7;
+        let i = ma[4] * d9_15 - ma[8] * d5_15 + ma[12] * d5_11;
+        let j = ma[0] * d9_15 - ma[8] * d1_15 + ma[12] * d1_11;
+        let k = ma[0] * d5_15 - ma[4] * d1_15 + ma[12] * d1_7;
+        let l = ma[0] * d5_11 - ma[4] * d1_11 + ma[8] * d1_7;
 
         // row 3
-        let M = a[4] * d9_14 - a[8] * d5_14 + a[12] * d5_10;
-        let N = a[0] * d9_14 - a[8] * d1_14 + a[12] * d1_10;
-        let O = a[0] * d5_14 - a[4] * d1_14 + a[12] * d1_6;
-        let P = a[0] * d5_10 - a[4] * d1_10 + a[8] * d1_6;
+        let m = ma[4] * d9_14 - ma[8] * d5_14 + ma[12] * d5_10;
+        let n = ma[0] * d9_14 - ma[8] * d1_14 + ma[12] * d1_10;
+        let o = ma[0] * d5_14 - ma[4] * d1_14 + ma[12] * d1_6;
+        let p = ma[0] * d5_10 - ma[4] * d1_10 + ma[8] * d1_6;
 
-        let det = a[0] * A - a[4] * B + a[8] * C - a[12] * D;
+        let det = ma[0] * a - ma[4] * b + ma[8] * c - ma[12] * d;
         assert_ne!(det, 0.0);
 
         let m = Matrix {
             m: [
-                A, -E, I, -M,
-                -B, F, -J, N,
-                C, -G, K, -O,
-                -D, H, -L, P
+                a, -e, i, -m,
+                -b, f, -j, n,
+                c, -g, k, -o,
+                -d, h, -l, p
             ]
         };
 
-        let mut trans = m.transpose();
-        let r = &mut trans.m;
+        let trans = m.transpose();
         let ood = 1.0 / det;
-        for i in 0..=15 {
-            r[i] *= ood;
-        }
-        trans
+        trans * ood
     }
 
 
@@ -468,10 +465,10 @@ impl Mul<Matrix> for Matrix {
     type Output = Matrix;
 
 
-     /// Each row of this matrix is multiplied by the column of second (component-wise) and sum of results is stored in result's cell.
-     /// # Arguments
-     /// * `self` the first matrix
-     /// * `rhs`  the second matrix
+    /// Each row of this matrix is multiplied by the column of second (component-wise) and sum of results is stored in result's cell.
+    /// # Arguments
+    /// * `self` the first matrix
+    /// * `rhs`  the second matrix
     fn mul(self, rhs: Matrix) -> Self::Output {
         let a = &self.m;
         let b = &rhs.m;
@@ -511,9 +508,9 @@ impl Mul<Matrix> for Matrix {
 impl Add for Matrix {
     type Output = Matrix;
 
-     /// Adds one matrix to another.
-     /// * `self` the first matrix
-     /// * `rhs`  the second matrix
+    /// Adds one matrix to another.
+    /// * `self` the first matrix
+    /// * `rhs`  the second matrix
     fn add(self, rhs: Self) -> Self::Output {
         let a = &self.m;
         let b = &rhs.m;
@@ -550,28 +547,28 @@ impl Add for Matrix {
 
 #[cfg(test)]
 mod test {
-    use approx::relative_eq;
+    use approx::assert_relative_eq;
 
     use crate::vec4f::Vector4f;
 
     use super::*;
 
     fn assert_v(expected: Vector3f, actual: Vector3f) {
-        relative_eq!(expected.x, actual.x);
-        relative_eq!(expected.y, actual.y);
-        relative_eq!(expected.z, actual.z);
+        assert_relative_eq!(expected.x, actual.x, epsilon = 0.001);
+        assert_relative_eq!(expected.y, actual.y, epsilon = 0.001);
+        assert_relative_eq!(expected.z, actual.z, epsilon = 0.001);
     }
 
     fn assert_v4(expected: Vector4f, actual: Vector4f) {
-        relative_eq!(expected.x, actual.x);
-        relative_eq!(expected.y, actual.y);
-        relative_eq!(expected.z, actual.z);
-        relative_eq!(expected.w, actual.w);
+        assert_relative_eq!(expected.x, actual.x, epsilon = 0.001);
+        assert_relative_eq!(expected.y, actual.y, epsilon = 0.001);
+        assert_relative_eq!(expected.z, actual.z, epsilon = 0.001);
+        assert_relative_eq!(expected.w, actual.w, epsilon = 0.001);
     }
 
     fn assert_m(a: Matrix, b: Matrix) {
         for i in 0..=15 {
-            relative_eq!(a.m[i], b.m[i]);
+            assert_relative_eq!(a.m[i], b.m[i], epsilon = 0.001);
         }
     }
 
@@ -794,7 +791,7 @@ mod test {
                 7., 13., 14., 16.
             ]
         };
-        relative_eq!(m.determinant(), -594.0);
+        assert_relative_eq!(m.determinant(), -594.0, epsilon=0.001);
     }
 
     #[test]

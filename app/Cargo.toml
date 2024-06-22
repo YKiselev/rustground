@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 log = "0.4.21"
-env_logger = "0.11.3"
+log4rs = "1.3.0"
 core = { path = "../core" }
 math = { path = "../math" }
+anyhow = "1.0.86"

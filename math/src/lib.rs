@@ -1,3 +1,3 @@
-mod vec3f;
-mod matrix;
-mod vec4f;
+pub mod vec3f;
+pub mod matrix;
+pub mod vec4f;

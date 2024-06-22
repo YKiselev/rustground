@@ -1,13 +1,3 @@
 pub mod services;
 pub mod arguments;
 mod files;
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        //assert_eq!(result, 4);
-    }
-}

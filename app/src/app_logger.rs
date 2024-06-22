@@ -1,35 +1,70 @@
-use std::rc::Rc;
-use log::{Record, Metadata, Log, LevelFilter};
+use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 
+use anyhow::Error;
+use log::{LevelFilter, Record};
+use log4rs::append::Append;
+use log4rs::append::console::ConsoleAppender;
+use log4rs::append::file::FileAppender;
+use log4rs::Config;
+use log4rs::config::{Appender, Root};
+use log4rs::encode::{Encode, Write};
+use log4rs::encode::pattern::PatternEncoder;
+
+#[derive(Debug)]
 pub(crate) struct AppLogger {
-    delegate: Box<dyn Log>,
+    tx: Sender<String>,
 }
 
-static mut APP_LOGGER: Option<AppLogger> = None;
+pub(crate) struct AppLoggerBuffer {
+    rx: Receiver<String>,
+}
 
-pub(crate) fn init() -> &'static AppLogger {
-    assert!(unsafe { APP_LOGGER.is_none() }, "App logger is already set!");
-    unsafe {
-        APP_LOGGER = Some(AppLogger {
-            delegate: Box::new(env_logger::builder().build())
-        })
+pub(crate) fn init() -> Result<AppLoggerBuffer, Error> {
+    let stdout = ConsoleAppender::builder().build();
+    let file = FileAppender::builder()
+        .encoder(Box::new(PatternEncoder::new("{d} - {m}{n}")))
+        .build("app.log")?;
+    let (tx, rx) = channel();
+    let logger = AppLogger {
+        tx
     };
-    let logger = unsafe { APP_LOGGER.as_ref().unwrap() };
-    log::set_logger(logger).expect("Unable to install logger!");
-    log::set_max_level(LevelFilter::Info);
-    logger
+    let config = Config::builder()
+        .appender(Appender::builder().build("stdout", Box::new(stdout)))
+        .appender(Appender::builder().build("file", Box::new(file)))
+        .appender(Appender::builder().build("app", Box::new(logger)))
+        //.logger(Logger::builder().build("app", LevelFilter::Info))
+        .build(Root::builder().appender("stdout").appender("app").appender("file").build(LevelFilter::Info))?;
+
+    let handle = log4rs::init_config(config)?;
+    Ok(AppLoggerBuffer { rx })
 }
 
-impl Log for AppLogger {
-    fn enabled(&self, metadata: &Metadata) -> bool {
-        self.delegate.enabled(metadata)
+impl Append for AppLogger {
+    fn append(&self, record: &Record) -> anyhow::Result<()> {
+        self.tx.send(format!("{} - {}", record.level(), record.args())).map_err(anyhow::Error::from)
     }
 
-    fn log(&self, record: &Record) {
-        self.delegate.log(record);
-    }
+    fn flush(&self) {}
+}
 
-    fn flush(&self) {
-        self.delegate.flush();
+impl AppLoggerBuffer {
+    pub(crate) fn update(&self) {
+        loop {
+            match self.rx.try_recv() {
+                Ok(record) => println!("Got record: {:?}", record),
+                Err(e) => {
+                    match e {
+                        TryRecvError::Empty => {
+                            break;
+                        }
+                        TryRecvError::Disconnected => {
+                            println!("Error: {:?}", e);
+                            break;
+
+                        }
+                    }
+                }
+            }
+        }
     }
 }
