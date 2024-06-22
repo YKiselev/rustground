@@ -1,25 +1,23 @@
 use std::ops::{Add, Mul};
-use crate::vec3f::Vector3f;
 
-/**
- * Column-oriented 4x4 matrix.
- * <pre>
- * A B C D
- * E F G H
- * I J K L
- * M N O P
- *
- * or as indices:
- *
- * 0 4  8 12
- * 1 5  9 13
- * 2 6 10 14
- * 3 7 11 15
-</pre> *
- * So A have index 0, E - 1, I - 2, M - 3, etc.
- *
- * @author Yuriy Kiselev (uze@yandex.ru).
- */
+use crate::vec3f::Vector3f;
+use crate::vec4f::Vector4f;
+
+/// Column-oriented 4x4 matrix.
+/// ```text
+/// A B C D
+/// E F G H
+/// I J K L
+/// M N O P
+///```
+/// or as indices:
+///```text
+/// 0 4  8 12
+/// 1 5  9 13
+/// 2 6 10 14
+/// 3 7 11 15
+///```
+/// So A have index 0, E - 1, I - 2, M - 3, etc.
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct Matrix {
     pub m: [f32; 16],
@@ -43,17 +41,15 @@ impl Matrix {
         }
     }
 
-    /**
-     * Calculates orthographic projection matrix.
-     *
-     * @param left   the left screen coordinate (usually 0)
-     * @param right  the right screen coordinate (usually width)
-     * @param top    the top screen coordinate (usually height)
-     * @param bottom the bottom screen coordinate (usually 0)
-     * @param near   the near z value (for example -1)
-     * @param far    the far z coordinate (for example 1)
-     * @param m      the buffer to store resulting matrix in.
-     */
+    /// Returns an orthographic projection matrix.
+    /// # Arguments
+    /// * `left`   the left screen coordinate (usually 0)
+    /// * `right`  the right screen coordinate (usually width)
+    /// * `top`    the top screen coordinate (usually height)
+    /// * `bottom` the bottom screen coordinate (usually 0)
+    /// * `near`   the near z value (for example -1)
+    /// * `far`    the far z coordinate (for example 1)
+    /// * `m`      the buffer to store resulting matrix in.
     pub fn orthographic(left: f32, right: f32, top: f32, bottom: f32, near: f32, far: f32) -> Self {
         Matrix {
             m: [2. / (right - left), 0., 0., 0.,
@@ -66,17 +62,15 @@ impl Matrix {
         }
     }
 
-    /**
-     * Calculates perspective projection matrix.
-     *
-     * @param left   the left screen coordinate (usually 0)
-     * @param right  the right screen coordinate (usually width)
-     * @param top    the top screen coordinate (usually height)
-     * @param bottom the bottom screen coordinate (usually 0)
-     * @param near   the near z value (for example -1)
-     * @param far    the far z coordinate (for example 1)
-     * @param m      the buffer to store resulting matrix in.
-     */
+    /// Returns perspective projection matrix.
+    /// # Arguments
+    /// * `left`   the left screen coordinate (usually 0)
+    /// * `right`  the right screen coordinate (usually width)
+    /// * `top`    the top screen coordinate (usually height)
+    /// * `bottom` the bottom screen coordinate (usually 0)
+    /// * `near`   the near z value (for example -1)
+    /// * `far`    the far z coordinate (for example 1)
+    /// * `m`      the buffer to store resulting matrix in.
     pub fn perspective(left: f32, right: f32, top: f32, bottom: f32, near: f32, far: f32) -> Self {
         Matrix {
             m: [2.0 * near / (right - left), 0., 0., 0.,
@@ -90,30 +84,25 @@ impl Matrix {
         }
     }
 
-    /**
-     * Calculates perspective projection matrix.
-     *
-     * @param fow   the horizontal field of view (in radians)
-     * @param ratio the aspect ratio between width and height of screen
-     * @param near  the near z coordinate (should be > 0)
-     * @param far   the far z coordinate
-     * @param m     the buffer to store resulting matrix in.
-     */
+    /// Returns perspective projection matrix.
+    /// # Arguments
+    /// * `fow`   the horizontal field of view (in radians)
+    /// * `ratio` the aspect ratio between width and height of screen
+    /// * `near`  the near z coordinate (should be > 0)
+    /// * `far`   the far z coordinate
+    /// * `m`     the buffer to store resulting matrix in.
     pub fn perspective_fow(fow: f32, ratio: f32, near: f32, far: f32) -> Self {
         let w = near * (0.5 * fow).tan();
         let h = w / ratio;
         Matrix::perspective(-w, w, h, -h, near, far)
     }
 
-    /**
-     * Multiplies matrix `a` by translation matrix derived from `(dx,dy,dz)` and stores result in `result`.
-     *
-     * @param a      the original matrix to add translation to
-     * @param dx     x translation
-     * @param dy     y translation
-     * @param dz     z translation
-     * @param result the buffer to store result.
-     */
+    /// Multiplies this matrix by translation matrix derived from `(dx,dy,dz)`.
+    /// # Arguments
+    /// * `self`   this matrix
+    /// * `dx`     x translation
+    /// * `dy`     y translation
+    /// * `dz`     z translation
     pub fn translate(&self, dx: f32, dy: f32, dz: f32) -> Self {
         let a = &self.m;
         let mut m = a.clone();
@@ -132,15 +121,12 @@ impl Matrix {
         }
     }
 
-    /**
-     * Combines scaling `(sx,sy,sz)` with matrix `a` and stores resulting matrix in `result`
-     *
-     * @param a      the original matrix
-     * @param sx     x scaling factor
-     * @param sy     y  scaling factor
-     * @param sz     z  scaling factor
-     * @param result the buffer to store result
-     */
+    /// Combines scaling `(sx,sy,sz)` with this matrix.
+    /// # Arguments
+    /// * `self`   this matrix
+    /// * `sx`     x scaling factor
+    /// * `sy`     y  scaling factor
+    /// * `sz`     z  scaling factor
     pub fn scale(&self, sx: f32, sy: f32, sz: f32) -> Self {
         let a = &self.m;
         // r0
@@ -174,12 +160,7 @@ impl Matrix {
         }
     }
 
-    /**
-     * Transposes the matrix `a` and stores resulting matrix in `result`
-     *
-     * @param a      the matrix to transpose
-     * @param result the buffer to store result
-     */
+    /// Returns transposed matrix.
     pub fn transpose(&self) -> Self {
         let a = &self.m;
         let m0 = a[0];
@@ -211,14 +192,11 @@ impl Matrix {
         }
     }
 
-    /**
-     * Initializes `result` with rotation matrix from Euler's angles `ax, ay, az`.
-     *
-     * @param ax     the x-axis rotation angle (counter-clockwise)
-     * @param ay     the y-axis rotation angle (counter-clockwise)
-     * @param az     the z-axis rotation angle (counter-clockwise)
-     * @param result the buffer to store result
-     */
+    /// Returns rotation matrix derived from Euler's angles `ax, ay, az`.
+    /// # Arguments
+    /// * `ax` the x-axis rotation angle (counter-clockwise, in radians)
+    /// * `ay` the y-axis rotation angle (counter-clockwise, in radians)
+    /// * `az` the z-axis rotation angle (counter-clockwise, in radians)
     pub fn rotation(ax: f32, ay: f32, az: f32) -> Self {
         let a = ax.cos();
         let b = ax.sin();
@@ -245,47 +223,42 @@ impl Matrix {
         }
     }
 
-    /*
-     * For 2x2 matrix M determinant is A*D - B*C
-     * <pre>
-     *     | A B |
-     * M = |     |
-     *     | C D |
-     * </pre>
-     *
-     * So for our 4x4 matrix determinant `Det = A * Asubd - B * Bsubd + C * Csubd - D*Dsubd` where
-     * <pre>
-     *     0 4  8 12
-     *     1 5  9 13
-     * M   2 6 10 14
-     *     3 7 11 15
-     *
-     *       5  9 13
-     * Asub  6 10 14
-     *       7 11 15
-     *
-     *       1  9 13
-     * Bsub  2 10 14
-     *       3 11 15
-     *
-     *       1 5 13
-     * Csub  2 6 14
-     *       3 7 15
-     *
-     *       1 5 9
-     * Dsub  2 6 10
-     *       3 7 11
-     *
-     * Here each number is a matrix element index:
-     * Asubd = 5 * (10*15 - 11*14) - 9 * (6*15 - 7*14) + 13 * (6*11 - 7*10)
-     * Bsubd = 1 * (10*15 - 11*14) - 9 * (2*15 - 3*14) + 13 * (2*11 - 3*10)
-     * Csubd = 1 * (6*15 - 7*14) - 5 * (2*15 - 3*14) + 13 * (2*7 - 3*6)
-     * Dsubd = 1 * (6*11 - 7*10) - 5 * (2*11 - 3*10) + 9 * (2*7 - 3*6)
-    </pre> *
-     *
-     * @param a the matrix
-     * @return the determinant of a matrix
-     */
+    /// For 2x2 matrix M determinant is A*D - B*C
+    ///```text
+    ///     | A B |
+    /// M = |     |
+    ///     | C D |
+    ///```
+    /// So for our 4x4 matrix determinant `Det = A * Asubd - B * Bsubd + C * Csubd - D * Dsubd` where
+    ///```text
+    ///     0 4  8 12
+    ///     1 5  9 13
+    /// M   2 6 10 14
+    ///     3 7 11 15
+    ///
+    ///       5  9 13
+    /// Asub  6 10 14
+    ///       7 11 15
+    ///
+    ///       1  9 13
+    /// Bsub  2 10 14
+    ///       3 11 15
+    ///
+    ///       1 5 13
+    /// Csub  2 6 14
+    ///       3 7 15
+    ///
+    ///       1 5 9
+    /// Dsub  2 6 10
+    ///       3 7 11
+    ///```
+    /// Here each number is a matrix element index:
+    /// ```text
+    /// Asubd = 5 * (10*15 - 11*14) - 9 * (6*15 - 7*14) + 13 * (6*11 - 7*10)
+    /// Bsubd = 1 * (10*15 - 11*14) - 9 * (2*15 - 3*14) + 13 * (2*11 - 3*10)
+    /// Csubd = 1 * (6*15 - 7*14) - 5 * (2*15 - 3*14) + 13 * (2*7 - 3*6)
+    /// Dsubd = 1 * (6*11 - 7*10) - 5 * (2*11 - 3*10) + 9 * (2*7 - 3*6)
+    /// ```
     pub fn determinant(&self) -> f32 {
         let a = &self.m;
         let d6_11 = a[6] * a[11] - a[7] * a[10];
@@ -303,35 +276,30 @@ impl Matrix {
         return a[0] * Asubd - a[4] * Bsubd + a[8] * Csubd - a[12] * Dsubd;
     }
 
-    /**
-     * Calculate inverse matrix.
-     * See [Math.determinant] for details.
-     * <pre>
-     * 0 4  8 12     A B C D
-     * 1 5  9 13     E F G H
-     * M   2 6 10 14     I J K L
-     * 3 7 11 15     M N O P
-     *
-     * Asub 5  9 13   Bsub 1  9 13   Csub 1 5 13   Dsub 1 5  9
-     * 6 10 14        2 10 14        2 6 14        2 6 10
-     * 7 11 15        3 11 15        3 7 15        3 7 11
-     *
-     * Esub 4  8 12   Fsub 0  8 12   Gsub 0 4 12   Hsub 0 4  8
-     * 6 10 14        2 10 14        2 6 14        2 6 10
-     * 7 11 15        3 11 15        3 7 15        3 7 11
-     *
-     * Isub 4  8 12   Jsub 0  8 12   Ksub 0 4 12   Lsub 0 4  8
-     * 5  9 13        1  9 13        1 5 13        1 5  9
-     * 7 11 15        3 11 15        3 7 15        3 7 11
-     *
-     * Msub 4  8 12   Nsub 0  8 12   Osub 0 4 12   Psub 0 4  8
-     * 5  9 13        1  9 13        1 5 13        1 5  9
-     * 6 10 14        2 10 14        2 6 14        2 6 10
-    </pre> *
-     *
-     * @param a      the original matrix
-     * @param result the inverse matrix
-     */
+    /// Calculate inverse matrix.
+    /// See [Math.determinant] for details.
+    ///```text
+    /// 0 4  8 12     A B C D
+    /// 1 5  9 13     E F G H
+    /// 2 6 10 14     I J K L
+    /// 3 7 11 15     M N O P
+    ///
+    /// Asub 5  9 13   Bsub 1  9 13   Csub 1 5 13   Dsub 1 5  9
+    ///      6 10 14        2 10 14        2 6 14        2 6 10
+    ///      7 11 15        3 11 15        3 7 15        3 7 11
+    ///
+    /// Esub 4  8 12   Fsub 0  8 12   Gsub 0 4 12   Hsub 0 4  8
+    ///      6 10 14        2 10 14        2 6 14        2 6 10
+    ///      7 11 15        3 11 15        3 7 15        3 7 11
+    ///
+    /// Isub 4  8 12   Jsub 0  8 12   Ksub 0 4 12   Lsub 0 4  8
+    ///      5  9 13        1  9 13        1 5 13        1 5  9
+    ///      7 11 15        3 11 15        3 7 15        3 7 11
+    ///
+    /// Msub 4  8 12   Nsub 0  8 12   Osub 0 4 12   Psub 0 4  8
+    ///      5  9 13        1  9 13        1 5 13        1 5  9
+    ///      6 10 14        2 10 14        2 6 14        2 6 10
+    ///```
     pub fn inverse(&self) -> Self {
         let a = &self.m;
         let d6_11 = a[6] * a[11] - a[7] * a[10];
@@ -398,15 +366,13 @@ impl Matrix {
         trans
     }
 
-    /**
-     * Creates viewing matrix derived from the `eye` point, a reference point `target` indicating the center of the scene and vector `up`
-     * Helpful tip: it's better to think of this as a coordinate system rotation.
-     *
-     * @param target the target point in the scene
-     * @param eye    the eye point
-     * @param up     the upward vector, must not be parallel to the direction vector `dir = target - eye`
-     * @param m      the buffer to store resulting matrix in.
-     */
+
+    /// Creates viewing matrix derived from the `eye` point, a reference point `target` indicating the center of the scene and vector `up`
+    /// Helpful tip: it's better to think of this as a coordinate system rotation.
+    /// # Arguments
+    /// * `target` the target point in the scene
+    /// * `eye`    the eye point
+    /// * `up`     the upward vector, must not be parallel to the direction vector `dir = target - eye`
     pub fn look_at(target: Vector3f, eye: Vector3f, up: Vector3f) -> Self {
         let z_axis = (eye - target).normalize();
         let x_axis = up.cross(z_axis).normalize();
@@ -435,13 +401,10 @@ impl Matrix {
     }
 }
 
-/**
- * Multiplies this matrix by vector `v` and stores result in vector `r`. This is a right multiplication
- *
- * @param a the matrix
- * @param v the vector
- * @param r the result
- */
+/// Multiplies this matrix by vector `v` and stores result in vector `r`. This is a right multiplication
+/// # Arguments
+/// * `self` this matrix
+/// * `v` the vector
 impl Mul<Vector3f> for Matrix {
     type Output = Vector3f;
 
@@ -451,6 +414,24 @@ impl Mul<Vector3f> for Matrix {
             x: a[0] * v.x + a[4] * v.y + a[8] * v.z + a[12],
             y: a[1] * v.x + a[5] * v.y + a[9] * v.z + a[13],
             z: a[2] * v.x + a[6] * v.y + a[10] * v.z + a[14],
+        }
+    }
+}
+
+impl Mul<Vector4f> for Matrix {
+    type Output = Vector4f;
+
+    /// Multiplies this matrix by vector `v`. This is a right multiplication
+    /// # Arguments
+    /// * `self` this matrix
+    /// * `v`    the vector
+    fn mul(self, rhs: Vector4f) -> Self::Output {
+        let a = &self.m;
+        Vector4f {
+            x: a[0] * rhs.x + a[4] * rhs.y + a[8] * rhs.z + a[12] * rhs.w,
+            y: a[1] * rhs.x + a[5] * rhs.y + a[9] * rhs.z + a[13] * rhs.w,
+            z: a[2] * rhs.x + a[6] * rhs.y + a[10] * rhs.z + a[14] * rhs.w,
+            w: a[3] * rhs.x + a[7] * rhs.y + a[11] * rhs.z + a[15] * rhs.w,
         }
     }
 }
@@ -486,13 +467,11 @@ impl Mul<f32> for Matrix {
 impl Mul<Matrix> for Matrix {
     type Output = Matrix;
 
-    /**
-     * Each row of first matrix is multiplied by the column of second (component-wise) and sum of results is stored in `result`'s cell.
-     *
-     * @param a      the first matrix
-     * @param b      the second matrix
-     * @param result the matrix to store result in
-     */
+
+     /// Each row of this matrix is multiplied by the column of second (component-wise) and sum of results is stored in result's cell.
+     /// # Arguments
+     /// * `self` the first matrix
+     /// * `rhs`  the second matrix
     fn mul(self, rhs: Matrix) -> Self::Output {
         let a = &self.m;
         let b = &rhs.m;
@@ -532,13 +511,9 @@ impl Mul<Matrix> for Matrix {
 impl Add for Matrix {
     type Output = Matrix;
 
-    /**
-     * Adds one matrix to another.
-     *
-     * @param a      the first matrix
-     * @param b      the second matrix
-     * @param result the resulting matrix buffer
-     */
+     /// Adds one matrix to another.
+     /// * `self` the first matrix
+     /// * `rhs`  the second matrix
     fn add(self, rhs: Self) -> Self::Output {
         let a = &self.m;
         let b = &rhs.m;
@@ -576,6 +551,9 @@ impl Add for Matrix {
 #[cfg(test)]
 mod test {
     use approx::relative_eq;
+
+    use crate::vec4f::Vector4f;
+
     use super::*;
 
     fn assert_v(expected: Vector3f, actual: Vector3f) {
@@ -584,14 +562,25 @@ mod test {
         relative_eq!(expected.z, actual.z);
     }
 
+    fn assert_v4(expected: Vector4f, actual: Vector4f) {
+        relative_eq!(expected.x, actual.x);
+        relative_eq!(expected.y, actual.y);
+        relative_eq!(expected.z, actual.z);
+        relative_eq!(expected.w, actual.w);
+    }
+
     fn assert_m(a: Matrix, b: Matrix) {
         for i in 0..=15 {
             relative_eq!(a.m[i], b.m[i]);
         }
     }
 
-    fn v(x: f32, y: f32, z: f32) -> Vector3f {
+    fn v3(x: f32, y: f32, z: f32) -> Vector3f {
         Vector3f::new(x, y, z)
+    }
+
+    fn v4(x: f32, y: f32, z: f32, w: f32) -> Vector4f {
+        Vector4f::new(x, y, z, w)
     }
 
     #[test]
@@ -613,14 +602,14 @@ mod test {
         }
 
         let args = [
-            (v(1., 2., 3.), v(0., 0., 0.), v(1., 2., 3.)),
-            (v(1., 2., 3.), v(1., 0., 0.), v(2., 2., 3.)),
-            (v(1., 2., 3.), v(0., 1., 0.), v(1., 3., 3.)),
-            (v(1., 2., 3.), v(0., 0., 1.), v(1., 2., 4.)),
-            (v(1., 2., 3.), v(-1., 0., 0.), v(0., 2., 3.)),
-            (v(1., 2., 3.), v(0., -1., 0.), v(1., 1., 3.)),
-            (v(1., 2., 3.), v(0., 0., -1.), v(1., 2., 2.)),
-            (v(1., 2., 3.), v(1., 1., 1.), v(2., 3., 4.))
+            (v3(1., 2., 3.), v3(0., 0., 0.), v3(1., 2., 3.)),
+            (v3(1., 2., 3.), v3(1., 0., 0.), v3(2., 2., 3.)),
+            (v3(1., 2., 3.), v3(0., 1., 0.), v3(1., 3., 3.)),
+            (v3(1., 2., 3.), v3(0., 0., 1.), v3(1., 2., 4.)),
+            (v3(1., 2., 3.), v3(-1., 0., 0.), v3(0., 2., 3.)),
+            (v3(1., 2., 3.), v3(0., -1., 0.), v3(1., 1., 3.)),
+            (v3(1., 2., 3.), v3(0., 0., -1.), v3(1., 2., 2.)),
+            (v3(1., 2., 3.), v3(1., 1., 1.), v3(2., 3., 4.))
         ];
         for arg in args {
             let (v, t, exp) = arg;
@@ -644,8 +633,8 @@ mod test {
     fn translate_existing() {
         let r = Matrix::rotation(0., 0., 45.0f32.to_radians())
             .translate(1., 2., 3.);
-        let r = r * v(4., 5., 6.);
-        assert_eq!(r, v(-1.4142137, 8.485281, 9.));
+        let r = r * v3(4., 5., 6.);
+        assert_eq!(r, v3(-1.4142137, 8.485281, 9.));
     }
 
     #[test]
@@ -737,9 +726,9 @@ mod test {
                 0., 0., 0., 1.
             ]
         };
-        let vec = v(1., 2., 3.);
+        let vec = v3(1., 2., 3.);
         let r = m * vec;
-        assert_eq!(r, v(14., 32., 50.));
+        assert_eq!(r, v3(14., 32., 50.));
     }
 
     #[test]
@@ -783,12 +772,12 @@ mod test {
             assert_v(m * v, expected);
         }
         let args = [
-            (90.0, 0.0, 0.0, v(0., 1., 0.), v(0., 0., 1.)),
-            (0.0, 90.0, 0.0, v(1., 0., 0.), v(0., 0., -1.)),
-            (0.0, 0.0, 90.0, v(1., 0., 0.), v(0., 1., 0.)),
-            (45.0, 0.0, 0.0, v(0., 1., 0.), v(0., 0.707, 0.707)),
-            (0.0, 45.0, 0.0, v(1., 0., 0.), v(0.707, 0., -0.707)),
-            (0.0, 0.0, 45.0, v(1., 0., 0.), v(0.707, 0.707, 0.))
+            (90.0, 0.0, 0.0, v3(0., 1., 0.), v3(0., 0., 1.)),
+            (0.0, 90.0, 0.0, v3(1., 0., 0.), v3(0., 0., -1.)),
+            (0.0, 0.0, 90.0, v3(1., 0., 0.), v3(0., 1., 0.)),
+            (45.0, 0.0, 0.0, v3(0., 1., 0.), v3(0., 0.707, 0.707)),
+            (0.0, 45.0, 0.0, v3(1., 0., 0.), v3(0.707, 0., -0.707)),
+            (0.0, 0.0, 45.0, v3(1., 0., 0.), v3(0.707, 0.707, 0.))
         ];
         for n in args {
             rotate(n.0, n.1, n.2, n.3, n.4);
@@ -840,13 +829,104 @@ mod test {
     #[test]
     fn orthographic() {
         let m = Matrix::orthographic(0., 100., 200., 0., -1., 1.);
-        let mut vec = v(0., 0., 0.);
-        assert_v(v(-1., -1., 0.), m * vec);
+        let mut vec = v3(0., 0., 0.);
+        assert_v(v3(-1., -1., 0.), m * vec);
 
         vec.set(50., 100., 0.);
-        assert_v(v(0., 0., 0.), m * vec);
+        assert_v(v3(0., 0., 0.), m * vec);
 
         vec.set(100., 200., 0.);
-        assert_v(v(1., 1., 0.), m * vec);
+        assert_v(v3(1., 1., 0.), m * vec);
+    }
+
+    #[test]
+    fn look_at() {
+        fn look_at(origin: Vector3f, eye: Vector3f, up: Vector3f, ax: Vector3f, ay: Vector3f, az: Vector3f) {
+            let m = Matrix::look_at(origin, eye, up);
+            let v1 = v3(1., 0., 0.);
+            let v2 = v3(0., 1., 0.);
+            let v3 = v3(0., 0., 1.);
+            assert_v(ax, m * v1);
+            assert_v(ay, m * v2);
+            assert_v(az, m * v3);
+        }
+        let args = [
+            (
+                v3(1., 0., 0.),
+                v3(0., 0., 0.),
+                v3(0., 0., 1.),
+                v3(0., 0., -1.),
+                v3(-1., 0., 0.),
+                v3(0., 1., 0.)
+            ),
+            (
+                v3(1., 1., 0.),
+                v3(0., 0., 0.),
+                v3(0., 0., 1.),
+                v3(0.707, 0., -0.707),
+                v3(-0.707, 0., -0.707),
+                v3(0., 1., 0.)
+            ),
+            (
+                v3(0., 1., 0.),
+                v3(0., 0., 0.),
+                v3(0., 0., 1.),
+                v3(1., 0., 0.),
+                v3(0., 0., -1.),
+                v3(0., 1., 0.)
+            ),
+            (
+                v3(0., 0., 1.),
+                v3(0., 0., 0.),
+                v3(-1., 0., 0.),
+                v3(0., -1., 0.),
+                v3(-1., 0., 0.),
+                v3(0., 0., -1.)
+            ),
+            (
+                v3(0., 0., 0.),
+                v3(-1., 0., 0.),
+                v3(0., 0., 1.),
+                v3(0., 0., -2.),
+                v3(-1., 0., -1.),
+                v3(0., 1., -1.)
+            ),
+            (
+                v3(0., 0., 0.),
+                v3(-1., -1., 0.),
+                v3(0., 0., 1.),
+                v3(0.707, 0., -2.121),
+                v3(-0.707, 0., -2.121),
+                v3(0., 1., -1.414)
+            ),
+            (
+                v3(0., 0., 0.),
+                v3(0., -1., 0.),
+                v3(0., 0., 1.),
+                v3(1., 0., -1.),
+                v3(0., 0., -2.),
+                v3(0., 1., -1.)
+            )
+        ];
+        for n in args {
+            look_at(n.0, n.1, n.2, n.3, n.4, n.5);
+        }
+    }
+
+    #[test]
+    fn perspective() {
+        fn perspective(v: Vector4f, expected: Vector4f) {
+            let m = Matrix::perspective(-1., 1., 1., -1., 1., 10.);
+            assert_v4(expected, m * v);
+        }
+        let args = [
+            (v4(0., 0., 0., 1.), v4(0., 0., -2.222, 0.)),
+            (v4(0., 0., 1., 1.), v4(0., 0., -3.444, -1.)),
+            (v4(0., 0., 5., 1.), v4(0., 0., -8.333, -5.)),
+            (v4(0., 0., 10., 1.), v4(0., 0., -14.444, -10.)),
+            (v4(0., 0., 15., 1.), v4(0., 0., -20.555, -15.)),
+            (v4(1., 1., 1., 1.), v4(1., 1., -3.444, -1.)),
+            (v4(1., 1., 2., 1.), v4(1., 1., -4.666, -2.))
+        ];
     }
 }
