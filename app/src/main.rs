@@ -16,6 +16,7 @@ mod app_logger;
 fn main() {
     let logger_buf = app_logger::init().unwrap();
     //log4rs::init_file("config/log4rs.yaml", Default::default()).unwrap();
+    info!("Begin initialization...");
 
     let args = Arguments::parse();
 

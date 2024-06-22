@@ -1,4 +1,5 @@
-use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
+use std::fmt::Write;
+use std::sync::{Arc, RwLock};
 
 use anyhow::Error;
 use log::{LevelFilter, Record};
@@ -7,16 +8,16 @@ use log4rs::append::console::ConsoleAppender;
 use log4rs::append::file::FileAppender;
 use log4rs::Config;
 use log4rs::config::{Appender, Root};
-use log4rs::encode::{Encode, Write};
+use log4rs::encode::Encode;
 use log4rs::encode::pattern::PatternEncoder;
 
 #[derive(Debug)]
 pub(crate) struct AppLogger {
-    tx: Sender<String>,
+    buffer: Arc<RwLock<String>>,
 }
 
 pub(crate) struct AppLoggerBuffer {
-    rx: Receiver<String>,
+    buffer: Arc<RwLock<String>>,
 }
 
 pub(crate) fn init() -> Result<AppLoggerBuffer, Error> {
@@ -24,9 +25,9 @@ pub(crate) fn init() -> Result<AppLoggerBuffer, Error> {
     let file = FileAppender::builder()
         .encoder(Box::new(PatternEncoder::new("{d} - {m}{n}")))
         .build("app.log")?;
-    let (tx, rx) = channel();
+    let buf = Arc::new(RwLock::new(String::new()));
     let logger = AppLogger {
-        tx
+        buffer: buf.clone()
     };
     let config = Config::builder()
         .appender(Appender::builder().build("stdout", Box::new(stdout)))
@@ -36,12 +37,15 @@ pub(crate) fn init() -> Result<AppLoggerBuffer, Error> {
         .build(Root::builder().appender("stdout").appender("app").appender("file").build(LevelFilter::Info))?;
 
     let handle = log4rs::init_config(config)?;
-    Ok(AppLoggerBuffer { rx })
+    Ok(AppLoggerBuffer {
+        buffer: buf
+    })
 }
 
 impl Append for AppLogger {
     fn append(&self, record: &Record) -> anyhow::Result<()> {
-        self.tx.send(format!("{} - {}", record.level(), record.args())).map_err(anyhow::Error::from)
+        let mut guard = self.buffer.write().unwrap();
+        write!(guard, "{} - {}", record.level(), record.args()).map_err(anyhow::Error::from)
     }
 
     fn flush(&self) {}
@@ -49,22 +53,8 @@ impl Append for AppLogger {
 
 impl AppLoggerBuffer {
     pub(crate) fn update(&self) {
-        loop {
-            match self.rx.try_recv() {
-                Ok(record) => println!("Got record: {:?}", record),
-                Err(e) => {
-                    match e {
-                        TryRecvError::Empty => {
-                            break;
-                        }
-                        TryRecvError::Disconnected => {
-                            println!("Error: {:?}", e);
-                            break;
-
-                        }
-                    }
-                }
-            }
-        }
+        let mut guard = self.buffer.write().unwrap();
+        println!("Got record: {}", guard.as_str());
+        guard.clear();
     }
 }
