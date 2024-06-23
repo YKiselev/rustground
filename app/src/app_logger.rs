@@ -54,7 +54,9 @@ impl Append for AppLogger {
 impl AppLoggerBuffer {
     pub(crate) fn update(&self) {
         let mut guard = self.buffer.write().unwrap();
-        println!("Got record: {}", guard.as_str());
-        guard.clear();
+        if !guard.is_empty() {
+            println!("Got record: {}", guard.as_str());
+            guard.clear();
+        }
     }
 }

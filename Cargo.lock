@@ -32,6 +32,8 @@ dependencies = [
  "log",
  "log4rs",
  "math",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
