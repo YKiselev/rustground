@@ -5,7 +5,7 @@ use log::{error, info};
 
 use core::arguments::Arguments;
 
-use crate::net::Message;
+use crate::net::{Connect, Message};
 
 pub(crate) struct Client {
     socket: UdpSocket,
@@ -19,7 +19,7 @@ impl Client {
         match self.socket.recv_from(&mut self.buffer) {
             Ok((amount, addr)) => {
                 info!("Handling server message from {addr:?}");
-                let msg: Message = serde_json::from_slice(&self.buffer[..amount])
+                let msg: Message = rmp_serde::from_slice(&self.buffer[..amount])
                     .expect("Unable to deserialize server message!");
                 match msg {
                     Message::Accepted => {
@@ -39,10 +39,10 @@ impl Client {
             }
         }
         if (!self.connected) {
-            let to_send = serde_json::to_vec(&Message::Connect {
+            let to_send = rmp_serde::to_vec(&Message::Connect(Connect {
                 name: String::from("Test"),
                 password: String::from("123456"),
-            }).expect("Unable to serialize!");
+            })).expect("Unable to serialize!");
             match self.socket.send_to(&to_send, &self.server_addr) {
                 Ok(n) => {
                     info!("Sent {n} bytes to server!");
