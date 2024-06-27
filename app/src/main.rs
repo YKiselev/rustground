@@ -22,24 +22,6 @@ mod app_logger;
 mod net;
 mod config;
 
-fn test_serde() {
-    let mut buf: Vec<u8> = Vec::new();
-    let mut ser1 = rmp_serde::Serializer::new(&mut buf);
-    Message::Connect(ConnectData { name: "Alice".to_string(), password: "12345".to_string() }).serialize(&mut ser1).expect("aaa!!!");
-    Message::Accepted.serialize(&mut ser1).expect("bbb!!!");
-    Message::Connect(ConnectData { name: "Bob".to_string(), password: "12345".to_string() }).serialize(&mut ser1).expect("ccc!!!");
-    info!("Buf size: {}", buf.len());
-//let r = rmp_serde::from_slice(&[1,1,1,1,1,1]).expect("aaaaaaaaaaa");
-    let des = rmp_serde::Deserializer::new(buf.as_slice());
-    let mut des = rmp_serde::Deserializer::from_read_ref(buf.as_slice());
-    let m1 = Message::deserialize(&mut des).expect("a!");
-    info!("m1={m1:?}");
-    let m2 = Message::deserialize(&mut des).expect("b!");
-    info!("m2={m2:?}");
-    let m3 = Message::deserialize(&mut des).expect("c!");
-    info!("m3={m3:?}");
-}
-
 fn main() -> anyhow::Result<()> {
     let logger_buf = app_logger::init().unwrap();
     info!("Begin initialization...");

@@ -4,9 +4,11 @@ use std::fs::File;
 use std::io::Error;
 use std::path::{Path, PathBuf};
 
-use log::{debug, info, warn};
+use log::{debug, error, info, warn};
 
 use crate::arguments::Arguments;
+
+trait Files22 {}
 
 struct FileRoot {
     readonly: bool,
@@ -55,18 +57,17 @@ pub struct Files {
 
 impl Files {
     pub fn new(args: &Arguments) -> Self {
-        let current_dir = if let Ok(dir) = env::current_dir() {
-            dir
-        } else {
-            PathBuf::from(".")
-        };
-        let base_resources = current_dir.join("base/resources");
-        let base = current_dir.join("base");
-        let mut folders = vec![base_resources, base];
+        let current_dir = env::current_dir().unwrap_or(PathBuf::from("."));
+        let mut folders: Vec<PathBuf> = Vec::new();
         if let Some(home) = dirs::home_dir() {
-            folders.push(home);
+            let app_home = home.join(".rustground");
+            if let Err(e) = fs::create_dir_all(&app_home) {
+                error!("Unable to create app home: {:?}: {:?}", &app_home, e);
+            }
+            folders.push(app_home);
         }
-        folders.reverse();
+        folders.push(current_dir.join("base"));
+        folders.push(current_dir.join("base/resources"));
         let roots = folders.iter().map(|path| {
             let r = FileRoot::try_new(path);
             if r.is_err() {

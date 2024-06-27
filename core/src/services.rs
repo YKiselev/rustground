@@ -2,7 +2,7 @@ use crate::arguments::Arguments;
 use crate::files::Files;
 
 pub struct Services {
-    //files: &'a Files,
+    //files: &'a mut Files,
     //console: Console,
 }
 

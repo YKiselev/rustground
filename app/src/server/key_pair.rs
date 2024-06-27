@@ -6,22 +6,26 @@ use rsa::pkcs8::EncodePublicKey;
 pub(crate) struct KeyPair {
     private_key: RsaPrivateKey,
     public_key: RsaPublicKey,
+    public_pem: String,
 }
 
 impl KeyPair {
     pub(crate) fn new(bits: usize) -> anyhow::Result<Self> {
         let private_key = RsaPrivateKey::new(&mut rand::thread_rng(), bits)?;
         let public_key = RsaPublicKey::from(&private_key);
+        let public_pem = public_key.to_public_key_pem(LineEnding::LF)
+            .map_err(|e| anyhow::Error::from(e))?;
         Ok(
             KeyPair {
                 private_key,
                 public_key,
+                public_pem,
             }
         )
     }
 
     pub(crate) fn public_key_as_pem(&self) -> anyhow::Result<String> {
-        self.public_key.to_public_key_pem(LineEnding::LF).map_err(|e| anyhow::Error::from(e))
+        Ok(self.public_pem.clone())
     }
 
     pub(crate) fn encode(&self, data: &[u8]) -> anyhow::Result<Vec<u8>> {
