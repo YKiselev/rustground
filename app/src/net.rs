@@ -2,7 +2,7 @@ use std::cmp::min;
 use std::fmt::Debug;
 use std::io::Error;
 use std::io::ErrorKind::WouldBlock;
-use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
+use std::net::{Ipv4Addr, SocketAddr, ToSocketAddrs, UdpSocket};
 
 use rmp_serde::Serializer;
 use serde::{Deserialize, Serialize};
@@ -20,7 +20,7 @@ pub struct ConnectData {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerInfoData {
-    pub key: String
+    pub key: String,
 }
 
 
@@ -42,13 +42,16 @@ pub struct Endpoint {
 }
 
 impl Endpoint {
-    pub fn new() -> anyhow::Result<Self> {
-        let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0))?;
+    pub fn with_address<A: ToSocketAddrs>(addr: A) -> anyhow::Result<Self> {
+        let socket = UdpSocket::bind(addr)?;
         socket.set_nonblocking(true)?;
         Ok(Endpoint {
             socket,
             send_buf: Vec::with_capacity(MAX_DATAGRAM_SIZE),
         })
+    }
+    pub fn new() -> anyhow::Result<Self> {
+        Self::with_address((Ipv4Addr::UNSPECIFIED, 0))
     }
 
     pub fn try_clone(&self) -> anyhow::Result<Self> {

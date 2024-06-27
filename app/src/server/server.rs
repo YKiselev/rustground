@@ -2,7 +2,7 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::io;
 use std::io::ErrorKind::UnexpectedEof;
-use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
+use std::net::{Ipv4Addr, SocketAddr, ToSocketAddrs, UdpSocket};
 use std::ops::Deref;
 use std::time::Instant;
 
@@ -15,6 +15,7 @@ use serde::Deserialize;
 
 use core::arguments::Arguments;
 
+use crate::config::{Config, ServerConfig};
 use crate::net::{ConnectData, Endpoint, MAX_DATAGRAM_SIZE, Message, ServerInfoData};
 use crate::server::key_pair::KeyPair;
 use crate::server::sv_client::Client;
@@ -37,10 +38,11 @@ impl Server {
         self.endpoint.socket().local_addr()
     }
 
-    pub fn new(args: &Arguments) -> Self {
+    pub fn new(cfg: &ServerConfig) -> Self {
         info!("Starting server...");
-        let endpoint = Endpoint::new().expect("Unable to create server endpoint!");
-        let keys = KeyPair::new(256).expect("Unable to create server key!");
+        let addr: SocketAddr = cfg.address.parse().expect("Invalid address!");
+        let endpoint = Endpoint::with_address(addr).expect("Unable to create server endpoint!");
+        let keys = KeyPair::new(cfg.key_bits).expect("Unable to create server key!");
         Server {
             endpoint,
             clients: HashMap::new(),
@@ -79,7 +81,7 @@ impl Server {
                 self.on_connect(key, conn, addr)
             }
             Message::Hello => {
-                self.endpoint.send_to(&Message::ServerInfo(ServerInfoData{ key : self.keys.public_key_as_pem().unwrap()}), &addr)?;
+                self.endpoint.send_to(&Message::ServerInfo(ServerInfoData { key: self.keys.public_key_as_pem().unwrap() }), &addr)?;
                 Ok(())
             }
             other => {

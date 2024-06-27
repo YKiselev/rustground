@@ -44,7 +44,7 @@ impl Client {
                     }
                     Message::ServerInfo(data) => {
                         self.server_key = Some(RsaPublicKey::from_public_key_pem(&data.key).expect("Unable to import server's key!"));
-                        info!("Got server's public key: {}", data.key);
+                        info!("Got server's public key!");
                     }
                     m => {
                         info!("Unsupported message from server: {m:?}");

@@ -2,7 +2,7 @@ use std::io::Read;
 use std::process::exit;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use log::{error, info, LevelFilter};
 use serde::{Deserialize, Serialize};
@@ -38,7 +38,7 @@ fn main() -> anyhow::Result<()> {
     //let services = Services::new(&args);
 
     // server
-    let mut server = Server::new(&args);
+    let mut server = Server::new(&cfg.server);
 
     // debug
     let server_addr = server.local_address().expect("Unable to get server address");
@@ -54,8 +54,21 @@ fn main() -> anyhow::Result<()> {
     info!("Entering main loop...");
     let exit_flag = AtomicBool::new(false);
     let mut i = 0;
+    let mut time = Instant::now();
+    let mut lag = 0u128;
+    const NANOS_PER_UPDATE: u128 = 20_000_000;
     while !exit_flag.load(Ordering::Acquire) {
-        server.update()?;
+        let delta = time.elapsed().as_nanos();
+        time = Instant::now();
+        lag += delta;
+        info!("lag={lag} ns., delta={delta} ns.");
+        let mut m = 0;
+        while lag >= NANOS_PER_UPDATE {
+            server.update()?;
+            lag -= NANOS_PER_UPDATE;
+            m+=1;
+        }
+        info!("Updated {m} times to eliminate lag.");
         if let Some(ref mut client) = client.as_mut() {
             client.update();
         }
