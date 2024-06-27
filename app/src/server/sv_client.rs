@@ -42,7 +42,7 @@ impl Client {
 
     pub(crate) fn process_message(&mut self, msg: Message) -> anyhow::Result<()> {
         self.touch();
-        info!("Got from client {msg:?}");
+        info!("Got from connected client: {msg:?}");
         Ok(())
     }
 
@@ -50,7 +50,7 @@ impl Client {
         self.clear_buffers();
         loop {
             let mut buf = Vec::with_capacity(MAX_DATAGRAM_SIZE);
-            //buf.resize(MAX_DATAGRAM_SIZE, 0);
+            buf.resize(MAX_DATAGRAM_SIZE, 0);
             if let Some((amount, addr)) = self.endpoint.receive(&mut buf)? {
                 buf.truncate(amount);
                 self.last_seen = Instant::now();

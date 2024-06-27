@@ -31,7 +31,8 @@ pub enum Message {
     Connect(ConnectData),
     Accepted,
     Hello,
-    ServerInfo(ServerInfoData)
+    ServerInfo(ServerInfoData),
+    KeepAlive,
 }
 
 #[derive(Debug)]
@@ -120,10 +121,11 @@ impl Endpoint {
                 return Err(e);
             }
         }
+        let amount = buf.len() - before;
         if buf.len() >= MAX_DATAGRAM_SIZE {
             self.flush()?;
         }
-        Ok(0)
+        Ok(amount)
     }
 
     pub fn receive(&self, buf: &mut [u8]) -> anyhow::Result<Option<(usize, SocketAddr)>> {
