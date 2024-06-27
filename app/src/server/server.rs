@@ -15,7 +15,8 @@ use serde::Deserialize;
 
 use core::arguments::Arguments;
 
-use crate::net::{ConnectData, Endpoint, MAX_DATAGRAM_SIZE, Message};
+use crate::net::{ConnectData, Endpoint, MAX_DATAGRAM_SIZE, Message, ServerInfoData};
+use crate::server::key_pair::KeyPair;
 use crate::server::sv_client::Client;
 
 #[derive(Debug, Eq, PartialEq, Hash)]
@@ -24,6 +25,7 @@ struct ClientId(SocketAddr);
 pub(crate) struct Server {
     endpoint: Endpoint,
     clients: HashMap<ClientId, Client>,
+    keys: KeyPair,
 }
 
 impl Server {
@@ -38,9 +40,11 @@ impl Server {
     pub fn new(args: &Arguments) -> Self {
         info!("Starting server...");
         let endpoint = Endpoint::new().expect("Unable to create server endpoint!");
+        let keys = KeyPair::new(256).expect("Unable to create server key!");
         Server {
             endpoint,
             clients: HashMap::new(),
+            keys,
         }
     }
 
@@ -74,6 +78,10 @@ impl Server {
             Message::Connect(ref conn) => {
                 self.on_connect(key, conn, addr)
             }
+            Message::Hello => {
+                self.endpoint.send_to(&Message::ServerInfo(ServerInfoData{ key : self.keys.public_key_as_pem().unwrap()}), &addr)?;
+                Ok(())
+            }
             other => {
                 self.pass_to_client(key, other)
             }
@@ -86,9 +94,10 @@ impl Server {
         for (_, c) in &mut self.clients {
             c.update()?;
         }
-        if let Some((res_buf, addr)) = self.endpoint.receive(buf)? {
-            info!("Got {:?} bytes from {:?}", res_buf.len(), addr);
-            let mut des = Deserializer::from_read_ref(&res_buf);
+        if let Some((amount, addr)) = self.endpoint.receive(&mut buf)? {
+            buf.truncate(amount);
+            info!("Got {:?} bytes from {:?}", amount, addr);
+            let mut des = Deserializer::from_read_ref(&buf);
             loop {
                 match Message::deserialize(&mut des) {
                     Ok(msg) => {

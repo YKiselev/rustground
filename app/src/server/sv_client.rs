@@ -49,11 +49,13 @@ impl Client {
     pub(crate) fn update(&mut self) -> anyhow::Result<()> {
         self.clear_buffers();
         loop {
-            let buf = Vec::with_capacity(MAX_DATAGRAM_SIZE);
-            if let Some((res_buf, addr)) = self.endpoint.receive(buf)? {
+            let mut buf = Vec::with_capacity(MAX_DATAGRAM_SIZE);
+            //buf.resize(MAX_DATAGRAM_SIZE, 0);
+            if let Some((amount, addr)) = self.endpoint.receive(&mut buf)? {
+                buf.truncate(amount);
                 self.last_seen = Instant::now();
-                info!("Got {:?} bytes from {:?}", res_buf.len(), addr);
-                let mut des = Deserializer::from_read_ref(&res_buf);
+                info!("Got {:?} bytes from {:?}", amount, addr);
+                let mut des = Deserializer::from_read_ref(&buf);
                 loop {
                     match Message::deserialize(&mut des) {
                         Ok(msg) => {

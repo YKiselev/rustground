@@ -2,6 +2,8 @@ use std::io;
 use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
 
 use log::{error, info};
+use rsa::pkcs8::DecodePublicKey;
+use rsa::RsaPublicKey;
 
 use core::arguments::Arguments;
 
@@ -12,13 +14,14 @@ pub(crate) struct Client {
     buffer: [u8; 512],
     server_addr: SocketAddr,
     connected: bool,
+    server_key: Option<RsaPublicKey>,
 }
 
 impl Client {
     pub(crate) fn update(&mut self) {
         match self.socket.recv_from(&mut self.buffer) {
             Ok((amount, addr)) => {
-                info!("Handling server message from {addr:?}");
+                info!("Handling server message ({amount} bytes) from {addr:?}");
                 let msg: Message = rmp_serde::from_slice(&self.buffer[..amount])
                     .expect("Unable to deserialize server message!");
                 match msg {
@@ -26,11 +29,14 @@ impl Client {
                         self.connected = true;
                         info!("Connected to server!");
                     }
+                    Message::ServerInfo(data) => {
+                        self.server_key = Some(RsaPublicKey::from_public_key_pem(&data.key).expect("Unable to import server's key!"));
+                        info!("Got server's public key: {}", data.key);
+                    }
                     m => {
                         info!("Unsupported message from server: {m:?}");
                     }
                 }
-                //self.socket.send_to(&self.buffer, &addr).expect("Unable to send data back!");
             }
             Err(ref e) => if e.kind() == io::ErrorKind::WouldBlock {
                 // no-op
@@ -38,7 +44,17 @@ impl Client {
                 info!("Failed to receive from server: {e:?}");
             }
         }
-        if !self.connected {
+        if !self.server_key.is_some() {
+            let to_send = rmp_serde::to_vec(&Message::Hello).expect("Unable to serialize!");
+            match self.socket.send_to(&to_send, &self.server_addr) {
+                Ok(n) => {
+                    info!("Sent {n} bytes to server!");
+                }
+                Err(ref e) => {
+                    error!("Failed to send data to the server: {e:?}");
+                }
+            }
+        } else if !self.connected {
             let to_send = rmp_serde::to_vec(&Message::Connect(ConnectData {
                 name: String::from("Test"),
                 password: String::from("123456"),
@@ -68,6 +84,7 @@ impl Client {
             buffer: [0; 512],
             server_addr,
             connected: false,
+            server_key: None,
         }
     }
 }

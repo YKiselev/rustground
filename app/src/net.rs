@@ -19,11 +19,19 @@ pub struct ConnectData {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServerInfoData {
+    pub key: String
+}
+
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "id")]
 pub enum Message {
     Ack(AckData),
     Connect(ConnectData),
     Accepted,
+    Hello,
+    ServerInfo(ServerInfoData)
 }
 
 #[derive(Debug)]
@@ -79,7 +87,6 @@ impl Endpoint {
                 }
                 Err(e) => {
                     if e.kind() == WouldBlock {
-                        // todo?
                         std::thread::yield_now();
                     } else {
                         return Err(anyhow::Error::from(e));
@@ -119,12 +126,11 @@ impl Endpoint {
         Ok(0)
     }
 
-    pub fn receive(&self, mut buf: Vec<u8>) -> anyhow::Result<Option<(Vec<u8>, SocketAddr)>> {
-        match self.socket.recv_from(&mut buf) {
+    pub fn receive(&self, buf: &mut [u8]) -> anyhow::Result<Option<(usize, SocketAddr)>> {
+        match self.socket.recv_from(buf) {
             Ok((amount, addr)) => {
                 if amount > 0 {
-                    buf.resize(amount, 0);
-                    Ok(Some((buf, addr)))
+                    Ok(Some((amount, addr)))
                 } else { Ok(None) }
             }
             Err(e) => return if e.kind() == WouldBlock {

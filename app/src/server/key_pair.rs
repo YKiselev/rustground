@@ -20,8 +20,8 @@ impl KeyPair {
         )
     }
 
-    pub(crate) fn encode_public_key(&self) -> anyhow::Result<String> {
-        self.public_key.to_public_key_pem(LineEnding::CR).map_err(|e| anyhow::Error::from(e))
+    pub(crate) fn public_key_as_pem(&self) -> anyhow::Result<String> {
+        self.public_key.to_public_key_pem(LineEnding::LF).map_err(|e| anyhow::Error::from(e))
     }
 
     pub(crate) fn encode(&self, data: &[u8]) -> anyhow::Result<Vec<u8>> {
