@@ -1,3 +1,5 @@
 pub mod services;
 pub mod arguments;
-mod files;
+pub mod files;
+
+pub use files::Files;

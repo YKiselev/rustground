@@ -1,9 +1,11 @@
-use std::io::Error;
 use std::{env, fs};
 use std::fmt::{Display, Formatter};
 use std::fs::File;
+use std::io::Error;
 use std::path::{Path, PathBuf};
-use log::{info, warn};
+
+use log::{debug, info, warn};
+
 use crate::arguments::Arguments;
 
 struct FileRoot {
@@ -23,6 +25,20 @@ impl FileRoot {
 
     fn readonly(&self) -> bool {
         self.readonly
+    }
+
+    fn open(&mut self, path: &str) -> Option<File> {
+        let mut buf = self.path.clone();
+        buf.push(path);
+        match File::open(buf.clone()) {
+            Ok(file) => {
+                Some(file)
+            }
+            Err(e) => {
+                debug!("File not found: {:?}, {:?}", buf, e);
+                None
+            }
+        }
     }
 }
 
@@ -45,7 +61,8 @@ impl Files {
             PathBuf::from(".")
         };
         let base_resources = current_dir.join("base/resources");
-        let mut folders = vec![base_resources];
+        let base = current_dir.join("base");
+        let mut folders = vec![base_resources, base];
         if let Some(home) = dirs::home_dir() {
             folders.push(home);
         }
@@ -70,7 +87,7 @@ impl Files {
         }
     }
 
-    pub fn open(path: &str) -> File {
-        unimplemented!()
+    pub fn open(&mut self, path: &str) -> Option<File> {
+        self.roots.iter_mut().find_map(|r| r.open(path))
     }
 }

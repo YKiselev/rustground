@@ -1,15 +1,18 @@
+use std::io::Read;
 use std::process::exit;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 
-use log::{info, LevelFilter};
+use log::{error, info, LevelFilter};
 use serde::{Deserialize, Serialize};
 
 use core::arguments::Arguments;
+use core::files;
 use core::services::Services;
 
 use crate::client::Client;
+use crate::config::Config;
 use crate::net::{ConnectData, Message};
 use crate::server::Server;
 
@@ -17,6 +20,7 @@ mod client;
 mod server;
 mod app_logger;
 mod net;
+mod config;
 
 fn test_serde() {
     let mut buf: Vec<u8> = Vec::new();
@@ -41,9 +45,15 @@ fn main() -> anyhow::Result<()> {
     info!("Begin initialization...");
 
     let args = Arguments::parse();
+    let mut files = files::Files::new(&args);
+    let mut cfg = files.open("config.toml").expect("Unable to load config!");
+    let mut tmp = String::new();
+    let read = cfg.read_to_string(&mut tmp)?;
+    let cfg: Config = toml::from_str(&tmp)?;
+    info!("Loaded config: {cfg:?}");
 
     // init services
-    let services = Services::new(&args);
+    //let services = Services::new(&args);
 
     // server
     let mut server = Server::new(&args);
@@ -58,11 +68,6 @@ fn main() -> anyhow::Result<()> {
         None
     };
 
-    let handle = thread::spawn(|| ());
-    // serde test
-    //test_serde();
-    //exit(0);
-
     // main loop
     info!("Entering main loop...");
     let exit_flag = AtomicBool::new(false);
@@ -72,10 +77,10 @@ fn main() -> anyhow::Result<()> {
         if let Some(ref mut client) = client.as_mut() {
             client.update();
         }
-        std::thread::sleep(Duration::from_millis(10));
+        thread::sleep(Duration::from_millis(10));
         //logger_buf.update();
         i += 1;
-        if i > 100 {
+        if i > 20 {
             exit_flag.store(true, Ordering::Release);
         }
     }

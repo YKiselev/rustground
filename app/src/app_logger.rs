@@ -34,7 +34,12 @@ pub(crate) fn init() -> Result<AppLoggerBuffer, Error> {
         .appender(Appender::builder().build("file", Box::new(file)))
         .appender(Appender::builder().build("app", Box::new(logger)))
         //.logger(Logger::builder().build("app", LevelFilter::Info))
-        .build(Root::builder().appender("stdout").appender("app").appender("file").build(LevelFilter::Info))?;
+        .build(Root::builder()
+            .appender("stdout")
+            .appender("app")
+            .appender("file")
+            .build(LevelFilter::Debug)
+        )?;
 
     let handle = log4rs::init_config(config)?;
     Ok(AppLoggerBuffer {
