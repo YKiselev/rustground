@@ -15,68 +15,11 @@ use serde::Deserialize;
 
 use core::arguments::Arguments;
 
-use crate::net::{Connect, Endpoint, MAX_DATAGRAM_SIZE, Message};
+use crate::net::{ConnectData, Endpoint, MAX_DATAGRAM_SIZE, Message};
+use crate::server::sv_client::Client;
 
 #[derive(Debug, Eq, PartialEq, Hash)]
 struct ClientId(SocketAddr);
-
-#[derive(Debug)]
-struct Client {
-    name: String,
-    last_seen: Instant,
-    endpoint: Endpoint,
-}
-
-impl Client {
-    fn send(&mut self, msg: &Message) -> anyhow::Result<usize> {
-        self.endpoint.send(msg)
-    }
-
-    fn clear_buffers(&mut self) {
-        self.endpoint.clear_buffers();
-    }
-
-    fn flush(&mut self) -> anyhow::Result<usize> {
-        self.endpoint.flush()
-    }
-
-    fn process_message(&self, msg: Message) -> anyhow::Result<()> {
-        info!("Got from client {msg:?}");
-        Ok(())
-    }
-
-    fn update(&mut self) -> anyhow::Result<()> {
-        self.clear_buffers();
-        loop {
-            let buf = Vec::with_capacity(MAX_DATAGRAM_SIZE);
-            if let Some((res_buf, addr)) = self.endpoint.receive(buf)? {
-                self.last_seen = Instant::now();
-                info!("Got {:?} bytes from {:?}", res_buf.len(), addr);
-                let mut des = Deserializer::from_read_ref(&res_buf);
-                loop {
-                    match Message::deserialize(&mut des) {
-                        Ok(msg) => {
-                            self.process_message(msg)?;
-                        }
-                        Err(InvalidMarkerRead(io_err)) => {
-                            if io_err.kind() == UnexpectedEof {
-                                break;
-                            } else {
-                                return Err(anyhow::Error::from(io_err));
-                            }
-                        }
-                        Err(e) => {
-                            return Err(anyhow::Error::from(e));
-                        }
-                    }
-                }
-            } else {
-                break;
-            }
-        }
-        Ok(())
-    }
-}
 
 pub(crate) struct Server {
     endpoint: Endpoint,
@@ -101,21 +44,17 @@ impl Server {
         }
     }
 
-    fn on_connect(&mut self, key: ClientId, data: &Connect, addr: SocketAddr) -> anyhow::Result<()> {
+    fn on_connect(&mut self, key: ClientId, data: &ConnectData, addr: SocketAddr) -> anyhow::Result<()> {
         // todo - check password
         match self.clients.entry(key) {
             Entry::Vacant(v) => {
                 let endpoint = self.endpoint.try_clone()?;
                 endpoint.connect(addr)?;
-                let client = v.insert(Client {
-                    name: data.name.clone(),
-                    last_seen: Instant::now(),
-                    endpoint,
-                });
+                let client = v.insert(Client::new(&data.name, endpoint));
                 client.send(&Message::Accepted).map(|_| ())
             }
             Entry::Occupied(ref mut o) => {
-                o.get_mut().last_seen = Instant::now();
+                o.get_mut().touch();
                 Ok(())
             }
         }
@@ -124,7 +63,6 @@ impl Server {
     fn pass_to_client(&mut self, key: ClientId, msg: Message) -> anyhow::Result<()> {
         if let Entry::Occupied(ref mut o) = self.clients.entry(key) {
             o.get_mut().process_message(msg)
-            //o.get_mut().last_seen = Instant::now();
         } else {
             Ok(())
         }
@@ -145,7 +83,7 @@ impl Server {
     pub fn listen(&mut self) -> anyhow::Result<()> {
         let mut buf = Vec::new();
         buf.resize(MAX_DATAGRAM_SIZE, 0);
-        for (_, mut c) in &mut self.clients {
+        for (_, c) in &mut self.clients {
             c.update()?;
         }
         if let Some((res_buf, addr)) = self.endpoint.receive(buf)? {
@@ -169,7 +107,7 @@ impl Server {
                 }
             }
         }
-        for (id, mut c) in &mut self.clients {
+        for (id, c) in &mut self.clients {
             match c.flush() {
                 Ok(_) => {}
                 Err(e) => {

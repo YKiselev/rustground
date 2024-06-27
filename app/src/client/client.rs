@@ -5,7 +5,7 @@ use log::{error, info};
 
 use core::arguments::Arguments;
 
-use crate::net::{Connect, Message};
+use crate::net::{ConnectData, Message};
 
 pub(crate) struct Client {
     socket: UdpSocket,
@@ -26,7 +26,7 @@ impl Client {
                         self.connected = true;
                         info!("Connected to server!");
                     }
-                    (m) => {
+                    m => {
                         info!("Unsupported message from server: {m:?}");
                     }
                 }
@@ -38,8 +38,8 @@ impl Client {
                 info!("Failed to receive from server: {e:?}");
             }
         }
-        if (!self.connected) {
-            let to_send = rmp_serde::to_vec(&Message::Connect(Connect {
+        if !self.connected {
+            let to_send = rmp_serde::to_vec(&Message::Connect(ConnectData {
                 name: String::from("Test"),
                 password: String::from("123456"),
             })).expect("Unable to serialize!");

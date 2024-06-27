@@ -1,6 +1,5 @@
 use std::cmp::min;
 use std::fmt::Debug;
-use std::io;
 use std::io::Error;
 use std::io::ErrorKind::WouldBlock;
 use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
@@ -11,19 +10,19 @@ use serde::{Deserialize, Serialize};
 pub const MAX_DATAGRAM_SIZE: usize = 65507;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Ack(pub u8);
+pub struct AckData(pub u8);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Connect {
+pub struct ConnectData {
     pub name: String,
-    pub password: String
+    pub password: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "id")]
 pub enum Message {
-    Ack(Ack),
-    Connect(Connect),
+    Ack(AckData),
+    Connect(ConnectData),
     Accepted,
 }
 
@@ -68,7 +67,7 @@ impl Endpoint {
     }
 
     fn flush_exact(&mut self, amount: usize) -> anyhow::Result<usize> {
-        let mut buf = &mut self.send_buf;
+        let buf = &mut self.send_buf;
         assert!(amount <= buf.len());
         assert!(amount <= MAX_DATAGRAM_SIZE);
         let mut left = amount;
