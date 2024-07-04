@@ -1,27 +1,47 @@
 use io::ErrorKind::WouldBlock;
+use std::borrow::Cow;
 use std::io;
+use std::io::ErrorKind::UnexpectedEof;
+use std::io::Read;
 use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
+use std::time::{Duration, Instant};
 
-use log::{error, info};
+use log::{error, info, warn};
+use rmp_serde::decode::Error::InvalidMarkerRead;
+use rmp_serde::Deserializer;
 use rsa::pkcs8::DecodePublicKey;
 use rsa::RsaPublicKey;
+use serde::Deserialize;
 
 use core::arguments::Arguments;
 
-use crate::net::{ConnectData, Endpoint, Message};
+use crate::client::pub_key::PublicKey;
+use crate::net::{ConnectData, Endpoint, MAX_DATAGRAM_SIZE, Message, process_messages};
+use crate::net::Message::{Accepted, Hello, Ping, Pong, ServerInfo};
+
+enum ClientState {
+    DISCONNECTED,
+    CONNECTING,
+    CONNECTED,
+}
 
 pub(crate) struct Client {
     endpoint: Endpoint,
-    buffer: [u8; 512],
     server_addr: SocketAddr,
-    connected: bool,
-    server_key: Option<RsaPublicKey>,
+    server_key: Option<PublicKey>,
+    state: ClientState,
+    last_seen: Option<Instant>,
+    last_send: Option<Instant>,
 }
 
 impl Client {
+    const MAX_LAST_SEEN: Duration = Duration::from_secs(3);
+    const CONN_RETRY_INTERVAL: Duration = Duration::from_secs(3);
+
     fn send(&mut self, msg: &Message) {
         match self.endpoint.send(msg) {
             Ok(n) => {
+                self.last_send = Some(Instant::now());
                 info!("Sent {n} bytes to server!");
             }
             Err(ref e) => {
@@ -30,47 +50,103 @@ impl Client {
         }
     }
 
-    pub(crate) fn update(&mut self) {
-        self.endpoint.clear_buffers();
-        match self.endpoint.receive(&mut self.buffer) {
-            Ok(Some((amount, addr))) => {
-                info!("Handling server message ({amount} bytes) from {addr:?}");
-                let msg: Message = rmp_serde::from_slice(&self.buffer[..amount])
-                    .expect("Unable to deserialize server message!");
-                match msg {
-                    Message::Accepted => {
-                        self.connected = true;
-                        info!("Connected to server!");
-                    }
-                    Message::ServerInfo(data) => {
-                        self.server_key = Some(RsaPublicKey::from_public_key_pem(&data.key).expect("Unable to import server's key!"));
-                        info!("Got server's public key!");
-                    }
-                    m => {
-                        info!("Unsupported message from server: {m:?}");
+    fn process_message(&mut self, msg: &Message) -> anyhow::Result<()> {
+        match msg {
+            Accepted => {
+                self.state = ClientState::CONNECTED;
+                info!("Connected to server!");
+            }
+            ServerInfo(data) => {
+                self.server_key = Some(PublicKey::new(&data.key)?);
+                info!("Got server's public key!");
+                let m = build_connect_message(self.server_key.as_ref())?;
+                self.send(&m);
+            }
+            Pong { time } => {
+                info!("Ping to server is {:.6} sec.", Instant::now().elapsed().as_secs_f64() - time);
+            }
+            Ping { time } => {
+                self.send(&Pong { time: *time });
+            }
+            m => {
+                warn!("Unsupported message from server: {m:?}");
+            }
+        }
+        Ok(())
+    }
+
+    fn process_messages(&mut self, buf: &[u8]) -> anyhow::Result<()> {
+        let mut des = Deserializer::from_read_ref(buf);
+        loop {
+            match Message::deserialize(&mut des) {
+                Ok(msg) => {
+                    self.process_message(&msg)?;
+                }
+                Err(InvalidMarkerRead(io_err)) => {
+                    if io_err.kind() == UnexpectedEof {
+                        break;
+                    } else {
+                        return Err(anyhow::Error::from(io_err));
                     }
                 }
+                Err(e) => {
+                    return Err(anyhow::Error::from(e));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn receive_from_server(&mut self) {
+        let mut buf: Vec<u8> = Vec::with_capacity(MAX_DATAGRAM_SIZE);
+        buf.resize(MAX_DATAGRAM_SIZE, 0);
+        match self.endpoint.receive(&mut buf) {
+            Ok(Some((amount, addr))) => {
+                if self.server_addr != addr {
+                    info!("Ignored message from {addr:?}");
+                    return;
+                }
+                info!("Handling server message ({amount} bytes) from {addr:?}");
+                self.last_seen = Some(Instant::now());
+                buf.truncate(amount);
+                process_messages(&buf.as_slice(), |m| self.process_message(m)).expect("AAAAAAAAAAaa!");
             }
             Ok(None) => {}
             Err(ref e) => {
-                info!("Failed to receive from server: {e:?}");
+                error!("Failed to receive from server: {e:?}");
             }
         }
-        if !self.server_key.is_some() {
-            self.send(&Message::Hello);
-        } else if !self.connected {
-            let to_send = Message::Connect(ConnectData {
-                name: String::from("Test"),
-                password: String::from("123456"),
-            });
-            self.send(&to_send);
-        } else {
-            self.send(&Message::KeepAlive);
+    }
+
+    pub(crate) fn update(&mut self) {
+        self.endpoint.clear_buffers();
+        self.receive_from_server();
+        let elapsed = self.last_send.map_or_else(|| Self::CONN_RETRY_INTERVAL, |v| v.elapsed());
+        match self.state {
+            ClientState::DISCONNECTED => {
+                self.send(&Hello);
+                self.state = ClientState::CONNECTING;
+            }
+            ClientState::CONNECTING => {
+                if elapsed >= Self::CONN_RETRY_INTERVAL {
+                    let to_send = if !self.server_key.is_some() {
+                        Hello
+                    } else {
+                        build_connect_message(self.server_key.as_ref()).expect("Failed to create connect message!")
+                    };
+                    self.send(&to_send);
+                }
+            }
+            ClientState::CONNECTED => {
+                if elapsed >= Duration::from_secs(2) {
+                    self.send(&Ping { time: Instant::now().elapsed().as_secs_f64() });
+                }
+            }
         }
         match self.endpoint.take_error() {
-            Ok(Some(error)) => error!("UdpSocket error: {error:?}"),
+            Ok(Some(error)) => error!("Socket error: {error:?}"),
             Ok(None) => {}
-            Err(error) => error!("UdpSocket.take_error failed: {error:?}"),
+            Err(error) => error!("Unable to take error: {error:?}"),
         }
         self.endpoint.flush().expect("Flush failed!");
     }
@@ -78,13 +154,23 @@ impl Client {
     pub(crate) fn new(args: &Arguments, server_addr: SocketAddr) -> Self {
         info!("Starting client...");
         let endpoint = Endpoint::new().expect("Unable to create client socket!");
-        endpoint.connect(server_addr).expect("Unable to set server address on client socket!");
+        endpoint.connect(&server_addr).expect("Unable to set server address on client socket!");
         Client {
             endpoint,
-            buffer: [0; 512],
             server_addr,
-            connected: false,
             server_key: None,
+            state: ClientState::DISCONNECTED,
+            last_seen: None,
+            last_send: None,
         }
     }
+}
+
+fn build_connect_message<'a>(key: Option<&PublicKey>) -> anyhow::Result<Message<'a>> {
+    let encoded = key.ok_or_else(|| anyhow::Error::msg("Server key is not present!"))
+        .and_then(|k| k.encode_str("123456"))?;
+    Ok(Message::Connect(ConnectData {
+        name: Cow::from("Test"),
+        password: Cow::from(encoded),
+    }))
 }

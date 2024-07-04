@@ -4,6 +4,7 @@ use std::io;
 use std::io::ErrorKind::UnexpectedEof;
 use std::net::{Ipv4Addr, SocketAddr, ToSocketAddrs, UdpSocket};
 use std::ops::Deref;
+use std::str::from_utf8;
 use std::time::Instant;
 
 use anyhow::__private::kind::{AdhocKind, TraitKind};
@@ -27,6 +28,7 @@ pub(crate) struct Server {
     endpoint: Endpoint,
     clients: HashMap<ClientId, Client>,
     keys: KeyPair,
+    password: Option<String>,
 }
 
 impl Server {
@@ -47,11 +49,27 @@ impl Server {
             endpoint,
             clients: HashMap::new(),
             keys,
+            password: cfg.password.to_owned(),
         }
     }
 
-    fn on_connect(&mut self, key: ClientId, data: &ConnectData, addr: SocketAddr) -> anyhow::Result<()> {
-        // todo - check password
+    fn check_password(&self, encoded: &[u8]) -> bool {
+        if let Some(password) = &self.password {
+            return self.keys.decode(encoded)
+                .map_err(|e| anyhow::Error::from(e))
+                .and_then(|v| from_utf8(&v)
+                    .map(|p| password.eq(p))
+                    .map_err(|e| anyhow::Error::from(e))
+                ).unwrap_or(false);
+        }
+        true
+    }
+
+    fn on_connect(&mut self, key: ClientId, data: &ConnectData, addr: &SocketAddr) -> anyhow::Result<()> {
+        if !self.check_password(data.password.as_ref()) {
+            info!("Wrong password!");
+            return Ok(());
+        }
         match self.clients.entry(key) {
             Entry::Vacant(v) => {
                 let endpoint = self.endpoint.try_clone()?;
@@ -66,7 +84,7 @@ impl Server {
         }
     }
 
-    fn pass_to_client(&mut self, key: ClientId, msg: Message) -> anyhow::Result<()> {
+    fn pass_to_client(&mut self, key: ClientId, msg: &Message) -> anyhow::Result<()> {
         if let Entry::Occupied(ref mut o) = self.clients.entry(key) {
             o.get_mut().process_message(msg)
         } else {
@@ -74,8 +92,8 @@ impl Server {
         }
     }
 
-    fn process_message(&mut self, msg: Message, addr: SocketAddr) -> anyhow::Result<()> {
-        let key = ClientId(addr);
+    fn process_message(&mut self, msg: &Message, addr: &SocketAddr) -> anyhow::Result<()> {
+        let key = ClientId(*addr);
         match msg {
             Message::Connect(ref conn) => {
                 self.on_connect(key, conn, addr)
@@ -103,7 +121,7 @@ impl Server {
             loop {
                 match Message::deserialize(&mut des) {
                     Ok(msg) => {
-                        self.process_message(msg, addr)?;
+                        self.process_message(&msg, &addr)?;
                     }
                     Err(InvalidMarkerRead(io_err)) => {
                         if io_err.kind() == UnexpectedEof {

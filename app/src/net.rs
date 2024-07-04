@@ -1,10 +1,12 @@
+use std::borrow::Cow;
 use std::cmp::min;
 use std::fmt::Debug;
 use std::io::Error;
-use std::io::ErrorKind::WouldBlock;
+use std::io::ErrorKind::{UnexpectedEof, WouldBlock};
 use std::net::{Ipv4Addr, SocketAddr, ToSocketAddrs, UdpSocket};
 
-use rmp_serde::Serializer;
+use rmp_serde::{Deserializer, Serializer};
+use rmp_serde::decode::Error::InvalidMarkerRead;
 use serde::{Deserialize, Serialize};
 
 pub const MAX_DATAGRAM_SIZE: usize = 65507;
@@ -13,9 +15,9 @@ pub const MAX_DATAGRAM_SIZE: usize = 65507;
 pub struct AckData(pub u8);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ConnectData {
-    pub name: String,
-    pub password: String,
+pub struct ConnectData<'a> {
+    pub name: Cow<'a, str>,
+    pub password: Cow<'a, [u8]>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -26,19 +28,21 @@ pub struct ServerInfoData {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "id")]
-pub enum Message {
+pub enum Message<'a> {
     Ack(AckData),
-    Connect(ConnectData),
+    Connect(ConnectData<'a>),
     Accepted,
     Hello,
     ServerInfo(ServerInfoData),
-    KeepAlive,
+    Ping { time: f64 },
+    Pong { time: f64 }
 }
 
 #[derive(Debug)]
 pub struct Endpoint {
     socket: UdpSocket,
     send_buf: Vec<u8>,
+    scratch: Vec<u8>,
 }
 
 impl Endpoint {
@@ -48,6 +52,7 @@ impl Endpoint {
         Ok(Endpoint {
             socket,
             send_buf: Vec::with_capacity(MAX_DATAGRAM_SIZE),
+            scratch: Vec::with_capacity(MAX_DATAGRAM_SIZE),
         })
     }
     pub fn new() -> anyhow::Result<Self> {
@@ -59,10 +64,11 @@ impl Endpoint {
         Ok(Endpoint {
             socket,
             send_buf: Vec::with_capacity(MAX_DATAGRAM_SIZE),
+            scratch: Vec::with_capacity(MAX_DATAGRAM_SIZE),
         })
     }
 
-    pub fn connect(&self, addr: SocketAddr) -> anyhow::Result<()> {
+    pub fn connect(&self, addr: &SocketAddr) -> anyhow::Result<()> {
         self.socket.connect(addr).map_err(|e| anyhow::Error::from(e))
     }
 
@@ -108,7 +114,8 @@ impl Endpoint {
     }
 
     pub fn send_to(&mut self, msg: &Message, addr: &SocketAddr) -> anyhow::Result<usize> {
-        let mut buf = Vec::new();
+        let mut buf = &mut self.scratch;// Vec::new();
+        buf.clear();
         let mut ser = Serializer::new(&mut buf);
         msg.serialize(&mut ser).map_err(|e| anyhow::Error::from(e))?;
         Ok(self.socket.send_to(buf.as_slice(), addr).map_err(anyhow::Error::from)?)
@@ -145,4 +152,28 @@ impl Endpoint {
             }
         }
     }
+}
+
+pub(crate) fn process_messages<F>(buf: &[u8], mut handler: F) -> anyhow::Result<()>
+    where F: FnMut(&Message) -> anyhow::Result<()>
+{
+    let mut des = Deserializer::from_read_ref(buf);
+    loop {
+        match Message::deserialize(&mut des) {
+            Ok(msg) => {
+                handler(&msg)?;
+            }
+            Err(InvalidMarkerRead(io_err)) => {
+                if io_err.kind() == UnexpectedEof {
+                    break;
+                } else {
+                    return Err(anyhow::Error::from(io_err));
+                }
+            }
+            Err(e) => {
+                return Err(anyhow::Error::from(e));
+            }
+        }
+    }
+    Ok(())
 }
