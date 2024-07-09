@@ -7,7 +7,7 @@ use rmp_serde::decode::Error::InvalidMarkerRead;
 use rmp_serde::Deserializer;
 use serde::Deserialize;
 
-use crate::net::{Endpoint, MAX_DATAGRAM_SIZE, Message, process_messages};
+use crate::net::{Endpoint, MAX_DATAGRAM_SIZE, Message, process_messages, TimeData};
 use crate::net::Message::{Ping, Pong};
 
 #[derive(Debug)]
@@ -50,11 +50,11 @@ impl Client {
             // Message::Connect(_) => {}
             // Message::Accepted => {}
             // Message::Hello => {}
-            Pong { time } => {
-                info!("Ping to client is {:.6} sec.", Instant::now().elapsed().as_secs_f64() - time)
+            Pong(td) => {
+                info!("Ping to client is {:.6} sec.", Instant::now().elapsed().as_secs_f64() - td.time)
             }
-            Ping { time } => {
-                self.endpoint.send(&Pong { time: *time })?;
+            Ping(td) => {
+                self.endpoint.send(&Pong(TimeData { time: td.time }))?;
             }
             m => {
                 info!("Ignoring unsupported message: {m:?}");
@@ -63,12 +63,12 @@ impl Client {
         Ok(())
     }
 
-    pub(crate) fn update(&mut self) -> anyhow::Result<()> {
+    pub(crate) fn update(&mut self, buf: &mut Vec<u8>) -> anyhow::Result<()> {
         self.clear_buffers();
         loop {
-            let mut buf = Vec::with_capacity(MAX_DATAGRAM_SIZE);
+            //let mut buf = Vec::with_capacity(MAX_DATAGRAM_SIZE);
             buf.resize(MAX_DATAGRAM_SIZE, 0);
-            if let Some((amount, addr)) = self.endpoint.receive(&mut buf)? {
+            if let Some((amount, addr)) = self.endpoint.receive(buf)? {
                 buf.truncate(amount);
                 self.last_seen = Instant::now();
                 info!("Got {:?} bytes from {:?}", amount, addr);

@@ -423,6 +423,7 @@ dependencies = [
  "num-iter",
  "num-traits",
  "rand",
+ "serde",
  "smallvec",
  "zeroize",
 ]
@@ -647,6 +648,7 @@ dependencies = [
  "pkcs1",
  "pkcs8",
  "rand_core",
+ "serde",
  "signature",
  "spki",
  "subtle",

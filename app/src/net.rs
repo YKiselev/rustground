@@ -7,6 +7,7 @@ use std::net::{Ipv4Addr, SocketAddr, ToSocketAddrs, UdpSocket};
 
 use rmp_serde::{Deserializer, Serializer};
 use rmp_serde::decode::Error::InvalidMarkerRead;
+use rsa::RsaPublicKey;
 use serde::{Deserialize, Serialize};
 
 pub const MAX_DATAGRAM_SIZE: usize = 65507;
@@ -22,7 +23,12 @@ pub struct ConnectData<'a> {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerInfoData {
-    pub key: String,
+    pub key: RsaPublicKey,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TimeData {
+    pub time: f64,
 }
 
 
@@ -34,8 +40,8 @@ pub enum Message<'a> {
     Accepted,
     Hello,
     ServerInfo(ServerInfoData),
-    Ping { time: f64 },
-    Pong { time: f64 }
+    Ping(TimeData),
+    Pong(TimeData),
 }
 
 #[derive(Debug)]

@@ -16,7 +16,7 @@ use serde::Deserialize;
 use core::arguments::Arguments;
 
 use crate::client::pub_key::PublicKey;
-use crate::net::{ConnectData, Endpoint, MAX_DATAGRAM_SIZE, Message, process_messages};
+use crate::net::{ConnectData, Endpoint, MAX_DATAGRAM_SIZE, Message, process_messages, TimeData};
 use crate::net::Message::{Accepted, Hello, Ping, Pong, ServerInfo};
 
 enum ClientState {
@@ -57,16 +57,16 @@ impl Client {
                 info!("Connected to server!");
             }
             ServerInfo(data) => {
-                self.server_key = Some(PublicKey::new(&data.key)?);
+                self.server_key = Some(PublicKey::new(data.key.clone()));
                 info!("Got server's public key!");
                 let m = build_connect_message(self.server_key.as_ref())?;
                 self.send(&m);
             }
-            Pong { time } => {
-                info!("Ping to server is {:.6} sec.", Instant::now().elapsed().as_secs_f64() - time);
+            Pong(td) => {
+                info!("Ping to server is {:.6} sec.", Instant::now().elapsed().as_secs_f64() - td.time);
             }
-            Ping { time } => {
-                self.send(&Pong { time: *time });
+            Ping(td) => {
+                self.send(&Pong(TimeData { time: td.time }));
             }
             m => {
                 warn!("Unsupported message from server: {m:?}");
@@ -118,8 +118,16 @@ impl Client {
         }
     }
 
-    pub(crate) fn update(&mut self) {
+    pub(crate) fn frame_start(&mut self) {
         self.endpoint.clear_buffers();
+        match self.endpoint.take_error() {
+            Ok(Some(error)) => error!("Socket error: {error:?}"),
+            Ok(None) => {}
+            Err(error) => error!("Unable to take error: {error:?}"),
+        }
+    }
+
+    pub(crate) fn update(&mut self) {
         self.receive_from_server();
         let elapsed = self.last_send.map_or_else(|| Self::CONN_RETRY_INTERVAL, |v| v.elapsed());
         match self.state {
@@ -139,15 +147,13 @@ impl Client {
             }
             ClientState::CONNECTED => {
                 if elapsed >= Duration::from_secs(2) {
-                    self.send(&Ping { time: Instant::now().elapsed().as_secs_f64() });
+                    self.send(&Ping(TimeData { time: Instant::now().elapsed().as_secs_f64() }));
                 }
             }
         }
-        match self.endpoint.take_error() {
-            Ok(Some(error)) => error!("Socket error: {error:?}"),
-            Ok(None) => {}
-            Err(error) => error!("Unable to take error: {error:?}"),
-        }
+    }
+
+    pub(crate) fn frame_end(&mut self) {
         self.endpoint.flush().expect("Flush failed!");
     }
 

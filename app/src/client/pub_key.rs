@@ -7,12 +7,18 @@ pub(crate) struct PublicKey {
 }
 
 impl PublicKey {
-    pub(crate) fn new(data: &str) -> anyhow::Result<Self> {
+    pub(crate) fn from_pem(data: &str) -> anyhow::Result<Self> {
         Ok(
             PublicKey {
                 public_key: RsaPublicKey::from_public_key_pem(data)?
             }
         )
+    }
+
+    pub(crate) fn new(key: RsaPublicKey) -> Self {
+        PublicKey {
+            public_key: key
+        }
     }
 
     pub(crate) fn encode(&self, data: &[u8]) -> anyhow::Result<Vec<u8>> {

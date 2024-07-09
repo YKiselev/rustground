@@ -5,6 +5,7 @@ use std::io::ErrorKind::UnexpectedEof;
 use std::net::{Ipv4Addr, SocketAddr, ToSocketAddrs, UdpSocket};
 use std::ops::Deref;
 use std::str::from_utf8;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
 use anyhow::__private::kind::{AdhocKind, TraitKind};
@@ -29,11 +30,34 @@ pub(crate) struct Server {
     clients: HashMap<ClientId, Client>,
     keys: KeyPair,
     password: Option<String>,
+    exit_flag: AtomicBool,
 }
 
 impl Server {
     pub(crate) fn update(&mut self) -> anyhow::Result<()> {
-        self.listen()
+        let mut buf = Vec::with_capacity(MAX_DATAGRAM_SIZE);
+
+        for (_, c) in self.clients.iter_mut() {
+            c.update(&mut buf)?;
+        }
+
+        self.listen(&mut buf)?;
+
+        for (id, c) in self.clients.iter_mut() {
+            if let Err(e) = c.flush() {
+                warn!("Flush failed for {id:?}: {e:?}");
+            }
+        }
+
+        Ok(())
+    }
+
+    pub(crate) fn is_exit(&self) -> bool {
+        self.exit_flag.load(Ordering::Relaxed)
+    }
+
+    pub(crate) fn shutdown(&mut self) {
+        self.exit_flag.store(true, Ordering::Release);
     }
 
     pub fn local_address(&self) -> io::Result<SocketAddr> {
@@ -45,11 +69,13 @@ impl Server {
         let addr: SocketAddr = cfg.address.parse().expect("Invalid address!");
         let endpoint = Endpoint::with_address(addr).expect("Unable to create server endpoint!");
         let keys = KeyPair::new(cfg.key_bits).expect("Unable to create server key!");
+        info!("Server bound to {:?}", endpoint.socket().local_addr().expect("Unable to get server address!"));
         Server {
             endpoint,
             clients: HashMap::new(),
             keys,
             password: cfg.password.to_owned(),
+            exit_flag: AtomicBool::new(false),
         }
     }
 
@@ -99,7 +125,7 @@ impl Server {
                 self.on_connect(key, conn, addr)
             }
             Message::Hello => {
-                self.endpoint.send_to(&Message::ServerInfo(ServerInfoData { key: self.keys.public_key_as_pem().unwrap() }), &addr)?;
+                self.endpoint.send_to(&Message::ServerInfo(ServerInfoData { key: self.keys.public_key_as_pem() }), &addr)?;
                 Ok(())
             }
             other => {
@@ -108,13 +134,9 @@ impl Server {
         }
     }
 
-    pub fn listen(&mut self) -> anyhow::Result<()> {
-        let mut buf = Vec::new();
+    pub fn listen(&mut self, buf: &mut Vec<u8>) -> anyhow::Result<()> {
         buf.resize(MAX_DATAGRAM_SIZE, 0);
-        for (_, c) in &mut self.clients {
-            c.update()?;
-        }
-        if let Some((amount, addr)) = self.endpoint.receive(&mut buf)? {
+        if let Some((amount, addr)) = self.endpoint.receive(buf)? {
             buf.truncate(amount);
             info!("Got {:?} bytes from {:?}", amount, addr);
             let mut des = Deserializer::from_read_ref(&buf);
@@ -133,14 +155,6 @@ impl Server {
                     Err(e) => {
                         return Err(anyhow::Error::from(e));
                     }
-                }
-            }
-        }
-        for (id, c) in &mut self.clients {
-            match c.flush() {
-                Ok(_) => {}
-                Err(e) => {
-                    warn!("Flush failed for {id:?}: {e:?}");
                 }
             }
         }
