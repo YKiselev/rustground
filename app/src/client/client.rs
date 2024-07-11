@@ -7,22 +7,20 @@ use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
 use std::time::{Duration, Instant};
 
 use log::{error, info, warn};
-use rmp_serde::decode::Error::InvalidMarkerRead;
-use rmp_serde::Deserializer;
 use rsa::pkcs8::DecodePublicKey;
 use rsa::RsaPublicKey;
-use serde::Deserialize;
 
-use core::arguments::Arguments;
+use common::arguments::Arguments;
 
 use crate::client::pub_key::PublicKey;
-use crate::net::{ConnectData, Endpoint, MAX_DATAGRAM_SIZE, Message, process_messages, TimeData};
+use crate::net::{Endpoint, MAX_DATAGRAM_SIZE, Message, process_messages};
 use crate::net::Message::{Accepted, Hello, Ping, Pong, ServerInfo};
 
-enum ClientState {
-    DISCONNECTED,
-    CONNECTING,
-    CONNECTED,
+trait ClientState {
+    // DISCONNECTED,
+    // CONNECTING,
+    // CONNECTED,
+
 }
 
 pub(crate) struct Client {
@@ -56,42 +54,20 @@ impl Client {
                 self.state = ClientState::CONNECTED;
                 info!("Connected to server!");
             }
-            ServerInfo(data) => {
-                self.server_key = Some(PublicKey::new(data.key.clone()));
+            ServerInfo { key } => {
+                let key = bitcode::deserialize::<RsaPublicKey>(key)?;
+                self.server_key = Some(PublicKey::new(key));
                 info!("Got server's public key!");
-                let m = build_connect_message(self.server_key.as_ref())?;
-                self.send(&m);
+                self.send_connect_message();
             }
-            Pong(td) => {
-                info!("Ping to server is {:.6} sec.", Instant::now().elapsed().as_secs_f64() - td.time);
+            Pong { time } => {
+                info!("Ping to server is {:.6} sec.", Instant::now().elapsed().as_secs_f64() - time);
             }
-            Ping(td) => {
-                self.send(&Pong(TimeData { time: td.time }));
+            Ping { time } => {
+                self.send(&Pong { time: *time });
             }
             m => {
                 warn!("Unsupported message from server: {m:?}");
-            }
-        }
-        Ok(())
-    }
-
-    fn process_messages(&mut self, buf: &[u8]) -> anyhow::Result<()> {
-        let mut des = Deserializer::from_read_ref(buf);
-        loop {
-            match Message::deserialize(&mut des) {
-                Ok(msg) => {
-                    self.process_message(&msg)?;
-                }
-                Err(InvalidMarkerRead(io_err)) => {
-                    if io_err.kind() == UnexpectedEof {
-                        break;
-                    } else {
-                        return Err(anyhow::Error::from(io_err));
-                    }
-                }
-                Err(e) => {
-                    return Err(anyhow::Error::from(e));
-                }
             }
         }
         Ok(())
@@ -109,13 +85,22 @@ impl Client {
                 info!("Handling server message ({amount} bytes) from {addr:?}");
                 self.last_seen = Some(Instant::now());
                 buf.truncate(amount);
-                process_messages(&buf.as_slice(), |m| self.process_message(m)).expect("AAAAAAAAAAaa!");
+                process_messages(buf.as_slice(), |m| self.process_message(m)).unwrap();
             }
             Ok(None) => {}
             Err(ref e) => {
                 error!("Failed to receive from server: {e:?}");
             }
         }
+    }
+
+    fn send_connect_message(&mut self) {
+        let key = self.server_key.as_ref().unwrap();
+        let encoded = key.encode_str("123456").unwrap();
+        self.send(&Message::Connect {
+            name: "Test",
+            password: encoded,
+        })
     }
 
     pub(crate) fn frame_start(&mut self) {
@@ -137,17 +122,18 @@ impl Client {
             }
             ClientState::CONNECTING => {
                 if elapsed >= Self::CONN_RETRY_INTERVAL {
-                    let to_send = if !self.server_key.is_some() {
-                        Hello
+                    if !self.server_key.is_some() {
+                        self.send(&Hello);
                     } else {
-                        build_connect_message(self.server_key.as_ref()).expect("Failed to create connect message!")
+                        self.send_connect_message();
                     };
-                    self.send(&to_send);
                 }
             }
             ClientState::CONNECTED => {
                 if elapsed >= Duration::from_secs(2) {
-                    self.send(&Ping(TimeData { time: Instant::now().elapsed().as_secs_f64() }));
+                    for i in 0..10 {
+                        self.send(&Ping { time: Instant::now().elapsed().as_secs_f64() });
+                    }
                 }
             }
         }
@@ -170,13 +156,4 @@ impl Client {
             last_send: None,
         }
     }
-}
-
-fn build_connect_message<'a>(key: Option<&PublicKey>) -> anyhow::Result<Message<'a>> {
-    let encoded = key.ok_or_else(|| anyhow::Error::msg("Server key is not present!"))
-        .and_then(|k| k.encode_str("123456"))?;
-    Ok(Message::Connect(ConnectData {
-        name: Cow::from("Test"),
-        password: Cow::from(encoded),
-    }))
 }

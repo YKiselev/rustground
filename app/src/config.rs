@@ -2,7 +2,7 @@ use std::io::Read;
 
 use serde::Deserialize;
 
-use core::files;
+use common::files;
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct Config {

@@ -5,28 +5,22 @@ use rsa::pkcs8::EncodePublicKey;
 pub(crate) struct KeyPair {
     private_key: RsaPrivateKey,
     public_key: RsaPublicKey,
-    public_bytes: Vec<u8>,
 }
 
 impl KeyPair {
     pub(crate) fn new(bits: usize) -> anyhow::Result<Self> {
         let private_key = RsaPrivateKey::new(&mut rand::thread_rng(), bits)?;
         let public_key = RsaPublicKey::from(&private_key);
-        // let public_pem = public_key.to_public_key_pem(LineEnding::LF)
-        //     .map_err(|e| anyhow::Error::from(e))?;
-        let public_bytes = rmp_serde::to_vec(&public_key).expect("AAAAAAAAAAa");
-        //let new_pk: RsaPublicKey = rmp_serde::from_read(&s_key[..]).expect("BBBBBBB");
         Ok(
             KeyPair {
                 private_key,
                 public_key,
-                public_bytes,
             }
         )
     }
 
-    pub(crate) fn public_key_as_pem(&self) -> RsaPublicKey {
-        self.public_key.clone()
+    pub(crate) fn public_key(&self) -> &RsaPublicKey {
+        &self.public_key
     }
 
     pub(crate) fn encode(&self, data: &[u8]) -> anyhow::Result<Vec<u8>> {

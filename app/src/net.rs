@@ -1,47 +1,24 @@
-use std::borrow::Cow;
 use std::cmp::min;
 use std::fmt::Debug;
-use std::io::Error;
-use std::io::ErrorKind::{UnexpectedEof, WouldBlock};
+use std::io::{Error, Write};
+use std::io::ErrorKind::WouldBlock;
 use std::net::{Ipv4Addr, SocketAddr, ToSocketAddrs, UdpSocket};
 
-use rmp_serde::{Deserializer, Serializer};
-use rmp_serde::decode::Error::InvalidMarkerRead;
-use rsa::RsaPublicKey;
-use serde::{Deserialize, Serialize};
+use bitcode::{Decode, Encode};
+use bitcode::__private::{Decoder, View};
 
 pub const MAX_DATAGRAM_SIZE: usize = 65507;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AckData(pub u8);
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ConnectData<'a> {
-    pub name: Cow<'a, str>,
-    pub password: Cow<'a, [u8]>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ServerInfoData {
-    pub key: RsaPublicKey,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TimeData {
-    pub time: f64,
-}
-
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "id")]
+#[derive(Debug, Clone, Encode, Decode)]
 pub enum Message<'a> {
-    Ack(AckData),
-    Connect(ConnectData<'a>),
+    Ack,
+    Connect { name: &'a str, password: Vec<u8> },
     Accepted,
     Hello,
-    ServerInfo(ServerInfoData),
-    Ping(TimeData),
-    Pong(TimeData),
+    ServerInfo { key: Vec<u8> },
+    Ping { time: f64 },
+    Pong { time: f64 },
 }
 
 #[derive(Debug)]
@@ -49,6 +26,12 @@ pub struct Endpoint {
     socket: UdpSocket,
     send_buf: Vec<u8>,
     scratch: Vec<u8>,
+}
+
+fn write<W: Write>(msg: &Message, mut w: W) -> anyhow::Result<()> {
+    w.write(&bitcode::encode(msg)).map_err(|e| anyhow::Error::from(e)).map(|amount| ())
+    //let mut ser = Serializer::new(w);
+    //msg.serialize(&mut ser).map_err(|e| anyhow::Error::from(e))
 }
 
 impl Endpoint {
@@ -120,17 +103,15 @@ impl Endpoint {
     }
 
     pub fn send_to(&mut self, msg: &Message, addr: &SocketAddr) -> anyhow::Result<usize> {
-        let mut buf = &mut self.scratch;// Vec::new();
+        let mut buf = &mut self.scratch;
         buf.clear();
-        let mut ser = Serializer::new(&mut buf);
-        msg.serialize(&mut ser).map_err(|e| anyhow::Error::from(e))?;
+        write(msg, &mut buf)?;
         Ok(self.socket.send_to(buf.as_slice(), addr).map_err(anyhow::Error::from)?)
     }
     pub fn send(&mut self, msg: &Message) -> anyhow::Result<usize> {
         let mut buf = &mut self.send_buf;
         let before = buf.len();
-        let mut ser = Serializer::new(&mut buf);
-        match msg.serialize(&mut ser).map_err(|e| anyhow::Error::from(e)) {
+        match write(msg, &mut buf) {
             Ok(_) => {}
             Err(e) => {
                 buf.truncate(before);
@@ -160,26 +141,14 @@ impl Endpoint {
     }
 }
 
-pub(crate) fn process_messages<F>(buf: &[u8], mut handler: F) -> anyhow::Result<()>
+pub(crate) fn process_messages<F>(mut buf: &[u8], mut handler: F) -> anyhow::Result<()>
     where F: FnMut(&Message) -> anyhow::Result<()>
 {
-    let mut des = Deserializer::from_read_ref(buf);
-    loop {
-        match Message::deserialize(&mut des) {
-            Ok(msg) => {
-                handler(&msg)?;
-            }
-            Err(InvalidMarkerRead(io_err)) => {
-                if io_err.kind() == UnexpectedEof {
-                    break;
-                } else {
-                    return Err(anyhow::Error::from(io_err));
-                }
-            }
-            Err(e) => {
-                return Err(anyhow::Error::from(e));
-            }
-        }
+    let mut decoder = <Message<'_> as bitcode::Decode>::Decoder::default();
+    let s = &mut buf;
+    while !s.is_empty() {
+        decoder.populate(s, 1).unwrap();
+        handler(&decoder.decode())?;
     }
     Ok(())
 }

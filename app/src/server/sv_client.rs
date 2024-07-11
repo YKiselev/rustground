@@ -1,13 +1,9 @@
 use std::io::ErrorKind::UnexpectedEof;
 use std::time::Instant;
 
-use chrono::Utc;
 use log::info;
-use rmp_serde::decode::Error::InvalidMarkerRead;
-use rmp_serde::Deserializer;
-use serde::Deserialize;
 
-use crate::net::{Endpoint, MAX_DATAGRAM_SIZE, Message, process_messages, TimeData};
+use crate::net::{Endpoint, MAX_DATAGRAM_SIZE, Message, process_messages};
 use crate::net::Message::{Ping, Pong};
 
 #[derive(Debug)]
@@ -50,11 +46,11 @@ impl Client {
             // Message::Connect(_) => {}
             // Message::Accepted => {}
             // Message::Hello => {}
-            Pong(td) => {
-                info!("Ping to client is {:.6} sec.", Instant::now().elapsed().as_secs_f64() - td.time)
+            Pong { time } => {
+                info!("Ping to client is {:.6} sec.", Instant::now().elapsed().as_secs_f64() - time);
             }
-            Ping(td) => {
-                self.endpoint.send(&Pong(TimeData { time: td.time }))?;
+            Ping { time } => {
+                self.endpoint.send(&Pong { time: *time })?;
             }
             m => {
                 info!("Ignoring unsupported message: {m:?}");

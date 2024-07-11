@@ -11,14 +11,13 @@ use std::time::Instant;
 use anyhow::__private::kind::{AdhocKind, TraitKind};
 use anyhow::Error;
 use log::{error, info, warn};
-use rmp_serde::decode::Error::InvalidMarkerRead;
-use rmp_serde::Deserializer;
-use serde::Deserialize;
+use rsa::RsaPublicKey;
+use rsa::traits::PublicKeyParts;
 
-use core::arguments::Arguments;
+use common::arguments::Arguments;
 
 use crate::config::{Config, ServerConfig};
-use crate::net::{ConnectData, Endpoint, MAX_DATAGRAM_SIZE, Message, ServerInfoData};
+use crate::net::{Endpoint, MAX_DATAGRAM_SIZE, Message, process_messages};
 use crate::server::key_pair::KeyPair;
 use crate::server::sv_client::Client;
 
@@ -91,16 +90,16 @@ impl Server {
         true
     }
 
-    fn on_connect(&mut self, key: ClientId, data: &ConnectData, addr: &SocketAddr) -> anyhow::Result<()> {
-        if !self.check_password(data.password.as_ref()) {
-            info!("Wrong password!");
+    fn on_connect(&mut self, key: ClientId, name: &str, password: &[u8], addr: &SocketAddr) -> anyhow::Result<()> {
+        if !self.check_password(password) {
+            info!("Wrong password from {:?}!", addr);
             return Ok(());
         }
         match self.clients.entry(key) {
             Entry::Vacant(v) => {
                 let endpoint = self.endpoint.try_clone()?;
                 endpoint.connect(addr)?;
-                let client = v.insert(Client::new(&data.name, endpoint));
+                let client = v.insert(Client::new(name, endpoint));
                 client.send(&Message::Accepted).map(|_| ())
             }
             Entry::Occupied(ref mut o) => {
@@ -121,11 +120,12 @@ impl Server {
     fn process_message(&mut self, msg: &Message, addr: &SocketAddr) -> anyhow::Result<()> {
         let key = ClientId(*addr);
         match msg {
-            Message::Connect(ref conn) => {
-                self.on_connect(key, conn, addr)
+            Message::Connect { name, password } => {
+                self.on_connect(key, name, password, addr)
             }
             Message::Hello => {
-                self.endpoint.send_to(&Message::ServerInfo(ServerInfoData { key: self.keys.public_key_as_pem() }), &addr)?;
+                let key = bitcode::serialize(self.keys.public_key()).unwrap();
+                self.endpoint.send_to(&Message::ServerInfo { key }, addr)?;
                 Ok(())
             }
             other => {
@@ -139,25 +139,9 @@ impl Server {
         if let Some((amount, addr)) = self.endpoint.receive(buf)? {
             buf.truncate(amount);
             info!("Got {:?} bytes from {:?}", amount, addr);
-            let mut des = Deserializer::from_read_ref(&buf);
-            loop {
-                match Message::deserialize(&mut des) {
-                    Ok(msg) => {
-                        self.process_message(&msg, &addr)?;
-                    }
-                    Err(InvalidMarkerRead(io_err)) => {
-                        if io_err.kind() == UnexpectedEof {
-                            break;
-                        } else {
-                            return Err(anyhow::Error::from(io_err));
-                        }
-                    }
-                    Err(e) => {
-                        return Err(anyhow::Error::from(e));
-                    }
-                }
-            }
+            process_messages(buf.as_slice(), |m| self.process_message(m, &addr))?;
         }
+        buf.resize(MAX_DATAGRAM_SIZE, 0);
         Ok(())
     }
 }
