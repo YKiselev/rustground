@@ -17,7 +17,7 @@ use rsa::traits::PublicKeyParts;
 use common::arguments::Arguments;
 
 use crate::config::{Config, ServerConfig};
-use crate::net::{Endpoint, MAX_DATAGRAM_SIZE, Message, process_messages};
+use crate::net::{Endpoint, MAX_DATAGRAM_SIZE, Message, NetEndpoint, ServerEndpoint};
 use crate::server::key_pair::KeyPair;
 use crate::server::sv_client::Client;
 
@@ -25,7 +25,8 @@ use crate::server::sv_client::Client;
 struct ClientId(SocketAddr);
 
 pub(crate) struct Server {
-    endpoint: Endpoint,
+    endpoint: Box<dyn ServerEndpoint + Send + Sync>,
+    recv_buf: Option<Vec<u8>>,
     clients: HashMap<ClientId, Client>,
     keys: KeyPair,
     password: Option<String>,
@@ -34,7 +35,7 @@ pub(crate) struct Server {
 
 impl Server {
     pub(crate) fn update(&mut self) -> anyhow::Result<()> {
-        let mut buf = Vec::with_capacity(MAX_DATAGRAM_SIZE);
+        let mut buf = self.recv_buf.take().unwrap_or_else(|| Vec::new());
 
         for (_, c) in self.clients.iter_mut() {
             c.update(&mut buf)?;
@@ -48,6 +49,7 @@ impl Server {
             }
         }
 
+        self.recv_buf.replace(buf);
         Ok(())
     }
 
@@ -59,18 +61,15 @@ impl Server {
         self.exit_flag.store(true, Ordering::Release);
     }
 
-    pub fn local_address(&self) -> io::Result<SocketAddr> {
-        self.endpoint.socket().local_addr()
-    }
-
     pub fn new(cfg: &ServerConfig) -> Self {
         info!("Starting server...");
         let addr: SocketAddr = cfg.address.parse().expect("Invalid address!");
-        let endpoint = Endpoint::with_address(addr).expect("Unable to create server endpoint!");
+        let endpoint = NetEndpoint::with_address(addr).expect("Unable to create server endpoint!");
         let keys = KeyPair::new(cfg.key_bits).expect("Unable to create server key!");
-        info!("Server bound to {:?}", endpoint.socket().local_addr().expect("Unable to get server address!"));
+        info!("Server bound to {:?}", endpoint.local_addr().expect("Unable to get server address!"));
         Server {
-            endpoint,
+            endpoint: Box::new(endpoint),
+            recv_buf: Some(Vec::with_capacity(MAX_DATAGRAM_SIZE)),
             clients: HashMap::new(),
             keys,
             password: cfg.password.to_owned(),
@@ -97,8 +96,8 @@ impl Server {
         }
         match self.clients.entry(key) {
             Entry::Vacant(v) => {
-                let endpoint = self.endpoint.try_clone()?;
-                endpoint.connect(addr)?;
+                let endpoint = self.endpoint.try_clone_and_connect(addr)?;
+                //endpoint.connect(addr)?;
                 let client = v.insert(Client::new(name, endpoint));
                 client.send(&Message::Accepted).map(|_| ())
             }
@@ -135,13 +134,23 @@ impl Server {
     }
 
     pub fn listen(&mut self, buf: &mut Vec<u8>) -> anyhow::Result<()> {
-        buf.resize(MAX_DATAGRAM_SIZE, 0);
-        if let Some((amount, addr)) = self.endpoint.receive(buf)? {
-            buf.truncate(amount);
-            info!("Got {:?} bytes from {:?}", amount, addr);
-            process_messages(buf.as_slice(), |m| self.process_message(m, &addr))?;
+        loop {
+            match self.endpoint.receive_data(buf.as_mut()) {
+                Ok(Some(mut data)) => {
+                    let addr = data.addr;
+                    while let Some(ref m) = data.read() {
+                        self.process_message(m, &addr).unwrap();
+                    }
+                }
+                Ok(None) => {
+                    break;
+                }
+                Err(e) => {
+                    error!("Failed to receive from client: {:?}", e);
+                    break;
+                }
+            }
         }
-        buf.resize(MAX_DATAGRAM_SIZE, 0);
         Ok(())
     }
 }

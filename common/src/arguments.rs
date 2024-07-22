@@ -1,9 +1,9 @@
 use std::env;
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct Arguments {
     dedicated: bool,
-    windowed: bool
+    windowed: bool,
 }
 
 impl Arguments {
@@ -31,7 +31,7 @@ impl Arguments {
         let windowed = Self::has_option(&args, "--windowed") || Self::has_option(&args, "-W");
         Arguments {
             dedicated,
-            windowed
+            windowed,
         }
     }
 }

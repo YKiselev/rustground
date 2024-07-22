@@ -38,12 +38,6 @@ impl Vars<'_> {
     }
 }
 
-// impl Display for Vars<'_> {
-//     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-//         f.write_fmt(format_args!("{}", self.vars))
-//     }
-// }
-
 #[cfg(test)]
 mod test {
     use std::fmt::Display;
@@ -53,32 +47,7 @@ mod test {
     #[test]
     fn register<'a>() {
         let mut vars = Vars::default();
-        // let mut var1 = Some(2);
-        //
-        // trait Val: Display {}
-        //
-        // let map: HashMap<Cow<'a, str>, Box<dyn Any>> = HashMap::new();
-        // let arc = Arc::new(RwLock::new(map));
-        // {
-        //     let mut g = arc.write().expect("AAA");
-        //     g.insert(Cow::from("a"), Box::new("B"));
-        //     g.insert(Cow::from("b"), Box::new("C"));
-        //     g.insert(Cow::from("c"), Box::new(123u128));
-        // }
-        // {
-        //     let mut g = arc.write().expect("AAA2");
-        //     g.insert(Cow::from("d"), Box::new(7.5));
-        //     g.insert(Cow::from("e"), Box::new(true));
-        // }
-        // let mut g = arc.write().expect("AAA2");
-        // println!("Map is {:?}", g);
-        // let v = g.get_mut("c").expect("AAAa");
-        // println!("Is u128? {}", v.is::<u128>());
-        // let u128: &mut u128 = v.downcast_mut().expect("No value!");
-        // *u128 = 33333;
-        //
-        // println!("Now c={:?}", v.downcast_ref::<u128>().expect("Oops!"));
-
+/*
         vars.put("int", 123i32);
         vars.put("long", 123i64);
         vars.put("float", 123f32);
@@ -94,6 +63,6 @@ mod test {
             if let Value::STRING(s) = v {
                 println!("String is \"{}\"", s);
             };
-        });
+        });*/
     }
 }

@@ -6,26 +6,28 @@ use std::io::Read;
 use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
 use std::time::{Duration, Instant};
 
+use bitcode::__private::View;
 use log::{error, info, warn};
 use rsa::pkcs8::DecodePublicKey;
 use rsa::RsaPublicKey;
 
 use common::arguments::Arguments;
 
-use crate::client::pub_key::PublicKey;
-use crate::net::{Endpoint, MAX_DATAGRAM_SIZE, Message, process_messages};
+use crate::app::App;
+use crate::client::cl_pub_key::PublicKey;
+use crate::net::{Endpoint, MAX_DATAGRAM_SIZE, Message, NetEndpoint};
 use crate::net::Message::{Accepted, Hello, Ping, Pong, ServerInfo};
 
-trait ClientState {
-    // DISCONNECTED,
-    // CONNECTING,
-    // CONNECTED,
-
+enum ClientState {
+    DISCONNECTED,
+    CONNECTING,
+    CONNECTED,
 }
 
 pub(crate) struct Client {
-    endpoint: Endpoint,
-    server_addr: SocketAddr,
+    endpoint: Box<dyn Endpoint>,
+    recv_buf: Option<Vec<u8>>,
+    server_addr: Option<SocketAddr>,
     server_key: Option<PublicKey>,
     state: ClientState,
     last_seen: Option<Instant>,
@@ -61,7 +63,7 @@ impl Client {
                 self.send_connect_message();
             }
             Pong { time } => {
-                info!("Ping to server is {:.6} sec.", Instant::now().elapsed().as_secs_f64() - time);
+                info!("Ping to server is {:.2} ms.", 1000.0 * (Instant::now().elapsed().as_secs_f64() - time));
             }
             Ping { time } => {
                 self.send(&Pong { time: *time });
@@ -74,24 +76,25 @@ impl Client {
     }
 
     fn receive_from_server(&mut self) {
-        let mut buf: Vec<u8> = Vec::with_capacity(MAX_DATAGRAM_SIZE);
-        buf.resize(MAX_DATAGRAM_SIZE, 0);
-        match self.endpoint.receive(&mut buf) {
-            Ok(Some((amount, addr))) => {
-                if self.server_addr != addr {
-                    info!("Ignored message from {addr:?}");
-                    return;
+        let mut buf = self.recv_buf.take().unwrap_or_else(|| Vec::new());
+        loop {
+            match self.endpoint.receive_data(buf.as_mut()) {
+                Ok(Some(mut data)) => {
+                    while let Some(ref m) = data.read() {
+                        self.process_message(m).unwrap();
+                    }
                 }
-                info!("Handling server message ({amount} bytes) from {addr:?}");
-                self.last_seen = Some(Instant::now());
-                buf.truncate(amount);
-                process_messages(buf.as_slice(), |m| self.process_message(m)).unwrap();
-            }
-            Ok(None) => {}
-            Err(ref e) => {
-                error!("Failed to receive from server: {e:?}");
+
+                Ok(None) => {
+                    break;
+                }
+                Err(e) => {
+                    error!("Failed to receive from server: {e:?}");
+                    break;
+                }
             }
         }
+        self.recv_buf.replace(buf);
     }
 
     fn send_connect_message(&mut self) {
@@ -101,6 +104,10 @@ impl Client {
             name: "Test",
             password: encoded,
         })
+    }
+
+    fn is_time_to_resend(&self) -> bool {
+        Self::CONN_RETRY_INTERVAL <= self.last_send.map_or_else(|| Self::CONN_RETRY_INTERVAL, |v| v.elapsed())
     }
 
     pub(crate) fn frame_start(&mut self) {
@@ -114,23 +121,20 @@ impl Client {
 
     pub(crate) fn update(&mut self) {
         self.receive_from_server();
-        let elapsed = self.last_send.map_or_else(|| Self::CONN_RETRY_INTERVAL, |v| v.elapsed());
-        match self.state {
-            ClientState::DISCONNECTED => {
-                self.send(&Hello);
-                self.state = ClientState::CONNECTING;
-            }
-            ClientState::CONNECTING => {
-                if elapsed >= Self::CONN_RETRY_INTERVAL {
+        if self.is_time_to_resend() {
+            match self.state {
+                ClientState::DISCONNECTED => {
+                    self.send(&Hello);
+                    self.state = ClientState::CONNECTING;
+                }
+                ClientState::CONNECTING => {
                     if !self.server_key.is_some() {
                         self.send(&Hello);
                     } else {
                         self.send_connect_message();
                     };
                 }
-            }
-            ClientState::CONNECTED => {
-                if elapsed >= Duration::from_secs(2) {
+                ClientState::CONNECTED => {
                     for i in 0..10 {
                         self.send(&Ping { time: Instant::now().elapsed().as_secs_f64() });
                     }
@@ -143,13 +147,14 @@ impl Client {
         self.endpoint.flush().expect("Flush failed!");
     }
 
-    pub(crate) fn new(args: &Arguments, server_addr: SocketAddr) -> Self {
+    pub(crate) fn new(app: &mut App) -> Self {
         info!("Starting client...");
-        let endpoint = Endpoint::new().expect("Unable to create client socket!");
-        endpoint.connect(&server_addr).expect("Unable to set server address on client socket!");
+        let endpoint = NetEndpoint::new().expect("Unable to create client socket!");
+        //endpoint.connect(&server_addr).expect("Unable to set server address on client socket!");
         Client {
-            endpoint,
-            server_addr,
+            endpoint: Box::new(endpoint),
+            recv_buf: Some(Vec::with_capacity(MAX_DATAGRAM_SIZE)),
+            server_addr: None,
             server_key: None,
             state: ClientState::DISCONNECTED,
             last_seen: None,

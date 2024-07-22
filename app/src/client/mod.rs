@@ -1,4 +1,4 @@
 pub mod client;
-mod pub_key;
+mod cl_pub_key;
 
 pub(crate) use client::Client;

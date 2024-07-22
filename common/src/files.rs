@@ -8,7 +8,9 @@ use log::{debug, error, info, warn};
 
 use crate::arguments::Arguments;
 
-trait Files22 {}
+pub trait Files {
+    fn open<S: AsRef<str>>(&mut self, path: S) -> Option<File>;
+}
 
 struct FileRoot {
     readonly: bool,
@@ -51,11 +53,11 @@ impl Display for FileRoot {
 }
 
 
-pub struct Files {
+pub struct AppFiles {
     roots: Vec<FileRoot>,
 }
 
-impl Files {
+impl AppFiles {
     pub fn new(args: &Arguments) -> Self {
         let current_dir = env::current_dir().unwrap_or(PathBuf::from("."));
         let mut folders: Vec<PathBuf> = Vec::new();
@@ -83,12 +85,14 @@ impl Files {
             .map(Result::unwrap)
             .collect();
 
-        Files {
+        AppFiles {
             roots
         }
     }
+}
 
-    pub fn open(&mut self, path: &str) -> Option<File> {
-        self.roots.iter_mut().find_map(|r| r.open(path))
+impl Files for AppFiles {
+    fn open<S: AsRef<str>>(&mut self, path: S) -> Option<File> {
+        self.roots.iter_mut().find_map(|r| r.open(path.as_ref()))
     }
 }

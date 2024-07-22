@@ -1,4 +1,4 @@
-use std::fmt::Write;
+use std::collections::VecDeque;
 use std::sync::{Arc, RwLock};
 
 use anyhow::Error;
@@ -13,11 +13,12 @@ use log4rs::encode::pattern::PatternEncoder;
 
 #[derive(Debug)]
 pub(crate) struct AppLogger {
-    buffer: Arc<RwLock<String>>,
+    max_size: usize,
+    buffer: Arc<RwLock<VecDeque<String>>>,
 }
 
 pub(crate) struct AppLoggerBuffer {
-    buffer: Arc<RwLock<String>>,
+    buffer: Arc<RwLock<VecDeque<String>>>,
 }
 
 pub(crate) fn init() -> Result<AppLoggerBuffer, Error> {
@@ -25,9 +26,10 @@ pub(crate) fn init() -> Result<AppLoggerBuffer, Error> {
     let file = FileAppender::builder()
         .encoder(Box::new(PatternEncoder::new("{d} - {m}{n}")))
         .build("app.log")?;
-    let buf = Arc::new(RwLock::new(String::new()));
+    let buf = Arc::new(RwLock::new(VecDeque::new()));
     let logger = AppLogger {
-        buffer: buf.clone()
+        max_size: 100,
+        buffer: buf.clone(),
     };
     let config = Config::builder()
         .appender(Appender::builder().build("stdout", Box::new(stdout)))
@@ -50,18 +52,22 @@ pub(crate) fn init() -> Result<AppLoggerBuffer, Error> {
 impl Append for AppLogger {
     fn append(&self, record: &Record) -> anyhow::Result<()> {
         let mut guard = self.buffer.write().unwrap();
-        write!(guard, "{} - {}", record.level(), record.args()).map_err(anyhow::Error::from)
+        let line = format!("{} - {}", record.level(), record.args());
+        while guard.len() >= self.max_size {
+            guard.pop_front();
+        }
+        guard.push_back(line);
+        Ok(())
     }
 
     fn flush(&self) {}
 }
 
 impl AppLoggerBuffer {
-    pub(crate) fn update(&self) {
+    pub(crate) fn iterate<F>(&self, handler: F)
+        where F: FnMut(&String) -> ()
+    {
         let mut guard = self.buffer.write().unwrap();
-        if !guard.is_empty() {
-            println!("Got record: {}", guard.as_str());
-            guard.clear();
-        }
+        guard.iter().for_each(handler);
     }
 }

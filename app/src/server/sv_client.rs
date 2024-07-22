@@ -1,20 +1,20 @@
 use std::io::ErrorKind::UnexpectedEof;
 use std::time::Instant;
 
-use log::info;
+use log::{error, info};
 
-use crate::net::{Endpoint, MAX_DATAGRAM_SIZE, Message, process_messages};
+use crate::net::{Endpoint, MAX_DATAGRAM_SIZE, Message, NetEndpoint};
 use crate::net::Message::{Ping, Pong};
 
 #[derive(Debug)]
 pub struct Client {
     name: String,
     last_seen: Instant,
-    endpoint: Endpoint,
+    endpoint: Box<dyn Endpoint + Sync + Send>,
 }
 
 impl Client {
-    pub fn new(name: &str, endpoint: Endpoint) -> Self {
+    pub fn new(name: &str, endpoint: Box<dyn Endpoint + Sync + Send>) -> Self {
         Client {
             name: name.to_string(),
             last_seen: Instant::now(),
@@ -62,15 +62,21 @@ impl Client {
     pub(crate) fn update(&mut self, buf: &mut Vec<u8>) -> anyhow::Result<()> {
         self.clear_buffers();
         loop {
-            //let mut buf = Vec::with_capacity(MAX_DATAGRAM_SIZE);
-            buf.resize(MAX_DATAGRAM_SIZE, 0);
-            if let Some((amount, addr)) = self.endpoint.receive(buf)? {
-                buf.truncate(amount);
-                self.last_seen = Instant::now();
-                info!("Got {:?} bytes from {:?}", amount, addr);
-                process_messages(&buf, |m| self.process_message(m))?;
-            } else {
-                break;
+            match self.endpoint.receive_data(buf.as_mut()) {
+                Ok(Some(mut data)) => {
+                    self.last_seen = Instant::now();
+                    while let Some(ref m) = data.read() {
+                        self.process_message(m)?;
+                    }
+                }
+
+                Ok(None) => {
+                    break;
+                }
+                Err(e) => {
+                    error!("Failed to receive from client: {e:?}");
+                    break;
+                }
             }
         }
         Ok(())

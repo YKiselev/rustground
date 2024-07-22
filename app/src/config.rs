@@ -3,6 +3,7 @@ use std::io::Read;
 use serde::Deserialize;
 
 use common::files;
+use common::files::Files;
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct Config {
@@ -21,7 +22,7 @@ pub(crate) struct ServerConfig {
 pub(crate) struct ClientConfig {}
 
 impl Config {
-    pub(crate) fn load(name: &str, files: &mut files::Files) -> Self {
+    pub(crate) fn load(name: &str, files: &mut files::AppFiles) -> Self {
         let mut cfg = files.open(name).expect("Unable to load config!");
         let mut tmp = String::new();
         let read = cfg.read_to_string(&mut tmp).expect("Unable to read from file!");
