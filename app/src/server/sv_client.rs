@@ -1,3 +1,4 @@
+use std::io;
 use std::io::ErrorKind::UnexpectedEof;
 use std::time::Instant;
 
@@ -26,7 +27,7 @@ impl Client {
         self.last_seen = Instant::now();
     }
 
-    pub(crate) fn send(&mut self, msg: &Message) -> anyhow::Result<usize> {
+    pub(crate) fn send(&mut self, msg: &Message) -> io::Result<usize> {
         self.endpoint.send(msg)
     }
 
@@ -34,7 +35,7 @@ impl Client {
         self.endpoint.clear_buffers();
     }
 
-    pub(crate) fn flush(&mut self) -> anyhow::Result<usize> {
+    pub(crate) fn flush(&mut self) -> io::Result<usize> {
         self.endpoint.flush()
     }
 

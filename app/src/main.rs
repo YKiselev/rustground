@@ -29,11 +29,7 @@ mod net;
 mod config;
 mod bit_code_test;
 mod app;
-mod app_state;
-mod as_single;
-mod as_multi;
-mod as_dedicated;
-mod as_init;
+mod state;
 
 /*
 fn run_client(args: &Arguments, cfg: &Config) -> anyhow::Result<()> {

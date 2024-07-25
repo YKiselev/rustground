@@ -1,5 +1,6 @@
 use std::cmp::min;
 use std::fmt::{Debug, Formatter};
+use std::io;
 use std::io::{Error, Write};
 use std::io::ErrorKind::WouldBlock;
 use std::net::{Ipv4Addr, SocketAddr, ToSocketAddrs, UdpSocket};
@@ -24,18 +25,19 @@ pub enum Message<'a> {
 
 
 pub(crate) trait Endpoint: Debug {
-    fn local_addr(&self) -> anyhow::Result<SocketAddr>;
-    fn peer_addr(&self) -> anyhow::Result<SocketAddr>;
+    fn connect(&self, addr: SocketAddr) -> io::Result<()>;
+    fn local_addr(&self) -> io::Result<SocketAddr>;
+    fn peer_addr(&self) -> io::Result<SocketAddr>;
     fn clear_buffers(&mut self);
-    fn take_error(&self) -> anyhow::Result<Option<Error>>;
-    fn flush(&mut self) -> anyhow::Result<usize>;
-    fn send_to(&mut self, msg: &Message, addr: &SocketAddr) -> anyhow::Result<usize>;
-    fn send(&mut self, msg: &Message) -> anyhow::Result<usize>;
-    fn receive_data<'a>(&mut self, buf: &'a mut Vec<u8>) -> anyhow::Result<Option<ReceivedData<'a>>>;
+    fn take_error(&self) -> io::Result<Option<Error>>;
+    fn flush(&mut self) -> io::Result<usize>;
+    fn send_to(&mut self, msg: &Message, addr: &SocketAddr) -> io::Result<usize>;
+    fn send(&mut self, msg: &Message) -> io::Result<usize>;
+    fn receive_data<'a>(&mut self, buf: &'a mut Vec<u8>) -> io::Result<Option<ReceivedData<'a>>>;
 }
 
 pub(crate) trait ServerEndpoint: Endpoint {
-    fn try_clone_and_connect(&self, addr: &SocketAddr) -> anyhow::Result<Box<dyn Endpoint + Sync + Send>>;
+    fn try_clone_and_connect(&self, addr: &SocketAddr) -> io::Result<Box<dyn Endpoint + Sync + Send>>;
 }
 
 pub struct NetEndpoint {
@@ -67,12 +69,12 @@ impl NetEndpoint {
         }
     }
 
-    pub fn with_address<A: ToSocketAddrs>(addr: A) -> anyhow::Result<Self> {
+    pub fn with_address<A: ToSocketAddrs>(addr: A) -> io::Result<Self> {
         let socket = UdpSocket::bind(addr)?;
         socket.set_nonblocking(true)?;
         Ok(Self::from_socket(socket))
     }
-    pub fn new() -> anyhow::Result<Self> {
+    pub fn new() -> io::Result<Self> {
         Self::with_address((Ipv4Addr::UNSPECIFIED, 0))
     }
 
@@ -84,7 +86,7 @@ impl NetEndpoint {
         self.scratch.len()
     }
 
-    fn flush_exact(&mut self, amount: usize) -> anyhow::Result<usize> {
+    fn flush_exact(&mut self, amount: usize) -> io::Result<usize> {
         let buf = &mut self.send_buf;
         assert!(amount <= buf.len());
         assert!(amount <= MAX_DATAGRAM_SIZE);
@@ -99,7 +101,7 @@ impl NetEndpoint {
                     if e.kind() == WouldBlock {
                         std::thread::yield_now();
                     } else {
-                        return Err(anyhow::Error::from(e));
+                        return Err(e);
                     }
                 }
             }
@@ -109,42 +111,46 @@ impl NetEndpoint {
 }
 
 impl Endpoint for NetEndpoint {
-    fn local_addr(&self) -> anyhow::Result<SocketAddr> {
-        self.socket.local_addr().map_err(|e| anyhow::Error::from(e))
+    fn connect(&self, addr: SocketAddr) -> io::Result<()> {
+        self.socket.connect(addr)
     }
 
-    fn peer_addr(&self) -> anyhow::Result<SocketAddr> {
-        self.socket.peer_addr().map_err(|e| anyhow::Error::from(e))
+    fn local_addr(&self) -> io::Result<SocketAddr> {
+        self.socket.local_addr()
+    }
+
+    fn peer_addr(&self) -> io::Result<SocketAddr> {
+        self.socket.peer_addr()
     }
 
     fn clear_buffers(&mut self) {
         self.send_buf.clear();
     }
 
-    fn take_error(&self) -> anyhow::Result<Option<Error>> {
-        self.socket.take_error().map_err(|e| anyhow::Error::from(e))
+    fn take_error(&self) -> io::Result<Option<Error>> {
+        self.socket.take_error()
     }
 
-    fn flush(&mut self) -> anyhow::Result<usize> {
+    fn flush(&mut self) -> io::Result<usize> {
         let buf = &self.send_buf;
         assert!(buf.len() <= MAX_DATAGRAM_SIZE);
         self.flush_exact(min(buf.len(), MAX_DATAGRAM_SIZE))
     }
 
-    fn send_to(&mut self, msg: &Message, addr: &SocketAddr) -> anyhow::Result<usize> {
+    fn send_to(&mut self, msg: &Message, addr: &SocketAddr) -> io::Result<usize> {
         self.encode_to_scratch(msg);
-        Ok(self.socket.send_to(&self.scratch, addr).map_err(anyhow::Error::from)?)
+        self.socket.send_to(&self.scratch, addr)
     }
 
-    fn send(&mut self, msg: &Message) -> anyhow::Result<usize> {
+    fn send(&mut self, msg: &Message) -> io::Result<usize> {
         self.encode_to_scratch(msg);
         if self.send_buf.len() + self.scratch.len() >= MAX_DATAGRAM_SIZE {
             self.flush()?;
         }
-        self.send_buf.write(&self.scratch).map_err(|e| anyhow::Error::from(e))
+        self.send_buf.write(&self.scratch)
     }
 
-    fn receive_data<'a>(&mut self, buf: &'a mut Vec<u8>) -> anyhow::Result<Option<ReceivedData<'a>>> {
+    fn receive_data<'a>(&mut self, buf: &'a mut Vec<u8>) -> io::Result<Option<ReceivedData<'a>>> {
         buf.resize(MAX_DATAGRAM_SIZE, 0);
         match self.socket.recv_from(buf.as_mut_slice()) {
             Ok((amount, addr)) => {
@@ -156,16 +162,16 @@ impl Endpoint for NetEndpoint {
             Err(e) => return if e.kind() == WouldBlock {
                 Ok(None) // no data yet
             } else {
-                Err(anyhow::Error::from(e))
+                Err(e)
             }
         }
     }
 }
 
 impl ServerEndpoint for NetEndpoint {
-    fn try_clone_and_connect(&self, addr: &SocketAddr) -> anyhow::Result<Box<dyn Endpoint + Sync + Send>> {
+    fn try_clone_and_connect(&self, addr: &SocketAddr) -> io::Result<Box<dyn Endpoint + Sync + Send>> {
         let socket = self.socket.try_clone()?;
-        self.socket.connect(addr)?;//.map_err(|e| anyhow::Error::from(e))?;
+        self.socket.connect(addr)?;
         Ok(Box::new(Self::from_socket(socket)))
     }
 }

@@ -1,5 +1,7 @@
 use io::ErrorKind::WouldBlock;
 use std::borrow::Cow;
+use std::error::Error;
+use std::fmt::format;
 use std::io;
 use std::io::ErrorKind::UnexpectedEof;
 use std::io::Read;
@@ -18,7 +20,9 @@ use crate::client::cl_pub_key::PublicKey;
 use crate::net::{Endpoint, MAX_DATAGRAM_SIZE, Message, NetEndpoint};
 use crate::net::Message::{Accepted, Hello, Ping, Pong, ServerInfo};
 
+#[derive(Eq, PartialEq)]
 enum ClientState {
+    INIT,
     DISCONNECTED,
     CONNECTING,
     CONNECTED,
@@ -119,10 +123,23 @@ impl Client {
         }
     }
 
-    pub(crate) fn update(&mut self) {
+    pub(crate) fn update(&mut self, app: &mut App) {
         self.receive_from_server();
         if self.is_time_to_resend() {
             match self.state {
+                ClientState::INIT => {
+                    if let Ok(addr) = app.get_var("server_address") {
+                        match self.endpoint.connect(addr) {
+                            Ok(_) => {
+                                info!("Client socket connected to {}", addr);
+                                self.state = ClientState::DISCONNECTED;
+                            }
+                            Err(e) => {
+                                error!("Unable to connect socket: {}", e);
+                            }
+                        }
+                    }
+                }
                 ClientState::DISCONNECTED => {
                     self.send(&Hello);
                     self.state = ClientState::CONNECTING;
@@ -144,7 +161,11 @@ impl Client {
     }
 
     pub(crate) fn frame_end(&mut self) {
-        self.endpoint.flush().expect("Flush failed!");
+        if let Err(e) = self.endpoint.flush() {
+            if self.state == ClientState::INIT {
+                error!("Flush failed: {}", e);
+            }
+        }
     }
 
     pub(crate) fn new(app: &mut App) -> Self {
@@ -156,7 +177,7 @@ impl Client {
             recv_buf: Some(Vec::with_capacity(MAX_DATAGRAM_SIZE)),
             server_addr: None,
             server_key: None,
-            state: ClientState::DISCONNECTED,
+            state: ClientState::INIT,
             last_seen: None,
             last_send: None,
         }

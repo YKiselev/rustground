@@ -16,6 +16,7 @@ use rsa::traits::PublicKeyParts;
 
 use common::arguments::Arguments;
 
+use crate::app::App;
 use crate::config::{Config, ServerConfig};
 use crate::net::{Endpoint, MAX_DATAGRAM_SIZE, Message, NetEndpoint, ServerEndpoint};
 use crate::server::key_pair::KeyPair;
@@ -61,18 +62,22 @@ impl Server {
         self.exit_flag.store(true, Ordering::Release);
     }
 
-    pub fn new(cfg: &ServerConfig) -> Self {
+    pub fn new(app: &mut App) -> Self {
         info!("Starting server...");
+        let cfg = &app.config().server;
         let addr: SocketAddr = cfg.address.parse().expect("Invalid address!");
         let endpoint = NetEndpoint::with_address(addr).expect("Unable to create server endpoint!");
         let keys = KeyPair::new(cfg.key_bits).expect("Unable to create server key!");
-        info!("Server bound to {:?}", endpoint.local_addr().expect("Unable to get server address!"));
+        let password = cfg.password.to_owned();
+        let server_address = endpoint.local_addr().expect("Unable to get server address!");
+        info!("Server bound to {:?}", server_address);
+        app.set_var("server_address", server_address);
         Server {
             endpoint: Box::new(endpoint),
             recv_buf: Some(Vec::with_capacity(MAX_DATAGRAM_SIZE)),
             clients: HashMap::new(),
             keys,
-            password: cfg.password.to_owned(),
+            password,
             exit_flag: AtomicBool::new(false),
         }
     }
@@ -99,7 +104,7 @@ impl Server {
                 let endpoint = self.endpoint.try_clone_and_connect(addr)?;
                 //endpoint.connect(addr)?;
                 let client = v.insert(Client::new(name, endpoint));
-                client.send(&Message::Accepted).map(|_| ())
+                client.send(&Message::Accepted).map(|_| ()).map_err(|e| anyhow::Error::from(e))
             }
             Entry::Occupied(ref mut o) => {
                 o.get_mut().touch();

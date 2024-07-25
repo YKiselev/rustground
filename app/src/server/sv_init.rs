@@ -3,11 +3,12 @@ use std::thread;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 use log::{info, warn};
+use crate::app::App;
 use crate::config::ServerConfig;
 use crate::server::Server;
 
-pub(crate) fn server_init(cfg: &ServerConfig) -> anyhow::Result<(Arc<RwLock<Server>>, JoinHandle<()>)> {
-    let server = Arc::new(RwLock::new(Server::new(cfg)));
+pub(crate) fn server_init(app: &mut App) -> anyhow::Result<(Arc<RwLock<Server>>, JoinHandle<()>)> {
+    let server = Arc::new(RwLock::new(Server::new(app)));
     let sv_clone = server.clone();
     let handle = thread::Builder::new()
         .name("server-thread".to_string())
