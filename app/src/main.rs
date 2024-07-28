@@ -1,5 +1,6 @@
 extern crate core;
 
+use std::collections::HashSet;
 use std::io::Read;
 use std::ops::DerefMut;
 use std::process::exit;
@@ -14,7 +15,8 @@ use log::{error, info, LevelFilter, warn};
 use rsa::signature::digest::Digest;
 
 use common::arguments::Arguments;
-use common::files;
+use common::{files, VarBag};
+use crate::app::TestVars;
 
 use crate::bit_code_test::test_bitcode;
 use crate::client::Client;
@@ -31,42 +33,18 @@ mod bit_code_test;
 mod app;
 mod state;
 
-/*
-fn run_client(args: &Arguments, cfg: &Config) -> anyhow::Result<()> {
-    let (server, sv_handle) = server_init(&cfg.server)?;
-    // debug
-    let server_addr = server.read().unwrap().local_address()?;
-    let mut client = Client::new(&args, server_addr);
-
-    info!("Entering main loop...");
-    let exit_flag = AtomicBool::new(false);
-    let started_at = Instant::now();
-    while !exit_flag.load(Ordering::Relaxed) {
-        client.frame_start();
-
-        client.update();
-
-        thread::sleep(Duration::from_millis(5));
-        //logger_buf.update();
-        if started_at.elapsed() > Duration::from_secs(7) {
-            exit_flag.store(true, Ordering::Release);
-        }
-        client.frame_end();
-    }
-    server.write().unwrap().shutdown();
-    sv_handle.join().unwrap();
-
-    Ok(())
-}
-*/
 fn main() -> anyhow::Result<()> {
     let logger_buf = app_logger::init().unwrap();
     info!("Begin initialization...");
 
+    let v = TestVars::default();
+    let mut names = HashSet::new();
+    let f : Option<Box<dyn VarBag>> = None;
+    v.get_names(&mut names);
+    info!("Structure fields are: {:?}", names);
+
     let args = Arguments::parse();
     let mut app = app::App::new(&args);
-    app.run()
-    //let files = Arc::new(RwLock::new(files::AppFiles::new(&args)));
-    //let cfg = Config::load("config.toml", files.write().unwrap().deref_mut());
-    //info!("Loaded config: {cfg:?}");
+    //app.run()
+    Ok(())
 }

@@ -1,9 +1,17 @@
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 use std::sync::atomic::AtomicBool;
+
+pub trait VarBag {
+    fn get_names(&self, result: &mut HashSet<String>);
+
+    //fn get(name: &str) -> Option<String>;
+
+    //fn set(name: &str) -> Result<(), NoSuchVariableError>;
+}
 
 type Key<'a> = Cow<'a, str>;
 
@@ -20,6 +28,9 @@ pub struct Vars<'a> {
 
 #[derive(Debug, PartialEq, Eq)]
 struct RegisterError;
+
+#[derive(Debug, PartialEq, Eq, Ord, PartialOrd, Copy, Clone)]
+struct NoSuchVariableError;
 
 impl Vars<'_> {
     pub fn put<V: Into<Value>>(&mut self, name: &str, value: V) {
@@ -42,27 +53,27 @@ impl Vars<'_> {
 mod test {
     use std::fmt::Display;
 
-    use crate::vars::{Value, Vars};
+    use crate::vars::Vars;
 
     #[test]
     fn register<'a>() {
         let mut vars = Vars::default();
-/*
-        vars.put("int", 123i32);
-        vars.put("long", 123i64);
-        vars.put("float", 123f32);
-        vars.put("double", 123f64);
-        vars.put("string", "hello");
-        println!("Map is {:?}", vars.vars);
-        println!("int={:?}", vars.get::<i32>("int"));
-        println!("long={:?}", vars.get::<i64>("long"));
-        println!("float={:?}", vars.get::<f32>("float"));
-        println!("double={:?}", vars.get::<f64>("double"));
-        //println!("string={:?}", vars.get::<String>("string"));
-        let res = vars.inspect("string", |v| {
-            if let Value::STRING(s) = v {
-                println!("String is \"{}\"", s);
-            };
-        });*/
+        /*
+                vars.put("int", 123i32);
+                vars.put("long", 123i64);
+                vars.put("float", 123f32);
+                vars.put("double", 123f64);
+                vars.put("string", "hello");
+                println!("Map is {:?}", vars.vars);
+                println!("int={:?}", vars.get::<i32>("int"));
+                println!("long={:?}", vars.get::<i64>("long"));
+                println!("float={:?}", vars.get::<f32>("float"));
+                println!("double={:?}", vars.get::<f64>("double"));
+                //println!("string={:?}", vars.get::<String>("string"));
+                let res = vars.inspect("string", |v| {
+                    if let Value::STRING(s) = v {
+                        println!("String is \"{}\"", s);
+                    };
+                });*/
     }
 }

@@ -1,4 +1,4 @@
 [workspace]
 resolver = "2"
-members = ["app", "common"]
+members = ["app", "common", "math", "rg-macros"]
 
