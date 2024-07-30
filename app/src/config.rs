@@ -2,8 +2,8 @@ use std::io::Read;
 
 use serde::Deserialize;
 
-use common::files;
-use common::files::Files;
+use rg_common::files;
+use rg_common::files::Files;
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct Config {

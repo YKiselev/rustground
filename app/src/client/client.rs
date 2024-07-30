@@ -13,7 +13,7 @@ use log::{error, info, warn};
 use rsa::pkcs8::DecodePublicKey;
 use rsa::RsaPublicKey;
 
-use common::arguments::Arguments;
+use rg_common::arguments::Arguments;
 
 use crate::app::App;
 use crate::client::cl_pub_key::PublicKey;

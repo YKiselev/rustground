@@ -6,7 +6,7 @@ use std::sync::{Arc, RwLock};
 use std::sync::atomic::AtomicBool;
 
 pub trait VarBag {
-    fn get_names(&self, result: &mut HashSet<String>);
+    fn get_names(&self) -> HashSet<String>;
 
     //fn get(name: &str) -> Option<String>;
 
@@ -53,7 +53,24 @@ impl Vars<'_> {
 mod test {
     use std::fmt::Display;
 
+    use rg_macros::VarBag;
+
+    use crate::VarBag;
     use crate::vars::Vars;
+
+    #[derive(VarBag, Default)]
+    pub(crate) struct TestVars {
+        pub(crate) counter: i32,
+        pub(crate) flag: bool,
+        pub(crate) name: String,
+    }
+
+    #[test]
+    fn var_bag() {
+        let v = TestVars::default();
+        let names = v.get_names();
+        assert_eq!(names, ["counter", "flag", "name"].iter().map(|e| e.to_string()).collect());
+    }
 
     #[test]
     fn register<'a>() {

@@ -8,39 +8,20 @@ pub fn var_bag(input: TokenStream) -> TokenStream {
     let struct_identifier = &input.ident;
     match &input.data {
         Data::Struct(syn::DataStruct { fields, .. }) => {
-            let mut ts = quote!{
-            };
-
-            for field in fields {
-                let identifier = field.ident.as_ref().unwrap();
-                ts.extend(quote!{
-                    result.insert(stringify!(#identifier).to_string());
-                });
-            }
-
-            // let mut implementation = quote!{
-            //     let mut hash_map = std::collections::HashMap::<String, String>::new();
-            // };
-            //
-            // for field in fields {
-            //     let identifier = field.ident.as_ref().unwrap();
-            //     implementation.extend(quote!{
-            //         hash_map.insert(stringify!(#identifier).to_string(), String::from(value.#identifier));
-            //     });
-            // }
+            let field_identifiers = fields.iter()
+                .map(|f| f.ident.as_ref().unwrap())
+                .collect::<Vec<_>>();
 
             quote! {
                 #[automatically_derived]
-                impl common::VarBag for #struct_identifier {
-                    fn get_names(&self, result: &mut std::collections::HashSet<String>) {
-                        #ts
+                impl rg_common::VarBag for #struct_identifier {
+                    fn get_names(&self) -> std::collections::HashSet<String> {
+                        let mut result = std::collections::HashSet::new();
+                        #(
+                            result.insert(stringify!(#field_identifiers).to_string());
+                        )*
+                        result
                     }
-
-                    // fn from(value: #struct_identifier) -> Self {
-                    //     #implementation
-                    //
-                    //     hash_map
-                    // }
                 }
             }
         }

@@ -10,8 +10,8 @@ use std::time::{Duration, Instant};
 use anyhow::{anyhow, Error};
 use log::{error, info};
 
-use common::AppFiles;
-use common::arguments::Arguments;
+use rg_common::AppFiles;
+use rg_common::arguments::Arguments;
 use rg_macros::VarBag;
 
 use crate::config::Config;
@@ -51,13 +51,6 @@ pub(crate) struct App {
     config: Config,
     files: Arc<RwLock<AppFiles>>,
     vars: Arc<RwLock<HashMap<String, Value>>>,
-}
-
-#[derive(VarBag, Default)]
-pub(crate) struct TestVars {
-    pub(crate) counter: i32,
-    pub(crate) flag: bool,
-    pub(crate) name: String
 }
 
 impl App {

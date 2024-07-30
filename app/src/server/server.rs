@@ -14,7 +14,7 @@ use log::{error, info, warn};
 use rsa::RsaPublicKey;
 use rsa::traits::PublicKeyParts;
 
-use common::arguments::Arguments;
+use rg_common::arguments::Arguments;
 
 use crate::app::App;
 use crate::config::{Config, ServerConfig};

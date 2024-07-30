@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 log = "0.4.22"
 log4rs = "1.3.0"
-common = { path = "../common" }
+rg-common = { path = "../rg-common" }
 math = { path = "../math" }
 rg-macros = { path = "../rg-macros" }
 anyhow = "1.0.86"

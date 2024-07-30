@@ -29,11 +29,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bitcode",
- "common",
  "log",
  "log4rs",
  "math",
  "rand",
+ "rg-common",
  "rg-macros",
  "rsa",
  "serde",
@@ -135,14 +135,6 @@ dependencies = [
  "iana-time-zone",
  "num-traits",
  "windows-targets 0.52.5",
-]
-
-[[package]]
-name = "common"
-version = "0.1.0"
-dependencies = [
- "dirs",
- "log",
 ]
 
 [[package]]
@@ -610,6 +602,15 @@ dependencies = [
  "getrandom",
  "libredox",
  "thiserror",
+]
+
+[[package]]
+name = "rg-common"
+version = "0.1.0"
+dependencies = [
+ "dirs",
+ "log",
+ "rg-macros",
 ]
 
 [[package]]

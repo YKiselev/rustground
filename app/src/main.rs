@@ -14,9 +14,8 @@ use std::time::{Duration, Instant};
 use log::{error, info, LevelFilter, warn};
 use rsa::signature::digest::Digest;
 
-use common::arguments::Arguments;
-use common::{files, VarBag};
-use crate::app::TestVars;
+use rg_common::arguments::Arguments;
+use rg_common::{files, VarBag};
 
 use crate::bit_code_test::test_bitcode;
 use crate::client::Client;
@@ -36,12 +35,6 @@ mod state;
 fn main() -> anyhow::Result<()> {
     let logger_buf = app_logger::init().unwrap();
     info!("Begin initialization...");
-
-    let v = TestVars::default();
-    let mut names = HashSet::new();
-    let f : Option<Box<dyn VarBag>> = None;
-    v.get_names(&mut names);
-    info!("Structure fields are: {:?}", names);
 
     let args = Arguments::parse();
     let mut app = app::App::new(&args);
