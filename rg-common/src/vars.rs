@@ -1,16 +1,22 @@
 use std::borrow::Cow;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fmt::Display;
 use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 use std::sync::atomic::AtomicBool;
 
+#[derive(Debug, Default)]
+pub struct VarInfo {
+    pub name: &'static str,
+    pub persisted: bool,
+}
+
 pub trait VarBag {
-    fn get_names(&self) -> HashSet<String>;
+    fn get_vars(&self) -> Vec<VarInfo>;
 
-    //fn get(name: &str) -> Option<String>;
+    fn try_get_var(&self, name: &str) -> Option<String>;
 
-    //fn set(name: &str) -> Result<(), NoSuchVariableError>;
+    fn try_set_var(&mut self, name: &str, value: &str) -> Result<(), NoSuchVariableError>;
 }
 
 type Key<'a> = Cow<'a, str>;
@@ -29,8 +35,8 @@ pub struct Vars<'a> {
 #[derive(Debug, PartialEq, Eq)]
 struct RegisterError;
 
-#[derive(Debug, PartialEq, Eq, Ord, PartialOrd, Copy, Clone)]
-struct NoSuchVariableError;
+#[derive(Debug, PartialEq, Eq, Ord, PartialOrd, Copy, Clone, Default)]
+pub struct NoSuchVariableError;
 
 impl Vars<'_> {
     pub fn put<V: Into<Value>>(&mut self, name: &str, value: V) {
@@ -51,46 +57,52 @@ impl Vars<'_> {
 
 #[cfg(test)]
 mod test {
+    use std::collections::HashMap;
     use std::fmt::Display;
 
     use rg_macros::VarBag;
 
-    use crate::VarBag;
-    use crate::vars::Vars;
+    use crate::vars::VarBag;
 
     #[derive(VarBag, Default)]
     pub(crate) struct TestVars {
         pub(crate) counter: i32,
+        #[transient]
         pub(crate) flag: bool,
         pub(crate) name: String,
     }
 
     #[test]
     fn var_bag() {
-        let v = TestVars::default();
-        let names = v.get_names();
-        assert_eq!(names, ["counter", "flag", "name"].iter().map(|e| e.to_string()).collect());
-    }
+        let mut v = TestVars {
+            flag: false,
+            counter: 123,
+            name: "some name".to_string(),
+        };
+        let infos = v.get_vars()
+            .into_iter()
+            .map(|v| (v.name, v))
+            .collect::<HashMap<_, _>>();
+        //dbg!(infos);
 
-    #[test]
-    fn register<'a>() {
-        let mut vars = Vars::default();
-        /*
-                vars.put("int", 123i32);
-                vars.put("long", 123i64);
-                vars.put("float", 123f32);
-                vars.put("double", 123f64);
-                vars.put("string", "hello");
-                println!("Map is {:?}", vars.vars);
-                println!("int={:?}", vars.get::<i32>("int"));
-                println!("long={:?}", vars.get::<i64>("long"));
-                println!("float={:?}", vars.get::<f32>("float"));
-                println!("double={:?}", vars.get::<f64>("double"));
-                //println!("string={:?}", vars.get::<String>("string"));
-                let res = vars.inspect("string", |v| {
-                    if let Value::STRING(s) = v {
-                        println!("String is \"{}\"", s);
-                    };
-                });*/
+        let info = infos.get("flag").unwrap();
+        assert_eq!(false, info.persisted);
+        let info = infos.get("counter").unwrap();
+        assert_eq!(true, info.persisted);
+        let info = infos.get("name").unwrap();
+        assert_eq!(true, info.persisted);
+
+        assert_eq!("false", v.try_get_var("flag").unwrap());
+        assert_eq!("123", v.try_get_var("counter").unwrap());
+        assert_eq!("some name", v.try_get_var("name").unwrap());
+        assert_eq!(None, v.try_get_var("unknown"));
+
+        v.try_set_var("flag", "true").unwrap();
+        v.try_set_var("name", "New name").unwrap();
+        v.try_set_var("counter", "321").unwrap();
+
+        assert_eq!("true", v.try_get_var("flag").unwrap());
+        assert_eq!("321", v.try_get_var("counter").unwrap());
+        assert_eq!("New name", v.try_get_var("name").unwrap());
     }
 }
