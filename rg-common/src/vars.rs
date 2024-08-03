@@ -3,7 +3,10 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex};
+
+use crate::VariableError::NotFound;
+use crate::vars::VarRegistryError::{BadName, VarError};
 
 #[derive(Debug, Default)]
 pub struct VarInfo {
@@ -21,12 +24,12 @@ pub trait VarBag {
 
 #[derive(Default)]
 pub struct VarRegistry {
-    name2type: HashMap<String, TypeId>,
+    name2type: HashMap<String, Arc<Mutex<dyn VarBag + Send + Sync>>>,
     data: HashMap<TypeId, Arc<dyn Any + Send + Sync>>,
 }
 
 impl VarRegistry {
-    pub fn register<T: VarBag + Send + 'static>(&mut self, name: &str, value: Arc<Mutex<T>>) -> Result<(), VarRegistryError> {
+    pub fn register<T: VarBag + Send + Sync + 'static>(&mut self, name: &str, value: &Arc<Mutex<T>>) -> Result<(), VarRegistryError> {
         let id = TypeId::of::<T>();
         if self.data.contains_key(&id) {
             return Err(VarRegistryError::TypeClash);
@@ -35,26 +38,41 @@ impl VarRegistry {
         if self.name2type.contains_key(&owned_name) {
             return Err(VarRegistryError::NameClash);
         }
-        self.data.insert(id, value);
-        self.name2type.insert(owned_name, id);
+        self.data.insert(id, value.clone());
+        self.name2type.insert(owned_name, value.clone());
         Ok(())
     }
 
-    pub fn get<T: VarBag + Send + 'static>(&self) -> Option<Arc<Mutex<T>>> {
+    pub fn get<T: VarBag + Send + 'static>(&self) -> Option<&Mutex<T>> {
         match self.data.get(&TypeId::of::<T>()) {
             None => None,
             Some(arc) => {
-                Some(arc.clone().downcast::<Mutex<T>>().unwrap())
+                arc.downcast_ref::<Mutex<T>>()
             }
         }
     }
 
-    pub fn get2<T: VarBag + Send + 'static>(&self) -> Option<&Mutex<T>> {
-        match self.data.get(&TypeId::of::<T>()) {
-            None => None,
-            Some(arc) => {
-                Some(arc.downcast_ref::<Mutex<T>>().unwrap())
-            }
+    pub fn try_get_value(&self, name: &str) -> Option<String> {
+        let mut sp = name.split("::");
+        let bag = sp.next()?;
+        let var_name = sp.next()?;
+        if sp.next().is_none() {
+            let mutex = self.name2type.get(bag)?;
+            mutex.lock().unwrap().try_get_var(var_name)
+        } else {
+            None
+        }
+    }
+
+    pub fn try_set_value(&self, name: &str, value: &str) -> Result<(), VarRegistryError> {
+        let mut sp = name.split("::");
+        let bag = sp.next().ok_or(BadName)?;
+        let var_name = sp.next().ok_or(BadName)?;
+        if sp.next().is_none() {
+            let mutex = self.name2type.get(bag).ok_or(VarError(NotFound))?;
+            mutex.lock().unwrap().try_set_var(var_name, value).map_err(|e| VarError(e))
+        } else {
+            Err(BadName)
         }
     }
 }
@@ -63,6 +81,8 @@ impl VarRegistry {
 enum VarRegistryError {
     TypeClash,
     NameClash,
+    BadName,
+    VarError(VariableError),
 }
 
 impl Display for VarRegistryError {
@@ -73,6 +93,12 @@ impl Display for VarRegistryError {
             }
             VarRegistryError::NameClash => {
                 write!(f, "Name already used!")
+            }
+            BadName => {
+                write!(f, "Bad name!")
+            }
+            VarError(e) => {
+                write!(f, "Variable error: {:?}!", e)
             }
         }
     }
@@ -119,6 +145,7 @@ mod test {
         #[transient]
         pub(crate) flag: bool,
         pub(crate) name: String,
+        pub(crate) speed: f64,
     }
 
     #[derive(VarBag, Default)]
@@ -132,6 +159,7 @@ mod test {
             flag: false,
             counter: 123,
             name: "some name".to_string(),
+            speed: 345.466,
         };
         let infos = v.get_vars()
             .into_iter()
@@ -166,21 +194,21 @@ mod test {
             counter: 123,
             flag: false,
             name: "my name".to_string(),
+            speed: 234.567,
         }));
-        let r = reg.register("a", a.clone());
+        let r = reg.register("a", &a);
         assert_eq!(r, Ok(()));
 
         let b = Arc::new(Mutex::new(TestVars::default()));
-        let r = reg.register("b", b);
+        let r = reg.register("b", &b);
         assert_eq!(r, Err(VarRegistryError::TypeClash));
 
         let c = Arc::new(Mutex::new(MoreTestVars::default()));
-        let r = reg.register("a", c);
+        let r = reg.register("a", &c);
         assert_eq!(r, Err(VarRegistryError::NameClash));
 
         {
-            let binding = reg.get::<TestVars>().unwrap();
-            let a2 = binding.lock().unwrap();
+            let a2 = reg.get::<TestVars>().unwrap().lock().unwrap();
             assert_eq!("my name", a2.name);
             assert_eq!(123, a2.counter);
         }
@@ -190,9 +218,15 @@ mod test {
             ag.name = "altered name".to_string();
         }
         {
-            let a2 = reg.get2::<TestVars>().unwrap().lock().unwrap();
+            let a2 = reg.get::<TestVars>().unwrap().lock().unwrap();
             assert_eq!("altered name", a2.name);
             assert_eq!(1_000, a2.counter);
         }
+        assert_eq!("altered name", reg.try_get_value("a::name").unwrap());
+        assert_eq!("1000", reg.try_get_value("a::counter").unwrap());
+        assert_eq!("234.567", reg.try_get_value("a::speed").unwrap());
+
+        reg.try_set_value("a::speed", "3.14").unwrap();
+        assert_eq!("3.14", reg.try_get_value("a::speed").unwrap());
     }
 }
