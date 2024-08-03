@@ -1,9 +1,9 @@
-use std::borrow::Cow;
+use std::any::{Any, TypeId};
 use std::collections::HashMap;
-use std::fmt::Display;
+use std::error::Error;
+use std::fmt::{Display, Formatter};
 use std::str::FromStr;
-use std::sync::{Arc, RwLock};
-use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, Mutex, RwLock};
 
 #[derive(Debug, Default)]
 pub struct VarInfo {
@@ -16,53 +16,102 @@ pub trait VarBag {
 
     fn try_get_var(&self, name: &str) -> Option<String>;
 
-    fn try_set_var(&mut self, name: &str, value: &str) -> Result<(), NoSuchVariableError>;
-}
-
-type Key<'a> = Cow<'a, str>;
-
-#[derive(Debug)]
-enum Value {
-    BOOL(Arc<AtomicBool>),
-    STRING(Arc<RwLock<String>>),
+    fn try_set_var(&mut self, name: &str, value: &str) -> Result<(), VariableError>;
 }
 
 #[derive(Default)]
-pub struct Vars<'a> {
-    vars: RwLock<HashMap<Key<'a>, Value>>,
+pub struct VarRegistry {
+    name2type: HashMap<String, TypeId>,
+    data: HashMap<TypeId, Arc<dyn Any + Send + Sync>>,
+}
+
+impl VarRegistry {
+    pub fn register<T: VarBag + Send + 'static>(&mut self, name: &str, value: Arc<Mutex<T>>) -> Result<(), VarRegistryError> {
+        let id = TypeId::of::<T>();
+        if self.data.contains_key(&id) {
+            return Err(VarRegistryError::TypeClash);
+        }
+        let owned_name = name.to_string();
+        if self.name2type.contains_key(&owned_name) {
+            return Err(VarRegistryError::NameClash);
+        }
+        self.data.insert(id, value);
+        self.name2type.insert(owned_name, id);
+        Ok(())
+    }
+
+    pub fn get<T: VarBag + Send + 'static>(&self) -> Option<Arc<Mutex<T>>> {
+        match self.data.get(&TypeId::of::<T>()) {
+            None => None,
+            Some(arc) => {
+                Some(arc.clone().downcast::<Mutex<T>>().unwrap())
+            }
+        }
+    }
+
+    pub fn get2<T: VarBag + Send + 'static>(&self) -> Option<&Mutex<T>> {
+        match self.data.get(&TypeId::of::<T>()) {
+            None => None,
+            Some(arc) => {
+                Some(arc.downcast_ref::<Mutex<T>>().unwrap())
+            }
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
-struct RegisterError;
+enum VarRegistryError {
+    TypeClash,
+    NameClash,
+}
 
-#[derive(Debug, PartialEq, Eq, Ord, PartialOrd, Copy, Clone, Default)]
-pub struct NoSuchVariableError;
-
-impl Vars<'_> {
-    pub fn put<V: Into<Value>>(&mut self, name: &str, value: V) {
-        self.vars.write().expect("Failed to obtain write lock!").insert(Cow::from(name.to_owned()), value.into());
-    }
-
-    pub fn get<V: for<'a> From<&'a Value>>(&self, name: &str) -> Option<V> {
-        self.vars.read().expect("Unable to obtain read lock!").get(name).map(|v| V::from(v))
-    }
-
-    pub fn inspect<F: Fn(&Value) -> ()>(&self, name: &str, handler: F) -> Option<()> {
-        self.vars.read()
-            .expect("Unable to obtain read lock!")
-            .get(name)
-            .map(|v| handler(v))
+impl Display for VarRegistryError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            VarRegistryError::TypeClash => {
+                write!(f, "Type id already registered!")
+            }
+            VarRegistryError::NameClash => {
+                write!(f, "Name already used!")
+            }
+        }
     }
 }
+
+impl Error for VarRegistryError {}
+
+#[derive(Debug, PartialEq, Eq, Ord, PartialOrd, Clone)]
+pub enum VariableError {
+    ParsingError,
+    NotFound,
+}
+
+impl Display for VariableError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            VariableError::ParsingError => {
+                write!(f, "Parsing failed!")
+            }
+            VariableError::NotFound => {
+                write!(f, "No such variable!")
+            }
+        }
+    }
+}
+
+impl Error for VariableError {}
+
 
 #[cfg(test)]
 mod test {
     use std::collections::HashMap;
     use std::fmt::Display;
+    use std::sync::{Arc, Mutex};
 
+    use rg_common::vars::VarRegistryError;
     use rg_macros::VarBag;
 
-    use crate::vars::VarBag;
+    use crate::vars::{VarBag, VarRegistry};
 
     #[derive(VarBag, Default)]
     pub(crate) struct TestVars {
@@ -70,6 +119,11 @@ mod test {
         #[transient]
         pub(crate) flag: bool,
         pub(crate) name: String,
+    }
+
+    #[derive(VarBag, Default)]
+    pub(crate) struct MoreTestVars {
+        pub(crate) speed: f32,
     }
 
     #[test]
@@ -83,7 +137,6 @@ mod test {
             .into_iter()
             .map(|v| (v.name, v))
             .collect::<HashMap<_, _>>();
-        //dbg!(infos);
 
         let info = infos.get("flag").unwrap();
         assert_eq!(false, info.persisted);
@@ -104,5 +157,42 @@ mod test {
         assert_eq!("true", v.try_get_var("flag").unwrap());
         assert_eq!("321", v.try_get_var("counter").unwrap());
         assert_eq!("New name", v.try_get_var("name").unwrap());
+    }
+
+    #[test]
+    fn var_registry() {
+        let mut reg = VarRegistry::default();
+        let a = Arc::new(Mutex::new(TestVars {
+            counter: 123,
+            flag: false,
+            name: "my name".to_string(),
+        }));
+        let r = reg.register("a", a.clone());
+        assert_eq!(r, Ok(()));
+
+        let b = Arc::new(Mutex::new(TestVars::default()));
+        let r = reg.register("b", b);
+        assert_eq!(r, Err(VarRegistryError::TypeClash));
+
+        let c = Arc::new(Mutex::new(MoreTestVars::default()));
+        let r = reg.register("a", c);
+        assert_eq!(r, Err(VarRegistryError::NameClash));
+
+        {
+            let binding = reg.get::<TestVars>().unwrap();
+            let a2 = binding.lock().unwrap();
+            assert_eq!("my name", a2.name);
+            assert_eq!(123, a2.counter);
+        }
+        {
+            let mut ag = a.lock().unwrap();
+            ag.counter = 1_000;
+            ag.name = "altered name".to_string();
+        }
+        {
+            let a2 = reg.get2::<TestVars>().unwrap().lock().unwrap();
+            assert_eq!("altered name", a2.name);
+            assert_eq!(1_000, a2.counter);
+        }
     }
 }

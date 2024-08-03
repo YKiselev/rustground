@@ -38,10 +38,10 @@ pub(crate) fn define_var_bag(input: DeriveInput) -> TokenStream {
                         }
                     }
 
-                    fn try_set_var(&mut self, name: &str, value: &str) -> Result<(), rg_common::NoSuchVariableError> {
+                    fn try_set_var(&mut self, name: &str, value: &str) -> Result<(), rg_common::VariableError> {
                         match name {
-                            #(stringify!(#ids) => { self.#ids = value.parse().map_err(|e| rg_common::NoSuchVariableError::default())?; Ok(()) },)*
-                            _ => Err(rg_common::NoSuchVariableError)
+                            #(stringify!(#ids) => { self.#ids = value.parse().map_err(|e| rg_common::VariableError::ParsingError)?; Ok(()) },)*
+                            _ => Err(rg_common::VariableError::NotFound)
                         }
                     }
                 }
