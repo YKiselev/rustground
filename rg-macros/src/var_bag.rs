@@ -8,7 +8,7 @@ fn find_attribute<'a>(attrs: &'a Vec<Attribute>, path: &str) -> Option<&'a Attri
 }
 
 fn has_attribute(attrs: &Vec<Attribute>, path: &str) -> bool {
-    find_attribute(attrs, path) != None
+    find_attribute(attrs, path).is_some()
 }
 
 pub(crate) fn define_var_bag(input: DeriveInput) -> TokenStream {

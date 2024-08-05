@@ -22,29 +22,38 @@ pub trait VarBag {
     fn try_set_var(&mut self, name: &str, value: &str) -> Result<(), VariableError>;
 }
 
+struct Var {
+    arc: Arc<Mutex<dyn VarBag + Send + Sync>>,
+    info: Vec<VarInfo>,
+}
+
 #[derive(Default)]
 pub struct VarRegistry {
-    name2type: HashMap<String, Arc<Mutex<dyn VarBag + Send + Sync>>>,
-    data: HashMap<TypeId, Arc<dyn Any + Send + Sync>>,
+    by_name: HashMap<String, Var>,
+    by_type: HashMap<TypeId, Arc<dyn Any + Send + Sync>>,
 }
 
 impl VarRegistry {
     pub fn register<T: VarBag + Send + Sync + 'static>(&mut self, name: &str, value: &Arc<Mutex<T>>) -> Result<(), VarRegistryError> {
         let id = TypeId::of::<T>();
-        if self.data.contains_key(&id) {
+        if self.by_type.contains_key(&id) {
             return Err(VarRegistryError::TypeClash);
         }
         let owned_name = name.to_string();
-        if self.name2type.contains_key(&owned_name) {
+        if self.by_name.contains_key(&owned_name) {
             return Err(VarRegistryError::NameClash);
         }
-        self.data.insert(id, value.clone());
-        self.name2type.insert(owned_name, value.clone());
+        let var = Var {
+            arc: value.clone(),
+            info: value.lock().unwrap().get_vars(),
+        };
+        self.by_type.insert(id, value.clone());
+        self.by_name.insert(owned_name, var);
         Ok(())
     }
 
     pub fn get<T: VarBag + Send + 'static>(&self) -> Option<&Mutex<T>> {
-        match self.data.get(&TypeId::of::<T>()) {
+        match self.by_type.get(&TypeId::of::<T>()) {
             None => None,
             Some(arc) => {
                 arc.downcast_ref::<Mutex<T>>()
@@ -57,8 +66,8 @@ impl VarRegistry {
         let bag = sp.next()?;
         let var_name = sp.next()?;
         if sp.next().is_none() {
-            let mutex = self.name2type.get(bag)?;
-            mutex.lock().unwrap().try_get_var(var_name)
+            let var = self.by_name.get(bag)?;
+            var.arc.lock().unwrap().try_get_var(var_name)
         } else {
             None
         }
@@ -69,11 +78,29 @@ impl VarRegistry {
         let bag = sp.next().ok_or(BadName)?;
         let var_name = sp.next().ok_or(BadName)?;
         if sp.next().is_none() {
-            let mutex = self.name2type.get(bag).ok_or(VarError(NotFound))?;
-            mutex.lock().unwrap().try_set_var(var_name, value).map_err(|e| VarError(e))
+            let var = self.by_name.get(bag).ok_or(VarError(NotFound))?;
+            var.arc.lock().unwrap().try_set_var(var_name, value).map_err(|e| VarError(e))
         } else {
             Err(BadName)
         }
+    }
+
+    pub fn complete(&self, part: &str) -> Vec<String> {
+        let mut sp = part.split("::");
+        let bag_part = sp.next().or(Some("*")).unwrap();
+        let var_part = sp.next();
+        let bags = self.by_name.iter().filter(|(key, val)|
+            key.starts_with(bag_part)
+        );
+        if var_part.is_none() {
+            return bags.map(|(key, var)| key.clone()).collect();
+        }
+        let var_part = var_part.unwrap();
+        bags.flat_map(|(key, var)|
+            var.info.iter().filter(|v|
+                v.name.starts_with(var_part)
+            ).map(|v| key.to_string() + "::" + v.name)
+        ).collect()
     }
 }
 
@@ -118,7 +145,7 @@ impl Display for VariableError {
             VariableError::ParsingError => {
                 write!(f, "Parsing failed!")
             }
-            VariableError::NotFound => {
+            NotFound => {
                 write!(f, "No such variable!")
             }
         }
@@ -228,5 +255,11 @@ mod test {
 
         reg.try_set_value("a::speed", "3.14").unwrap();
         assert_eq!("3.14", reg.try_get_value("a::speed").unwrap());
+
+        let v = reg.complete("a");
+        assert_eq!(v, ["a"]);
+
+        let v = reg.complete("a::n");
+        assert_eq!(v, ["a::name"]);
     }
 }
