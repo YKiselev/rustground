@@ -2,8 +2,11 @@ use std::any::{Any, TypeId};
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
+use std::io::IsTerminal;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
+
+use toml::Table;
 
 use crate::VariableError::NotFound;
 use crate::vars::VarRegistryError::{BadName, VarError};
@@ -14,10 +17,18 @@ pub struct VarInfo {
     pub persisted: bool,
 }
 
+pub enum Variable<'a> {
+    VarBag(&'a dyn VarBag),
+    String(&'a str),
+    Integer(i64),
+    Float(f64),
+    Boolean(bool),
+}
+
 pub trait VarBag {
     fn get_vars(&self) -> Vec<VarInfo>;
 
-    fn try_get_var(&self, name: &str) -> Option<String>;
+    fn try_get_var(&self, name: &str) -> Option<Variable<'_>>;
 
     fn try_set_var(&mut self, name: &str, value: &str) -> Result<(), VariableError>;
 }
@@ -29,11 +40,29 @@ struct Var {
 
 #[derive(Default)]
 pub struct VarRegistry {
+    persisted: Option<Table>,
     by_name: HashMap<String, Var>,
     by_type: HashMap<TypeId, Arc<dyn Any + Send + Sync>>,
 }
 
 impl VarRegistry {
+    fn load_values<T: VarBag>(&self, name: &str, mut bag: &Arc<Mutex<T>>, var: &Var) {
+        if let Some(table) = self.persisted.as_ref().map(|t| t.get(name)).flatten() {
+            var.info.iter().filter(|v|
+                v.persisted
+            ).for_each(|v|
+                if let Some(value) = table.get(v.name) {
+                    let mut guard = bag.lock().unwrap();
+                    if let Err(e) = guard.try_set_var(v.name, &value.to_string()) {
+                        // ???
+                    }
+                }
+            );
+        }
+    }
+
+    fn save_all_values(&self) {}
+
     pub fn register<T: VarBag + Send + Sync + 'static>(&mut self, name: &str, value: &Arc<Mutex<T>>) -> Result<(), VarRegistryError> {
         let id = TypeId::of::<T>();
         if self.by_type.contains_key(&id) {
@@ -47,6 +76,7 @@ impl VarRegistry {
             arc: value.clone(),
             info: value.lock().unwrap().get_vars(),
         };
+        self.load_values(name, value, &var);
         self.by_type.insert(id, value.clone());
         self.by_name.insert(owned_name, var);
         Ok(())
@@ -67,7 +97,25 @@ impl VarRegistry {
         let var_name = sp.next()?;
         if sp.next().is_none() {
             let var = self.by_name.get(bag)?;
-            var.arc.lock().unwrap().try_get_var(var_name)
+            var.arc.lock().unwrap().try_get_var(var_name).map(|v|
+                match v {
+                    Variable::VarBag(b) => {
+                        "<bag>".to_string()
+                    }
+                    Variable::String(v) => {
+                        v.to_string()
+                    }
+                    Variable::Integer(v) => {
+                        v.to_string()
+                    }
+                    Variable::Float(v) => {
+                        v.to_string()
+                    }
+                    Variable::Boolean(v) => {
+                        v.to_string()
+                    }
+                }
+            )
         } else {
             None
         }
@@ -158,13 +206,13 @@ impl Error for VariableError {}
 #[cfg(test)]
 mod test {
     use std::collections::HashMap;
-    use std::fmt::Display;
+    use std::fmt::{Debug, Display};
     use std::sync::{Arc, Mutex};
 
     use rg_common::vars::VarRegistryError;
     use rg_macros::VarBag;
 
-    use crate::vars::{VarBag, VarRegistry};
+    use crate::vars::{VarBag, Variable, VarRegistry};
 
     #[derive(VarBag, Default)]
     pub(crate) struct TestVars {
@@ -200,18 +248,18 @@ mod test {
         let info = infos.get("name").unwrap();
         assert_eq!(true, info.persisted);
 
-        assert_eq!("false", v.try_get_var("flag").unwrap());
-        assert_eq!("123", v.try_get_var("counter").unwrap());
-        assert_eq!("some name", v.try_get_var("name").unwrap());
-        assert_eq!(None, v.try_get_var("unknown"));
+        assert_eq!("false", v.try_get_var("flag").unwrap().to_string());
+        assert_eq!("123", v.try_get_var("counter").unwrap().to_string());
+        assert_eq!("some name", v.try_get_var("name").unwrap().to_string());
+        assert!(v.try_get_var("unknown").is_none());
 
         v.try_set_var("flag", "true").unwrap();
         v.try_set_var("name", "New name").unwrap();
         v.try_set_var("counter", "321").unwrap();
 
-        assert_eq!("true", v.try_get_var("flag").unwrap());
-        assert_eq!("321", v.try_get_var("counter").unwrap());
-        assert_eq!("New name", v.try_get_var("name").unwrap());
+        assert_eq!("true", v.try_get_var("flag").unwrap().to_string());
+        assert_eq!("321", v.try_get_var("counter").unwrap().to_string());
+        assert_eq!("New name", v.try_get_var("name").unwrap().to_string());
     }
 
     #[test]
@@ -261,5 +309,69 @@ mod test {
 
         let v = reg.complete("a::n");
         assert_eq!(v, ["a::name"]);
+    }
+
+    #[derive(Debug, VarBag)]
+    struct Sub {
+        name: String,
+        counter: i32,
+    }
+
+    #[derive(VarBag)]
+    struct Outer {
+        sub: Sub,
+        speed: f32,
+        flag: bool,
+    }
+
+    fn print(var: &Variable) {
+        match var {
+            Variable::VarBag(b) => {
+                println!("Got var bag with names: {:?}", b.get_vars());
+            }
+            Variable::String(v) => {
+                println!("Got string: {v}");
+            }
+            Variable::Integer(v) => {
+                println!("Got integer: {v}");
+            }
+            Variable::Float(v) => {
+                println!("Got float: {v}");
+            }
+            Variable::Boolean(v) => {
+                println!("Got boolean: {v}");
+            }
+            _ => panic!()
+        }
+    }
+
+    #[test]
+    fn config() {
+        let c = Outer {
+            sub: Sub {
+                name: "test".to_string(),
+                counter: 1,
+            },
+            speed: 3.22,
+            flag: true,
+        };
+        let v = Variable::from(&c);
+        print(&v);
+        assert!(matches!(v, Variable::VarBag{..}));
+        let v = Variable::from(&c.sub.counter);
+        print(&v);
+        assert!(matches!(v, Variable::Integer{..}));
+        let v = Variable::from(&c.sub);
+        print(&v);
+        assert!(matches!(v, Variable::VarBag{..}));
+        let v = Variable::from(&c.sub.name);
+        print(&v);
+        assert!(matches!(v, Variable::String{..}));
+        let v = Variable::from(&c.speed);
+        print(&v);
+        assert!(matches!(v, Variable::Float{..}));
+        let v = Variable::from(&c.flag);
+        print(&v);
+        assert!(matches!(v, Variable::Boolean{..}));
     }
 }

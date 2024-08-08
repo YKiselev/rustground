@@ -20,6 +20,7 @@ pub(crate) fn define_var_bag(input: DeriveInput) -> TokenStream {
             quote! {
                 #[automatically_derived]
                 impl rg_common::VarBag for #struct_identifier {
+
                     fn get_vars(&self) -> std::vec::Vec<rg_common::VarInfo> {
                         let mut result = std::vec::Vec::new();
                         #(
@@ -31,16 +32,16 @@ pub(crate) fn define_var_bag(input: DeriveInput) -> TokenStream {
                         result
                     }
 
-                    fn try_get_var(&self, name: &str)->Option<String> {
+                    fn try_get_var(&self, name: &str) -> Option<rg_common::Variable<'_>> {
                         match name {
-                            #(stringify!(#ids) => Some(self.#ids.to_string()),)*
+                            #(stringify!(#ids) => Some(rg_common::Variable::from(&self.#ids)),)*
                             _ => None
                         }
                     }
 
                     fn try_set_var(&mut self, name: &str, value: &str) -> Result<(), rg_common::VariableError> {
                         match name {
-                            #(stringify!(#ids) => { self.#ids = value.parse().map_err(|e| rg_common::VariableError::ParsingError)?; Ok(()) },)*
+                            //#(stringify!(#ids) => { self.#ids = value.parse().map_err(|e| rg_common::VariableError::ParsingError)?; Ok(()) },)*
                             _ => Err(rg_common::VariableError::NotFound)
                         }
                     }

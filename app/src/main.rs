@@ -27,7 +27,6 @@ mod client;
 mod server;
 mod app_logger;
 mod net;
-mod config;
 mod bit_code_test;
 mod app;
 mod state;

@@ -13,5 +13,5 @@ anyhow = "1.0.86"
 rsa = { version = "0.9.6", features = ["serde"] }
 rand = "0.8.5"
 serde = "1.0.204"
-toml = "0.8.14"
+toml = "0.8.19"
 bitcode = { version = "0.6.0", features = ["serde"] }
