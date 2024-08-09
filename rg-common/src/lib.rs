@@ -11,4 +11,5 @@ pub mod files;
 mod vars;
 pub mod config;
 mod v_from;
+mod v_from_str;
 

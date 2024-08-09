@@ -33,6 +33,10 @@ pub trait VarBag {
     fn try_set_var(&mut self, name: &str, value: &str) -> Result<(), VariableError>;
 }
 
+pub trait FromStrMutator {
+    fn set_from_str(&mut self, value: &str) -> Result<(), VariableError>;
+}
+
 struct Var {
     arc: Arc<Mutex<dyn VarBag + Send + Sync>>,
     info: Vec<VarInfo>,
@@ -207,12 +211,14 @@ impl Error for VariableError {}
 mod test {
     use std::collections::HashMap;
     use std::fmt::{Debug, Display};
+    use std::str::FromStr;
     use std::sync::{Arc, Mutex};
 
     use rg_common::vars::VarRegistryError;
     use rg_macros::VarBag;
 
-    use crate::vars::{VarBag, Variable, VarRegistry};
+    use crate::VariableError;
+    use crate::vars::{FromStrMutator, VarBag, Variable, VarRegistry};
 
     #[derive(VarBag, Default)]
     pub(crate) struct TestVars {
@@ -324,30 +330,9 @@ mod test {
         flag: bool,
     }
 
-    fn print(var: &Variable) {
-        match var {
-            Variable::VarBag(b) => {
-                println!("Got var bag with names: {:?}", b.get_vars());
-            }
-            Variable::String(v) => {
-                println!("Got string: {v}");
-            }
-            Variable::Integer(v) => {
-                println!("Got integer: {v}");
-            }
-            Variable::Float(v) => {
-                println!("Got float: {v}");
-            }
-            Variable::Boolean(v) => {
-                println!("Got boolean: {v}");
-            }
-            _ => panic!()
-        }
-    }
-
     #[test]
     fn config() {
-        let c = Outer {
+        let mut c = Outer {
             sub: Sub {
                 name: "test".to_string(),
                 counter: 1,
@@ -356,22 +341,21 @@ mod test {
             flag: true,
         };
         let v = Variable::from(&c);
-        print(&v);
         assert!(matches!(v, Variable::VarBag{..}));
         let v = Variable::from(&c.sub.counter);
-        print(&v);
         assert!(matches!(v, Variable::Integer{..}));
         let v = Variable::from(&c.sub);
-        print(&v);
         assert!(matches!(v, Variable::VarBag{..}));
         let v = Variable::from(&c.sub.name);
-        print(&v);
         assert!(matches!(v, Variable::String{..}));
         let v = Variable::from(&c.speed);
-        print(&v);
         assert!(matches!(v, Variable::Float{..}));
         let v = Variable::from(&c.flag);
-        print(&v);
         assert!(matches!(v, Variable::Boolean{..}));
+
+        c.sub.counter.set_from_str("321").unwrap();
+        assert_eq!(c.sub.counter, 321);
+        c.speed.set_from_str("3.33").unwrap();
+        assert_eq!(c.speed, 3.33);
     }
 }

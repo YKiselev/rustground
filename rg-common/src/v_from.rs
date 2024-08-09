@@ -31,8 +31,20 @@ impl From<&bool> for Variable<'_> {
     }
 }
 
+impl From<&mut bool> for Variable<'_> {
+    fn from(value: &mut bool) -> Self {
+        Variable::Boolean(*value)
+    }
+}
+
 impl From<&i64> for Variable<'_> {
     fn from(value: &i64) -> Self {
+        Variable::Integer(*value)
+    }
+}
+
+impl From<&mut i64> for Variable<'_> {
+    fn from(value: &mut i64) -> Self {
         Variable::Integer(*value)
     }
 }
@@ -43,8 +55,20 @@ impl From<&i32> for Variable<'_> {
     }
 }
 
+impl From<&mut i32> for Variable<'_> {
+    fn from(value: &mut i32) -> Self {
+        Variable::Integer(*value as i64)
+    }
+}
+
 impl<'a> From<&'a str> for Variable<'a> {
     fn from(value: &'a str) -> Self {
+        Variable::String(value)
+    }
+}
+
+impl<'a> From<&'a mut str> for Variable<'a> {
+    fn from(value: &'a mut str) -> Self {
         Variable::String(value)
     }
 }
@@ -55,8 +79,20 @@ impl<'a> From<&'a String> for Variable<'a> {
     }
 }
 
+impl<'a> From<&'a mut String> for Variable<'a> {
+    fn from(value: &'a mut String) -> Self {
+        Variable::String(value)
+    }
+}
+
 impl<'a, T: VarBag> From<&'a T> for Variable<'a> {
     fn from(value: &'a T) -> Self {
+        Variable::VarBag(value)
+    }
+}
+
+impl<'a, T: VarBag> From<&'a mut T> for Variable<'a> {
+    fn from(value: &'a mut T) -> Self {
         Variable::VarBag(value)
     }
 }
@@ -67,8 +103,20 @@ impl From<&f64> for Variable<'_> {
     }
 }
 
+impl From<&mut f64> for Variable<'_> {
+    fn from(value: &mut f64) -> Self {
+        Variable::Float(*value)
+    }
+}
+
 impl From<&f32> for Variable<'_> {
     fn from(value: &f32) -> Self {
+        Variable::Float(*value as f64)
+    }
+}
+
+impl From<&mut f32> for Variable<'_> {
+    fn from(value: &mut f32) -> Self {
         Variable::Float(*value as f64)
     }
 }
