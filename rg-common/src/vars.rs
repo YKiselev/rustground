@@ -9,7 +9,7 @@ use std::str::{FromStr, Split};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use crate::VariableError::NotFound;
-use crate::vars::VarRegistryError::{BadName, VarError};
+use crate::vars::VarRegistryError::VarError;
 
 pub enum Variable<'a> {
     VarBag(&'a dyn VarBag),
@@ -140,7 +140,6 @@ impl<T: VarBag> VarRegistry<T> {
 
 #[derive(Debug, PartialEq, Eq)]
 enum VarRegistryError {
-    BadName,
     VarError(VariableError),
     LockFailed,
 }
@@ -148,9 +147,6 @@ enum VarRegistryError {
 impl Display for VarRegistryError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            BadName => {
-                write!(f, "Bad name!")
-            }
             VarError(e) => {
                 write!(f, "Variable error: {:?}!", e)
             }
@@ -226,12 +222,6 @@ mod test {
             //.map(|v| (v.name, true))
             .collect::<HashSet<_>>();
 
-        // let info = infos.get("flag").unwrap();
-        // assert_eq!(false, info.persisted);
-        // let info = infos.get("counter").unwrap();
-        // assert_eq!(true, info.persisted);
-        // let info = infos.get("name").unwrap();
-        // assert_eq!(true, info.persisted);
 
         assert_eq!("false", v.try_get_var("flag").unwrap().to_string());
         assert_eq!("123", v.try_get_var("counter").unwrap().to_string());
