@@ -1,183 +1,161 @@
-use std::any::{Any, TypeId};
-use std::collections::HashMap;
+use std::any::Any;
+use std::borrow::Cow;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::io::IsTerminal;
-use std::str::FromStr;
-use std::sync::{Arc, Mutex};
-
-use toml::Table;
+use std::iter::Peekable;
+use std::ops::Deref;
+use std::str::{FromStr, Split};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use crate::VariableError::NotFound;
 use crate::vars::VarRegistryError::{BadName, VarError};
 
-#[derive(Debug, Default)]
-pub struct VarInfo {
-    pub name: &'static str,
-    pub persisted: bool,
-}
-
 pub enum Variable<'a> {
     VarBag(&'a dyn VarBag),
-    String(&'a str),
+    String(Cow<'a, str>),
     Integer(i64),
     Float(f64),
     Boolean(bool),
 }
 
 pub trait VarBag {
-    fn get_vars(&self) -> Vec<VarInfo>;
+    fn get_vars(&self) -> Vec<String>;
 
     fn try_get_var(&self, name: &str) -> Option<Variable<'_>>;
 
-    fn try_set_var(&mut self, name: &str, value: &str) -> Result<(), VariableError>;
+    fn try_set_var(&mut self, sp: &mut Split<&str>, value: &str) -> Result<(), VariableError>;
 }
 
 pub trait FromStrMutator {
-    fn set_from_str(&mut self, value: &str) -> Result<(), VariableError>;
-}
-
-struct Var {
-    arc: Arc<Mutex<dyn VarBag + Send + Sync>>,
-    info: Vec<VarInfo>,
+    fn set_from_str(&mut self, sp: &mut Split<&str>, value: &str) -> Result<(), VariableError>;
 }
 
 #[derive(Default)]
-pub struct VarRegistry {
-    persisted: Option<Table>,
-    by_name: HashMap<String, Var>,
-    by_type: HashMap<TypeId, Arc<dyn Any + Send + Sync>>,
+pub struct VarRegistry<T> where T: VarBag {
+    data: Option<Arc<Mutex<T>>>,
 }
 
-impl VarRegistry {
-    fn load_values<T: VarBag>(&self, name: &str, mut bag: &Arc<Mutex<T>>, var: &Var) {
-        if let Some(table) = self.persisted.as_ref().map(|t| t.get(name)).flatten() {
-            var.info.iter().filter(|v|
-                v.persisted
-            ).for_each(|v|
-                if let Some(value) = table.get(v.name) {
-                    let mut guard = bag.lock().unwrap();
-                    if let Err(e) = guard.try_set_var(v.name, &value.to_string()) {
-                        // ???
-                    }
-                }
-            );
-        }
+impl<T: VarBag> VarRegistry<T> {
+    pub fn set_data(&mut self, config: Arc<Mutex<T>>) {
+        self.data = Some(config);
     }
 
-    fn save_all_values(&self) {}
-
-    pub fn register<T: VarBag + Send + Sync + 'static>(&mut self, name: &str, value: &Arc<Mutex<T>>) -> Result<(), VarRegistryError> {
-        let id = TypeId::of::<T>();
-        if self.by_type.contains_key(&id) {
-            return Err(VarRegistryError::TypeClash);
-        }
-        let owned_name = name.to_string();
-        if self.by_name.contains_key(&owned_name) {
-            return Err(VarRegistryError::NameClash);
-        }
-        let var = Var {
-            arc: value.clone(),
-            info: value.lock().unwrap().get_vars(),
-        };
-        self.load_values(name, value, &var);
-        self.by_type.insert(id, value.clone());
-        self.by_name.insert(owned_name, var);
-        Ok(())
+    pub fn get_data(&self) -> Option<&Arc<Mutex<T>>> {
+        self.data.as_ref()
+    }
+    pub fn get_mut_data(&mut self) -> Option<&mut Arc<Mutex<T>>> {
+        self.data.as_mut()
     }
 
-    pub fn get<T: VarBag + Send + 'static>(&self) -> Option<&Mutex<T>> {
-        match self.by_type.get(&TypeId::of::<T>()) {
-            None => None,
-            Some(arc) => {
-                arc.downcast_ref::<Mutex<T>>()
-            }
-        }
+    fn lock_data(&self) -> Option<MutexGuard<T>> {
+        self.data.as_ref()?.lock().ok()
     }
 
     pub fn try_get_value(&self, name: &str) -> Option<String> {
+        let guard = self.lock_data()?;
+        let mut v: Variable = Variable::from(guard.deref());
         let mut sp = name.split("::");
-        let bag = sp.next()?;
-        let var_name = sp.next()?;
-        if sp.next().is_none() {
-            let var = self.by_name.get(bag)?;
-            var.arc.lock().unwrap().try_get_var(var_name).map(|v|
-                match v {
-                    Variable::VarBag(b) => {
-                        "<bag>".to_string()
-                    }
-                    Variable::String(v) => {
-                        v.to_string()
-                    }
-                    Variable::Integer(v) => {
-                        v.to_string()
-                    }
-                    Variable::Float(v) => {
-                        v.to_string()
-                    }
-                    Variable::Boolean(v) => {
-                        v.to_string()
-                    }
+        loop {
+            match v {
+                Variable::VarBag(bag) => {
+                    v = bag.try_get_var(sp.next()?)?;
                 }
-            )
-        } else {
-            None
+                Variable::String(s) => {
+                    return if sp.next().is_none() {
+                        Some(s.to_string())
+                    } else {
+                        None
+                    };
+                }
+                Variable::Integer(i) => {
+                    return if sp.next().is_none() {
+                        Some(i.to_string())
+                    } else {
+                        None
+                    };
+                }
+                Variable::Float(f) => {
+                    return if sp.next().is_none() {
+                        Some(f.to_string())
+                    } else {
+                        None
+                    };
+                }
+                Variable::Boolean(b) => {
+                    return if sp.next().is_none() {
+                        Some(b.to_string())
+                    } else {
+                        None
+                    };
+                }
+            }
         }
     }
 
     pub fn try_set_value(&self, name: &str, value: &str) -> Result<(), VarRegistryError> {
         let mut sp = name.split("::");
-        let bag = sp.next().ok_or(BadName)?;
-        let var_name = sp.next().ok_or(BadName)?;
-        if sp.next().is_none() {
-            let var = self.by_name.get(bag).ok_or(VarError(NotFound))?;
-            var.arc.lock().unwrap().try_set_var(var_name, value).map_err(|e| VarError(e))
-        } else {
-            Err(BadName)
+        let mut guard = self.lock_data().ok_or(VarRegistryError::LockFailed)?;
+        guard.try_set_var(&mut sp, value).map_err(|e| VarError(e))
+    }
+
+    fn filter_names(owner: &dyn VarBag, sp: &mut Peekable<Split<&str>>, prefix: &str, result: &mut Vec<String>) {
+        if let Some(part) = sp.next() {
+            if part.is_empty() {
+                return;
+            }
+            for var_name in owner.get_vars() {
+                if !var_name.starts_with(part) {
+                    continue;
+                }
+                if let Some(v) = owner.try_get_var(&var_name) {
+                    let local_prefix = if !prefix.is_empty() {
+                        prefix.to_string() + "::" + &var_name
+                    } else {
+                        var_name.clone()
+                    };
+                    if sp.peek().is_none() {
+                        result.push(local_prefix.clone());
+                    }
+                    match v {
+                        Variable::VarBag(value) => {
+                            Self::filter_names(value, sp, local_prefix.as_str(), result)
+                        }
+                        _ => {}
+                    }
+                }
+            }
         }
     }
 
-    pub fn complete(&self, part: &str) -> Vec<String> {
-        let mut sp = part.split("::");
-        let bag_part = sp.next().or(Some("*")).unwrap();
-        let var_part = sp.next();
-        let bags = self.by_name.iter().filter(|(key, val)|
-            key.starts_with(bag_part)
-        );
-        if var_part.is_none() {
-            return bags.map(|(key, var)| key.clone()).collect();
-        }
-        let var_part = var_part.unwrap();
-        bags.flat_map(|(key, var)|
-            var.info.iter().filter(|v|
-                v.name.starts_with(var_part)
-            ).map(|v| key.to_string() + "::" + v.name)
-        ).collect()
+    pub fn complete(&self, part: &str) -> Option<Vec<String>> {
+        let mut sp = part.split("::").peekable();
+        self.lock_data().map(|guard| {
+            let mut result = Vec::new();
+            Self::filter_names(guard.deref(), &mut sp, "", &mut result);
+            result
+        })
     }
 }
 
 #[derive(Debug, PartialEq, Eq)]
 enum VarRegistryError {
-    TypeClash,
-    NameClash,
     BadName,
     VarError(VariableError),
+    LockFailed,
 }
 
 impl Display for VarRegistryError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            VarRegistryError::TypeClash => {
-                write!(f, "Type id already registered!")
-            }
-            VarRegistryError::NameClash => {
-                write!(f, "Name already used!")
-            }
             BadName => {
                 write!(f, "Bad name!")
             }
             VarError(e) => {
                 write!(f, "Variable error: {:?}!", e)
+            }
+            VarRegistryError::LockFailed => {
+                write!(f, "Lock failed!")
             }
         }
     }
@@ -209,29 +187,27 @@ impl Error for VariableError {}
 
 #[cfg(test)]
 mod test {
-    use std::collections::HashMap;
+    use std::collections::HashSet;
     use std::fmt::{Debug, Display};
-    use std::str::FromStr;
+    use std::str::Split;
     use std::sync::{Arc, Mutex};
 
-    use rg_common::vars::VarRegistryError;
     use rg_macros::VarBag;
 
-    use crate::VariableError;
     use crate::vars::{FromStrMutator, VarBag, Variable, VarRegistry};
 
     #[derive(VarBag, Default)]
-    pub(crate) struct TestVars {
-        pub(crate) counter: i32,
-        #[transient]
-        pub(crate) flag: bool,
-        pub(crate) name: String,
-        pub(crate) speed: f64,
+    struct TestVars {
+        counter: i32,
+        flag: bool,
+        name: String,
+        speed: f64,
+        sub: MoreTestVars,
     }
 
     #[derive(VarBag, Default)]
-    pub(crate) struct MoreTestVars {
-        pub(crate) speed: f32,
+    struct MoreTestVars {
+        speed: f32,
     }
 
     #[test]
@@ -241,27 +217,30 @@ mod test {
             counter: 123,
             name: "some name".to_string(),
             speed: 345.466,
+            sub: MoreTestVars {
+                speed: 330.0
+            },
         };
         let infos = v.get_vars()
             .into_iter()
-            .map(|v| (v.name, v))
-            .collect::<HashMap<_, _>>();
+            //.map(|v| (v.name, true))
+            .collect::<HashSet<_>>();
 
-        let info = infos.get("flag").unwrap();
-        assert_eq!(false, info.persisted);
-        let info = infos.get("counter").unwrap();
-        assert_eq!(true, info.persisted);
-        let info = infos.get("name").unwrap();
-        assert_eq!(true, info.persisted);
+        // let info = infos.get("flag").unwrap();
+        // assert_eq!(false, info.persisted);
+        // let info = infos.get("counter").unwrap();
+        // assert_eq!(true, info.persisted);
+        // let info = infos.get("name").unwrap();
+        // assert_eq!(true, info.persisted);
 
         assert_eq!("false", v.try_get_var("flag").unwrap().to_string());
         assert_eq!("123", v.try_get_var("counter").unwrap().to_string());
         assert_eq!("some name", v.try_get_var("name").unwrap().to_string());
         assert!(v.try_get_var("unknown").is_none());
 
-        v.try_set_var("flag", "true").unwrap();
-        v.try_set_var("name", "New name").unwrap();
-        v.try_set_var("counter", "321").unwrap();
+        v.try_set_var(&mut "flag".split("::"), "true").unwrap();
+        v.try_set_var(&mut "name".split("::"), "New name").unwrap();
+        v.try_set_var(&mut "counter".split("::"), "321").unwrap();
 
         assert_eq!("true", v.try_get_var("flag").unwrap().to_string());
         assert_eq!("321", v.try_get_var("counter").unwrap().to_string());
@@ -271,50 +250,30 @@ mod test {
     #[test]
     fn var_registry() {
         let mut reg = VarRegistry::default();
-        let a = Arc::new(Mutex::new(TestVars {
+        let root = Arc::new(Mutex::new(TestVars {
             counter: 123,
             flag: false,
             name: "my name".to_string(),
             speed: 234.567,
+            sub: MoreTestVars {
+                speed: 220.0
+            },
         }));
-        let r = reg.register("a", &a);
-        assert_eq!(r, Ok(()));
+        reg.set_data(root);
+        assert_eq!("my name", reg.try_get_value("name").unwrap());
+        assert_eq!("123", reg.try_get_value("counter").unwrap());
+        assert_eq!("234.567", reg.try_get_value("speed").unwrap());
+        assert_eq!("false", reg.try_get_value("flag").unwrap());
+        assert_eq!("220", reg.try_get_value("sub::speed").unwrap());
 
-        let b = Arc::new(Mutex::new(TestVars::default()));
-        let r = reg.register("b", &b);
-        assert_eq!(r, Err(VarRegistryError::TypeClash));
+        reg.try_set_value("sub::speed", "5").unwrap();
+        assert_eq!("5", reg.try_get_value("sub::speed").unwrap());
 
-        let c = Arc::new(Mutex::new(MoreTestVars::default()));
-        let r = reg.register("a", &c);
-        assert_eq!(r, Err(VarRegistryError::NameClash));
+        let v = reg.complete("s").unwrap();
+        assert_eq!(v, ["speed", "sub"]);
 
-        {
-            let a2 = reg.get::<TestVars>().unwrap().lock().unwrap();
-            assert_eq!("my name", a2.name);
-            assert_eq!(123, a2.counter);
-        }
-        {
-            let mut ag = a.lock().unwrap();
-            ag.counter = 1_000;
-            ag.name = "altered name".to_string();
-        }
-        {
-            let a2 = reg.get::<TestVars>().unwrap().lock().unwrap();
-            assert_eq!("altered name", a2.name);
-            assert_eq!(1_000, a2.counter);
-        }
-        assert_eq!("altered name", reg.try_get_value("a::name").unwrap());
-        assert_eq!("1000", reg.try_get_value("a::counter").unwrap());
-        assert_eq!("234.567", reg.try_get_value("a::speed").unwrap());
-
-        reg.try_set_value("a::speed", "3.14").unwrap();
-        assert_eq!("3.14", reg.try_get_value("a::speed").unwrap());
-
-        let v = reg.complete("a");
-        assert_eq!(v, ["a"]);
-
-        let v = reg.complete("a::n");
-        assert_eq!(v, ["a::name"]);
+        let v = reg.complete("s::s").unwrap();
+        assert_eq!(v, ["sub::speed"]);
     }
 
     #[derive(Debug, VarBag)]
@@ -328,6 +287,12 @@ mod test {
         sub: Sub,
         speed: f32,
         flag: bool,
+    }
+
+    fn empty_split() -> Split<'static, &'static str> {
+        let mut result = "".split("::");
+        result.next();
+        result
     }
 
     #[test]
@@ -353,9 +318,9 @@ mod test {
         let v = Variable::from(&c.flag);
         assert!(matches!(v, Variable::Boolean{..}));
 
-        c.sub.counter.set_from_str("321").unwrap();
+        c.sub.counter.set_from_str(&mut empty_split(), "321").unwrap();
         assert_eq!(c.sub.counter, 321);
-        c.speed.set_from_str("3.33").unwrap();
+        c.speed.set_from_str(&mut empty_split(), "3.33").unwrap();
         assert_eq!(c.speed, 3.33);
     }
 }

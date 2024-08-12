@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::fmt::{Display, Formatter};
 
 use crate::VarBag;
@@ -63,25 +64,19 @@ impl From<&mut i32> for Variable<'_> {
 
 impl<'a> From<&'a str> for Variable<'a> {
     fn from(value: &'a str) -> Self {
-        Variable::String(value)
-    }
-}
-
-impl<'a> From<&'a mut str> for Variable<'a> {
-    fn from(value: &'a mut str) -> Self {
-        Variable::String(value)
+        Variable::String(Cow::from(value))
     }
 }
 
 impl<'a> From<&'a String> for Variable<'a> {
     fn from(value: &'a String) -> Self {
-        Variable::String(value)
+        Variable::String(Cow::from(value))
     }
 }
 
 impl<'a> From<&'a mut String> for Variable<'a> {
     fn from(value: &'a mut String) -> Self {
-        Variable::String(value)
+        Variable::String(Cow::from(value as &String))
     }
 }
 

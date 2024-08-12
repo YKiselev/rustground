@@ -16,18 +16,14 @@ pub(crate) fn define_var_bag(input: DeriveInput) -> TokenStream {
     match &input.data {
         Data::Struct(syn::DataStruct { fields, .. }) => {
             let ids = fields.iter().map(|f| f.ident.as_ref().unwrap()).collect::<Vec<_>>();
-            let trans = fields.iter().map(|v| !has_attribute(&v.attrs, "transient")).collect::<Vec<_>>();
             quote! {
                 #[automatically_derived]
                 impl rg_common::VarBag for #struct_identifier {
 
-                    fn get_vars(&self) -> std::vec::Vec<rg_common::VarInfo> {
+                    fn get_vars(&self) -> std::vec::Vec<String> {
                         let mut result = std::vec::Vec::new();
                         #(
-                            result.push(rg_common::VarInfo {
-                                name: stringify!(#ids),
-                                persisted: #trans
-                            });
+                            result.push(String::from(stringify!(#ids)));
                         )*
                         result
                     }
@@ -39,9 +35,13 @@ pub(crate) fn define_var_bag(input: DeriveInput) -> TokenStream {
                         }
                     }
 
-                    fn try_set_var(&mut self, name: &str, value: &str) -> Result<(), rg_common::VariableError> {
-                        match name {
-                            #(stringify!(#ids) => { self.#ids.set_from_str(value)?; Ok(()) },)*
+                    fn try_set_var(&mut self, sp: &mut std::str::Split<&str>, value: &str) -> Result<(), rg_common::VariableError> {
+                        let part = sp.next().ok_or(rg_common::VariableError::NotFound)?;
+                        match part {
+                            #(stringify!(#ids) => {
+                                self.#ids.set_from_str(sp, value)?;
+                                Ok(())
+                            },)*
                             _ => Err(rg_common::VariableError::NotFound)
                         }
                     }
