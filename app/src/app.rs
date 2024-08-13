@@ -1,9 +1,7 @@
-use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
-use anyhow::Error;
 use log::{error, info};
 
 use rg_common::arguments::Arguments;
