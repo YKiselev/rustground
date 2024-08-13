@@ -4,6 +4,8 @@ pub use files::AppFiles;
 pub use vars::VarBag;
 pub use vars::VariableError;
 pub use vars::Variable;
+pub use vars::VarRegistry;
+pub use vars::FromStrMutator;
 
 pub mod arguments;
 pub mod files;

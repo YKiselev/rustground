@@ -128,8 +128,8 @@ impl Client {
         if self.is_time_to_resend() {
             match self.state {
                 ClientState::INIT => {
-                    if let Ok(addr) = app.get_var("server_address") {
-                        match self.endpoint.connect(addr) {
+                    if let Some(addr) = app.config().lock().unwrap().server.bound_to.as_ref() {
+                        match self.endpoint.connect(addr.parse().expect("Unable to parse server address!")) {
                             Ok(_) => {
                                 info!("Client socket connected to {}", addr);
                                 self.state = ClientState::DISCONNECTED;

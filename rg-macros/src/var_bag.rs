@@ -36,6 +36,8 @@ pub(crate) fn define_var_bag(input: DeriveInput) -> TokenStream {
                     }
 
                     fn try_set_var(&mut self, sp: &mut std::str::Split<&str>, value: &str) -> Result<(), rg_common::VariableError> {
+                        use rg_common::FromStrMutator;
+
                         let part = sp.next().ok_or(rg_common::VariableError::NotFound)?;
                         match part {
                             #(stringify!(#ids) => {

@@ -17,7 +17,7 @@ use rsa::traits::PublicKeyParts;
 use rg_common::arguments::Arguments;
 
 use crate::app::App;
-use crate::config::{Config, ServerConfig};
+use rg_common::config::{Config, ServerConfig};
 use crate::net::{Endpoint, MAX_DATAGRAM_SIZE, Message, NetEndpoint, ServerEndpoint};
 use crate::server::key_pair::KeyPair;
 use crate::server::sv_client::Client;
@@ -64,14 +64,15 @@ impl Server {
 
     pub fn new(app: &mut App) -> Self {
         info!("Starting server...");
-        let cfg = &app.config().server;
+        let mut cfg_guard = app.config().lock().unwrap();
+        let cfg = &mut cfg_guard.server;
         let addr: SocketAddr = cfg.address.parse().expect("Invalid address!");
         let endpoint = NetEndpoint::with_address(addr).expect("Unable to create server endpoint!");
-        let keys = KeyPair::new(cfg.key_bits).expect("Unable to create server key!");
+        let keys = KeyPair::new(cfg.key_bits).expect("Unable to generate server key!");
         let password = cfg.password.to_owned();
         let server_address = endpoint.local_addr().expect("Unable to get server address!");
         info!("Server bound to {:?}", server_address);
-        app.set_var("server_address", server_address);
+        cfg.bound_to = Some(server_address.to_string());
         Server {
             endpoint: Box::new(endpoint),
             recv_buf: Some(Vec::with_capacity(MAX_DATAGRAM_SIZE)),

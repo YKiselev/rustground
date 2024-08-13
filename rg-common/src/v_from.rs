@@ -1,8 +1,8 @@
 use std::borrow::Cow;
 use std::fmt::{Display, Formatter};
 
-use crate::VarBag;
 use crate::vars::Variable;
+use crate::VarBag;
 
 impl Display for Variable<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -22,6 +22,9 @@ impl Display for Variable<'_> {
             Variable::Boolean(v) => {
                 write!(f, "{v}")
             }
+            Variable::None => {
+                write!(f, "None")
+            },
         }
     }
 }
@@ -35,6 +38,18 @@ impl From<&bool> for Variable<'_> {
 impl From<&mut bool> for Variable<'_> {
     fn from(value: &mut bool) -> Self {
         Variable::Boolean(*value)
+    }
+}
+
+impl From<&usize> for Variable<'_> {
+    fn from(value: &usize) -> Self {
+        Variable::Integer(*value as i64)
+    }
+}
+
+impl From<&mut usize> for Variable<'_> {
+    fn from(value: &mut usize) -> Self {
+        Variable::Integer(*value as i64)
     }
 }
 
@@ -113,5 +128,15 @@ impl From<&f32> for Variable<'_> {
 impl From<&mut f32> for Variable<'_> {
     fn from(value: &mut f32) -> Self {
         Variable::Float(*value as f64)
+    }
+}
+
+impl<'a> From<&'a Option<String>> for Variable<'a>
+{
+    fn from(value: &'a Option<String>) -> Self {
+        value
+            .as_ref()
+            .map(|v| Variable::from(v))
+            .unwrap_or(Variable::None)
     }
 }

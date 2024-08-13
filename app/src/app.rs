@@ -2,24 +2,24 @@ use std::any::Any;
 use std::borrow::{Borrow, Cow};
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::{Arc, RwLock};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Error};
 use log::{error, info};
 
-use rg_common::AppFiles;
 use rg_common::arguments::Arguments;
+use rg_common::{AppFiles, VarRegistry};
 use rg_macros::VarBag;
 
-use crate::config::Config;
 use crate::state::{AppState, InitialState};
+use rg_common::config::Config;
 
 #[derive(Copy, Clone)]
 enum Value {
-    SocketAddr(SocketAddr)
+    SocketAddr(SocketAddr),
 }
 
 enum PlayerMode {
@@ -48,23 +48,23 @@ pub(crate) struct App {
     arguments: Arguments,
     exit_flag: AtomicBool,
     started_at: Instant,
-    config: Config,
+    config: Arc<Mutex<Config>>,
     files: Arc<RwLock<AppFiles>>,
-    vars: Arc<RwLock<HashMap<String, Value>>>,
+    vars: VarRegistry<Config>,
 }
 
 impl App {
     pub(crate) fn new(args: &Arguments) -> Self {
         let mut files = AppFiles::new(&args);
-        let cfg = Config::load("config.toml", &mut files);
+        let cfg = Arc::new(Mutex::new(Config::load("config.toml", &mut files)));
         info!("Loaded config: {cfg:?}");
         App {
             arguments: *args,
             exit_flag: AtomicBool::new(false),
             started_at: Instant::now(),
-            config: cfg,
+            config: cfg.clone(),
             files: Arc::new(RwLock::new(files)),
-            vars: Arc::new(RwLock::new(HashMap::new())),
+            vars: VarRegistry::new(cfg),
         }
     }
 
@@ -72,7 +72,7 @@ impl App {
         &self.arguments
     }
 
-    pub(crate) fn config(&self) -> &Config {
+    pub(crate) fn config(&self) -> &Arc<Mutex<Config>> {
         &self.config
     }
 
@@ -105,20 +105,4 @@ impl App {
         Ok(())
     }
 
-    pub(crate) fn set_var<S, V>(&mut self, key: S, value: V)
-        where S: Into<String>,
-              V: Into<Value>
-    {
-        let mut lock = self.vars.write().expect("Lock poisoned!");
-        lock.insert(key.into(), value.into());
-    }
-
-    pub(crate) fn get_var<S, V>(&self, key: S) -> anyhow::Result<V>
-        where S: Into<String>,
-              V: TryFrom<Value, Error=Error>
-    {
-        self.vars.read().unwrap().get(&key.into())
-            .and_then(|v| V::try_from(*v).ok())
-            .ok_or_else(|| Error::msg("Not found!"))
-    }
 }

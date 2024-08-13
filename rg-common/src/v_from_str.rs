@@ -21,6 +21,14 @@ impl FromStrMutator for i64 {
     }
 }
 
+impl FromStrMutator for usize {
+    fn set_from_str(&mut self, sp: &mut Split<&str>, value: &str) -> Result<(), VariableError> {
+        assert!(sp.next().is_none());
+        *self = value.parse::<usize>().map_err(|v| VariableError::ParsingError)?;
+        Ok(())
+    }
+}
+
 impl FromStrMutator for f32 {
     fn set_from_str(&mut self, sp: &mut Split<&str>, value: &str) -> Result<(), VariableError> {
         assert!(sp.next().is_none());
@@ -49,6 +57,18 @@ impl FromStrMutator for String {
     fn set_from_str(&mut self, sp: &mut Split<&str>, value: &str) -> Result<(), VariableError> {
         assert!(sp.next().is_none());
         *self = value.to_string();
+        Ok(())
+    }
+}
+
+impl FromStrMutator for Option<String> {
+    fn set_from_str(&mut self, sp: &mut Split<&str>, value: &str) -> Result<(), VariableError> {
+        assert!(sp.next().is_none());
+        *self = if "None" != value {
+            Some(value.to_string())
+        } else {
+            None
+        };
         Ok(())
     }
 }

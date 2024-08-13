@@ -1,8 +1,6 @@
-use std::any::Any;
 use std::borrow::Cow;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
-use std::io::IsTerminal;
 use std::iter::Peekable;
 use std::ops::Deref;
 use std::str::{FromStr, Split};
@@ -17,6 +15,7 @@ pub enum Variable<'a> {
     Integer(i64),
     Float(f64),
     Boolean(bool),
+    None
 }
 
 pub trait VarBag {
@@ -37,6 +36,11 @@ pub struct VarRegistry<T> where T: VarBag {
 }
 
 impl<T: VarBag> VarRegistry<T> {
+    
+    pub fn new(data: Arc<Mutex<T>>) -> Self {
+        VarRegistry { data: Some(data) }
+    }
+
     pub fn set_data(&mut self, config: Arc<Mutex<T>>) {
         self.data = Some(config);
     }
@@ -85,6 +89,13 @@ impl<T: VarBag> VarRegistry<T> {
                 Variable::Boolean(b) => {
                     return if sp.next().is_none() {
                         Some(b.to_string())
+                    } else {
+                        None
+                    };
+                }
+                Variable::None => {
+                    return if sp.next().is_none() {
+                        Some("".to_string())
                     } else {
                         None
                     };
@@ -139,7 +150,7 @@ impl<T: VarBag> VarRegistry<T> {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-enum VarRegistryError {
+pub enum VarRegistryError {
     VarError(VariableError),
     LockFailed,
 }

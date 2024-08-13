@@ -1,7 +1,5 @@
 extern crate core;
 
-use std::collections::HashSet;
-use std::io::Read;
 use std::ops::DerefMut;
 use std::process::exit;
 use std::result;
@@ -18,10 +16,8 @@ use rg_common::arguments::Arguments;
 use rg_common::{files, VarBag};
 
 use crate::bit_code_test::test_bitcode;
-use crate::client::Client;
-use crate::config::{Config, ServerConfig};
+use rg_common::config::{Config, ServerConfig};
 use crate::net::Message;
-use crate::server::{Server, server_init};
 
 mod client;
 mod server;
@@ -32,11 +28,10 @@ mod app;
 mod state;
 
 fn main() -> anyhow::Result<()> {
-    let logger_buf = app_logger::init().unwrap();
+    let logger_buf = app_logger::init().expect("Unable to init app logger!");
     info!("Begin initialization...");
 
     let args = Arguments::parse();
     let mut app = app::App::new(&args);
-    //app.run()
-    Ok(())
+    app.run()
 }

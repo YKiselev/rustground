@@ -1,4 +1,5 @@
 use std::io::Read;
+use std::os::unix::net::SocketAddr;
 
 use serde::{Deserialize, Serialize};
 
@@ -6,20 +7,22 @@ use rg_common::files;
 use rg_common::files::Files;
 use rg_macros::VarBag;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, VarBag)]
 pub struct Config {
     pub server: ServerConfig,
     pub client: ClientConfig,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, VarBag)]
 pub struct ServerConfig {
     pub address: String,
+    #[serde(skip_serializing)]
+    pub bound_to: Option<String>,
     pub key_bits: usize,
     pub password: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, VarBag)]
 pub struct ClientConfig {}
 
 impl Config {
