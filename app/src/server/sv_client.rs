@@ -1,10 +1,9 @@
 use std::io;
-use std::io::ErrorKind::UnexpectedEof;
 use std::time::Instant;
 
 use log::{error, info};
 
-use crate::net::{Endpoint, MAX_DATAGRAM_SIZE, Message, NetEndpoint};
+use crate::net::{Endpoint, Message};
 use crate::net::Message::{Ping, Pong};
 
 #[derive(Debug)]

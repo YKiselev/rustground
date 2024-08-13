@@ -1,18 +1,13 @@
-use std::any::Any;
-use std::borrow::{Borrow, Cow};
-use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
-use std::thread;
 use std::time::{Duration, Instant};
 
-use anyhow::{anyhow, Error};
+use anyhow::Error;
 use log::{error, info};
 
 use rg_common::arguments::Arguments;
 use rg_common::{AppFiles, VarRegistry};
-use rg_macros::VarBag;
 
 use crate::state::{AppState, InitialState};
 use rg_common::config::Config;

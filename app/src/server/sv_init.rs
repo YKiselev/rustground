@@ -4,7 +4,6 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 use log::{info, warn};
 use crate::app::App;
-use rg_common::config::ServerConfig;
 use crate::server::Server;
 
 pub(crate) fn server_init(app: &mut App) -> anyhow::Result<(Arc<RwLock<Server>>, JoinHandle<()>)> {

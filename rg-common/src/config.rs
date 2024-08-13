@@ -1,5 +1,4 @@
 use std::io::Read;
-use std::os::unix::net::SocketAddr;
 
 use serde::{Deserialize, Serialize};
 

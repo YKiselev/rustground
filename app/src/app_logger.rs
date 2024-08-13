@@ -8,7 +8,6 @@ use log4rs::append::console::ConsoleAppender;
 use log4rs::append::file::FileAppender;
 use log4rs::Config;
 use log4rs::config::{Appender, Root};
-use log4rs::encode::Encode;
 use log4rs::encode::pattern::PatternEncoder;
 
 #[derive(Debug)]
@@ -67,7 +66,7 @@ impl AppLoggerBuffer {
     pub(crate) fn iterate<F>(&self, handler: F)
         where F: FnMut(&String) -> ()
     {
-        let mut guard = self.buffer.write().unwrap();
+        let guard = self.buffer.write().unwrap();
         guard.iter().for_each(handler);
     }
 }

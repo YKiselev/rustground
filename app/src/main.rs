@@ -1,23 +1,11 @@
 extern crate core;
 
-use std::ops::DerefMut;
-use std::process::exit;
-use std::result;
-use std::sync::{Arc, RwLock};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::thread;
-use std::thread::JoinHandle;
-use std::time::{Duration, Instant};
 
-use log::{error, info, LevelFilter, warn};
+use log::info;
 use rsa::signature::digest::Digest;
 
 use rg_common::arguments::Arguments;
-use rg_common::{files, VarBag};
 
-use crate::bit_code_test::test_bitcode;
-use rg_common::config::{Config, ServerConfig};
-use crate::net::Message;
 
 mod client;
 mod server;

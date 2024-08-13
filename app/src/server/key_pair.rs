@@ -1,5 +1,4 @@
 use rsa::{Pkcs1v15Encrypt, RsaPrivateKey, RsaPublicKey};
-use rsa::pkcs8::EncodePublicKey;
 
 #[derive(Debug)]
 pub(crate) struct KeyPair {

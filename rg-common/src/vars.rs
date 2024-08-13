@@ -3,7 +3,7 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::iter::Peekable;
 use std::ops::Deref;
-use std::str::{FromStr, Split};
+use std::str::Split;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use crate::VariableError::NotFound;
@@ -195,7 +195,7 @@ impl Error for VariableError {}
 #[cfg(test)]
 mod test {
     use std::collections::HashSet;
-    use std::fmt::{Debug, Display};
+    use std::fmt::Debug;
     use std::str::Split;
     use std::sync::{Arc, Mutex};
 
