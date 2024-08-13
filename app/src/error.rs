@@ -1,4 +1,4 @@
-use std::io;
+use std::{error::Error, fmt::Display, io};
 
 use log::SetLoggerError;
 use log4rs::config::runtime::ConfigErrors;
@@ -8,6 +8,15 @@ use log4rs::config::runtime::ConfigErrors;
 pub struct AppError {
     pub message: String
 }
+
+impl std::error::Error for AppError {}
+
+impl Display for AppError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
 
 impl From<&str> for AppError {
     fn from(value: &str) -> Self {
@@ -40,3 +49,4 @@ impl From<SetLoggerError> for AppError {
         }
     }
 }
+    

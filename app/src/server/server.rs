@@ -13,6 +13,8 @@ use crate::net::{Endpoint, MAX_DATAGRAM_SIZE, Message, NetEndpoint, ServerEndpoi
 use crate::server::key_pair::KeyPair;
 use crate::server::sv_client::Client;
 
+use super::key_pair::KeyPairError;
+
 #[derive(Debug, Eq, PartialEq, Hash)]
 struct ClientId(SocketAddr);
 
@@ -77,10 +79,10 @@ impl Server {
     fn check_password(&self, encoded: &[u8]) -> bool {
         if let Some(password) = &self.password {
             return self.keys.decode(encoded)
-                .map_err(|e| anyhow::Error::from(e))
+                //.map_err(|e| anyhow::Error::from(e))
                 .and_then(|v| from_utf8(&v)
                     .map(|p| password.eq(p))
-                    .map_err(|e| anyhow::Error::from(e))
+                    .map_err(|e| KeyPairError::default())
                 ).unwrap_or(false);
         }
         true

@@ -4,6 +4,8 @@ use std::fmt::Display;
 use rsa::{Pkcs1v15Encrypt, RsaPublicKey};
 use rsa::pkcs8::DecodePublicKey;
 
+use crate::error::AppError;
+
 #[derive(Debug)]
 pub(crate) struct PublicKey {
     public_key: RsaPublicKey,
@@ -31,10 +33,10 @@ impl From<rsa::Error> for PublicKeyError {
 }
 
 impl PublicKey {
-    pub(crate) fn from_pem(data: &str) -> anyhow::Result<Self> {
+    pub(crate) fn from_pem(data: &str) -> Result<Self, AppError> {
         Ok(
             PublicKey {
-                public_key: RsaPublicKey::from_public_key_pem(data)?
+                public_key: RsaPublicKey::from_public_key_pem(data).map_err(|e| AppError::from("Unable to reconstruct public key!"))?
             }
         )
     }

@@ -2,13 +2,15 @@ use std::{error::Error, fmt::Display};
 
 use rsa::{Pkcs1v15Encrypt, RsaPrivateKey, RsaPublicKey};
 
+use crate::error::AppError;
+
 #[derive(Debug)]
 pub(crate) struct KeyPair {
     private_key: RsaPrivateKey,
     public_key: RsaPublicKey,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub(crate) struct KeyPairError {
     pub message: String
 }
@@ -30,8 +32,9 @@ impl From<rsa::Error> for KeyPairError {
 }
 
 impl KeyPair {
-    pub(crate) fn new(bits: usize) -> anyhow::Result<Self> {
-        let private_key = RsaPrivateKey::new(&mut rand::thread_rng(), bits)?;
+    pub(crate) fn new(bits: usize) -> Result<Self, AppError> {
+        let private_key = RsaPrivateKey::new(&mut rand::thread_rng(), bits)
+            .map_err(|e| AppError::from("Unable to generate key!"))?;
         let public_key = RsaPublicKey::from(&private_key);
         Ok(
             KeyPair {

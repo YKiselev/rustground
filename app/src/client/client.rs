@@ -8,6 +8,7 @@ use rsa::RsaPublicKey;
 
 use crate::app::App;
 use crate::client::cl_pub_key::PublicKey;
+use crate::error::AppError;
 use crate::net::{Endpoint, MAX_DATAGRAM_SIZE, Message, NetEndpoint};
 use crate::net::Message::{Accepted, Hello, Ping, Pong, ServerInfo};
 
@@ -45,14 +46,15 @@ impl Client {
         }
     }
 
-    fn process_message(&mut self, msg: &Message) -> anyhow::Result<()> {
+    fn process_message(&mut self, msg: &Message) -> Result<(), AppError> {
         match msg {
             Accepted => {
                 self.state = ClientState::CONNECTED;
                 info!("Connected to server!");
             }
             ServerInfo { key } => {
-                let key = bitcode::deserialize::<RsaPublicKey>(key)?;
+                let key = bitcode::deserialize::<RsaPublicKey>(key)
+                    .map_err(|e| AppError::from("Unable to deserialize!"))?;
                 self.server_key = Some(PublicKey::new(key));
                 info!("Got server's public key!");
                 self.send_connect_message();
