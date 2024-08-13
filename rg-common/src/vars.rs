@@ -37,6 +37,8 @@ pub struct VarRegistry<T> where T: VarBag {
 
 impl<T: VarBag> VarRegistry<T> {
     
+    pub const DELIMITER: &'static str  = "::";
+
     pub fn new(data: Arc<Mutex<T>>) -> Self {
         VarRegistry { data: Some(data) }
     }
@@ -58,7 +60,7 @@ impl<T: VarBag> VarRegistry<T> {
 
     pub fn try_get_value(&self, name: &str) -> Option<String> {
         let guard = self.lock_data()?;
-        let mut v: Variable = Variable::from(guard.deref());
+        let mut v = Variable::from(guard.deref());
         let mut sp = name.split("::");
         loop {
             match v {
@@ -107,7 +109,8 @@ impl<T: VarBag> VarRegistry<T> {
     pub fn try_set_value(&self, name: &str, value: &str) -> Result<(), VarRegistryError> {
         let mut sp = name.split("::");
         let mut guard = self.lock_data().ok_or(VarRegistryError::LockFailed)?;
-        guard.try_set_var(&mut sp, value).map_err(|e| VarError(e))
+        guard.try_set_var(&mut sp, value)?;
+        Ok(())
     }
 
     fn filter_names(owner: &dyn VarBag, sp: &mut Peekable<Split<&str>>, prefix: &str, result: &mut Vec<String>) {
@@ -169,6 +172,12 @@ impl Display for VarRegistryError {
 }
 
 impl Error for VarRegistryError {}
+
+impl From<VariableError> for VarRegistryError {
+    fn from(value: VariableError) -> Self {
+        VarRegistryError::VarError(value)
+    }
+}
 
 #[derive(Debug, PartialEq, Eq, Ord, PartialOrd, Clone)]
 pub enum VariableError {

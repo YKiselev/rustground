@@ -1,8 +1,9 @@
 use std::io;
 use std::time::Instant;
 
-use log::{error, info};
+use log::{error, info, warn};
 
+use crate::error::AppError;
 use crate::net::{Endpoint, Message};
 use crate::net::Message::{Ping, Pong};
 
@@ -38,7 +39,7 @@ impl Client {
         self.endpoint.flush()
     }
 
-    pub(crate) fn process_message(&mut self, msg: &Message) -> anyhow::Result<()> {
+    pub(crate) fn process_message(&mut self, msg: &Message) -> Result<(), AppError> {
         self.touch();
         info!("Got from connected client: {msg:?}");
         match msg {
@@ -53,13 +54,13 @@ impl Client {
                 self.endpoint.send(&Pong { time: *time })?;
             }
             m => {
-                info!("Ignoring unsupported message: {m:?}");
+                warn!("Ignoring unsupported message: {m:?}");
             }
         }
         Ok(())
     }
 
-    pub(crate) fn update(&mut self, buf: &mut Vec<u8>) -> anyhow::Result<()> {
+    pub(crate) fn update(&mut self, buf: &mut Vec<u8>) -> Result<(), AppError> {
         self.clear_buffers();
         loop {
             match self.endpoint.receive_data(buf.as_mut()) {

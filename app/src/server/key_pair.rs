@@ -1,9 +1,32 @@
+use std::{error::Error, fmt::Display};
+
 use rsa::{Pkcs1v15Encrypt, RsaPrivateKey, RsaPublicKey};
 
 #[derive(Debug)]
 pub(crate) struct KeyPair {
     private_key: RsaPrivateKey,
     public_key: RsaPublicKey,
+}
+
+#[derive(Debug)]
+pub(crate) struct KeyPairError {
+    pub message: String
+}
+
+impl Error for KeyPairError {}
+
+impl Display for KeyPairError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+impl From<rsa::Error> for KeyPairError {
+    fn from(value: rsa::Error) -> Self {
+        KeyPairError{
+            message: value.to_string()
+        }
+    }
 }
 
 impl KeyPair {
@@ -22,12 +45,12 @@ impl KeyPair {
         &self.public_key
     }
 
-    pub(crate) fn encode(&self, data: &[u8]) -> anyhow::Result<Vec<u8>> {
-        self.public_key.encrypt(&mut rand::thread_rng(), Pkcs1v15Encrypt, data).map_err(|e| anyhow::Error::from(e))
+    pub(crate) fn encode(&self, data: &[u8]) -> Result<Vec<u8>, KeyPairError> {
+        Ok(self.public_key.encrypt(&mut rand::thread_rng(), Pkcs1v15Encrypt, data)?)
     }
 
-    pub(crate) fn decode(&self, data: &[u8]) -> anyhow::Result<Vec<u8>> {
-        self.private_key.decrypt(Pkcs1v15Encrypt, data).map_err(|e| anyhow::Error::from(e))
+    pub(crate) fn decode(&self, data: &[u8]) -> Result<Vec<u8>, KeyPairError> {
+        Ok(self.private_key.decrypt(Pkcs1v15Encrypt, data)?)
     }
 }
 

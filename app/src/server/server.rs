@@ -8,6 +8,7 @@ use log::{error, info, warn};
 
 
 use crate::app::App;
+use crate::error::AppError;
 use crate::net::{Endpoint, MAX_DATAGRAM_SIZE, Message, NetEndpoint, ServerEndpoint};
 use crate::server::key_pair::KeyPair;
 use crate::server::sv_client::Client;
@@ -25,7 +26,7 @@ pub(crate) struct Server {
 }
 
 impl Server {
-    pub(crate) fn update(&mut self) -> anyhow::Result<()> {
+    pub(crate) fn update(&mut self) -> Result<(), AppError> {
         let mut buf = self.recv_buf.take().unwrap_or_else(|| Vec::new());
 
         for (_, c) in self.clients.iter_mut() {
@@ -85,7 +86,7 @@ impl Server {
         true
     }
 
-    fn on_connect(&mut self, key: ClientId, name: &str, password: &[u8], addr: &SocketAddr) -> anyhow::Result<()> {
+    fn on_connect(&mut self, key: ClientId, name: &str, password: &[u8], addr: &SocketAddr) -> Result<(),AppError> {
         if !self.check_password(password) {
             info!("Wrong password from {:?}!", addr);
             return Ok(());
@@ -93,9 +94,9 @@ impl Server {
         match self.clients.entry(key) {
             Entry::Vacant(v) => {
                 let endpoint = self.endpoint.try_clone_and_connect(addr)?;
-                //endpoint.connect(addr)?;
                 let client = v.insert(Client::new(name, endpoint));
-                client.send(&Message::Accepted).map(|_| ()).map_err(|e| anyhow::Error::from(e))
+                client.send(&Message::Accepted).map(|_| ())?;
+                Ok(())
             }
             Entry::Occupied(ref mut o) => {
                 o.get_mut().touch();
@@ -104,7 +105,7 @@ impl Server {
         }
     }
 
-    fn pass_to_client(&mut self, key: ClientId, msg: &Message) -> anyhow::Result<()> {
+    fn pass_to_client(&mut self, key: ClientId, msg: &Message) -> Result<(), AppError> {
         if let Entry::Occupied(ref mut o) = self.clients.entry(key) {
             o.get_mut().process_message(msg)
         } else {
@@ -112,7 +113,7 @@ impl Server {
         }
     }
 
-    fn process_message(&mut self, msg: &Message, addr: &SocketAddr) -> anyhow::Result<()> {
+    fn process_message(&mut self, msg: &Message, addr: &SocketAddr) -> Result<(), AppError> {
         let key = ClientId(*addr);
         match msg {
             Message::Connect { name, password } => {
@@ -129,7 +130,7 @@ impl Server {
         }
     }
 
-    pub fn listen(&mut self, buf: &mut Vec<u8>) -> anyhow::Result<()> {
+    pub fn listen(&mut self, buf: &mut Vec<u8>) -> Result<(), AppError> {
         loop {
             match self.endpoint.receive_data(buf.as_mut()) {
                 Ok(Some(mut data)) => {

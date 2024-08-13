@@ -1,7 +1,6 @@
 use std::collections::VecDeque;
 use std::sync::{Arc, RwLock};
 
-use anyhow::Error;
 use log::{LevelFilter, Record};
 use log4rs::append::Append;
 use log4rs::append::console::ConsoleAppender;
@@ -9,6 +8,8 @@ use log4rs::append::file::FileAppender;
 use log4rs::Config;
 use log4rs::config::{Appender, Root};
 use log4rs::encode::pattern::PatternEncoder;
+
+use crate::error::AppError;
 
 #[derive(Debug)]
 pub(crate) struct AppLogger {
@@ -20,7 +21,7 @@ pub(crate) struct AppLoggerBuffer {
     buffer: Arc<RwLock<VecDeque<String>>>,
 }
 
-pub(crate) fn init() -> Result<AppLoggerBuffer, Error> {
+pub(crate) fn init() -> Result<AppLoggerBuffer, AppError> {
     let stdout = ConsoleAppender::builder().build();
     let file = FileAppender::builder()
         .encoder(Box::new(PatternEncoder::new("{d} - {m}{n}")))

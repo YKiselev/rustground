@@ -1,9 +1,33 @@
+use std::error::Error;
+use std::fmt::Display;
+
 use rsa::{Pkcs1v15Encrypt, RsaPublicKey};
 use rsa::pkcs8::DecodePublicKey;
 
 #[derive(Debug)]
 pub(crate) struct PublicKey {
     public_key: RsaPublicKey,
+}
+
+#[derive(Debug)]
+pub(crate) struct PublicKeyError {
+    pub message: String
+}
+
+impl Error for PublicKeyError {}
+
+impl Display for PublicKeyError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+impl From<rsa::Error> for PublicKeyError {
+    fn from(value: rsa::Error) -> Self {
+        PublicKeyError {
+            message: value.to_string()
+        }
+    }
 }
 
 impl PublicKey {
@@ -21,11 +45,11 @@ impl PublicKey {
         }
     }
 
-    pub(crate) fn encode(&self, data: &[u8]) -> anyhow::Result<Vec<u8>> {
-        self.public_key.encrypt(&mut rand::thread_rng(), Pkcs1v15Encrypt, data).map_err(|e| anyhow::Error::from(e))
+    pub(crate) fn encode(&self, data: &[u8]) -> Result<Vec<u8>, PublicKeyError> {
+        Ok(self.public_key.encrypt(&mut rand::thread_rng(), Pkcs1v15Encrypt, data)?)
     }
 
-    pub(crate) fn encode_str(&self, data: &str) -> anyhow::Result<Vec<u8>> {
-        self.encode(data.as_bytes())
+    pub(crate) fn encode_str(&self, data: &str) -> Result<Vec<u8>, PublicKeyError> {
+        Ok(self.encode(data.as_bytes())?)
     }
 }

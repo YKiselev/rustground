@@ -9,35 +9,9 @@ use log::{error, info};
 use rg_common::arguments::Arguments;
 use rg_common::{AppFiles, VarRegistry};
 
+use crate::error::AppError;
 use crate::state::{AppState, InitialState};
 use rg_common::config::Config;
-
-#[derive(Copy, Clone)]
-enum Value {
-    SocketAddr(SocketAddr),
-}
-
-enum PlayerMode {
-    SinglePlayer,
-    MultiPlayer,
-}
-
-impl TryFrom<Value> for SocketAddr {
-    type Error = Error;
-
-    fn try_from(value: Value) -> Result<Self, Self::Error> {
-        if let Value::SocketAddr(addr) = value {
-            return Ok(addr);
-        }
-        Err(Error::msg("Wrong type!"))
-    }
-}
-
-impl From<SocketAddr> for Value {
-    fn from(value: SocketAddr) -> Self {
-        Value::SocketAddr(value)
-    }
-}
 
 pub(crate) struct App {
     arguments: Arguments,
@@ -79,7 +53,7 @@ impl App {
         self.started_at.elapsed()
     }
 
-    pub(crate) fn run(&mut self) -> anyhow::Result<()> {
+    pub(crate) fn run(&mut self) -> Result<(), AppError> {
         let mut state: Box<dyn AppState> = Box::new(InitialState::default());
         info!("Entering main loop...");
         loop {
@@ -88,6 +62,7 @@ impl App {
                     state = s;
                 }
                 Ok(None) => {
+                    info!("No state to transition to, exiting...");
                     break;
                 }
                 Err(e) => {
