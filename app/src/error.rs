@@ -1,4 +1,4 @@
-use std::{error::Error, fmt::Display, io};
+use std::{fmt::Display, io};
 
 use log::SetLoggerError;
 use log4rs::config::runtime::ConfigErrors;
