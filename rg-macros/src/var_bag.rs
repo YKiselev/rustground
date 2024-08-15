@@ -1,7 +1,7 @@
 use proc_macro::TokenStream;
 
-use syn::{Attribute, Data, DeriveInput};
 use syn::__private::quote::quote;
+use syn::{Attribute, Data, DeriveInput};
 
 fn find_attribute<'a>(attrs: &'a Vec<Attribute>, path: &str) -> Option<&'a Attribute> {
     attrs.iter().find(|v| v.path().is_ident(path))

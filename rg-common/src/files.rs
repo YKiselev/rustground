@@ -1,8 +1,8 @@
-use std::{env, fs};
 use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io::Error;
 use std::path::{Path, PathBuf};
+use std::{env, fs};
 
 use log::{debug, error, info, warn};
 
@@ -35,9 +35,7 @@ impl FileRoot {
         let mut buf = self.path.clone();
         buf.push(path);
         match File::open(buf.clone()) {
-            Ok(file) => {
-                Some(file)
-            }
+            Ok(file) => Some(file),
             Err(e) => {
                 debug!("File not found: {:?}, {:?}", buf, e);
                 None
@@ -48,10 +46,14 @@ impl FileRoot {
 
 impl Display for FileRoot {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "FileRoot(read_only={}, path={})", self.readonly, self.path.display())
+        write!(
+            f,
+            "FileRoot(read_only={}, path={})",
+            self.readonly,
+            self.path.display()
+        )
     }
 }
-
 
 pub struct AppFiles {
     roots: Vec<FileRoot>,
@@ -70,24 +72,25 @@ impl AppFiles {
         }
         folders.push(current_dir.join("base"));
         folders.push(current_dir.join("base/resources"));
-        let roots = folders.iter().map(|path| {
-            let r = FileRoot::try_new(path);
-            if r.is_err() {
-                r.inspect_err(|error| {
-                    warn!("Failed to map \"{}\": {error}", path.display());
-                })
-            } else {
-                r.inspect(|path| {
-                    info!("Added path: {}", path);
-                })
-            }
-        }).filter(Result::is_ok)
+        let roots = folders
+            .iter()
+            .map(|path| {
+                let r = FileRoot::try_new(path);
+                if r.is_err() {
+                    r.inspect_err(|error| {
+                        warn!("Failed to map \"{}\": {error}", path.display());
+                    })
+                } else {
+                    r.inspect(|path| {
+                        info!("Added path: {}", path);
+                    })
+                }
+            })
+            .filter(Result::is_ok)
             .map(Result::unwrap)
             .collect();
 
-        AppFiles {
-            roots
-        }
+        AppFiles { roots }
     }
 }
 

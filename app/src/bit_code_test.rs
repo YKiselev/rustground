@@ -1,8 +1,8 @@
 use std::io::Write;
 use std::time::Instant;
 
-use bitcode::{Buffer, Decode, Encode};
 use bitcode::__private::{Decoder, View};
+use bitcode::{Buffer, Decode, Encode};
 
 use crate::net::Message;
 
@@ -13,12 +13,13 @@ struct Foo<'a> {
 }
 
 pub(crate) fn test_bitcode() {
-    let mut original = Foo {
-        x: 10,
-        y: "abc",
+    let mut original = Foo { x: 10, y: "abc" };
+    let m1 = Message::Ping {
+        time: Instant::now().elapsed().as_secs_f64(),
     };
-    let m1 = Message::Ping { time: Instant::now().elapsed().as_secs_f64() };
-    let m2 = Message::ServerInfo { key: vec![1u8, 2, 3, 4, 5, 6, 7, 8] };
+    let m2 = Message::ServerInfo {
+        key: vec![1u8, 2, 3, 4, 5, 6, 7, 8],
+    };
     let m3 = Message::Hello;
     let mut buffer = Buffer::new();
 
@@ -52,7 +53,7 @@ pub(crate) fn test_bitcode() {
     while !s.is_empty() {
         decoder.populate(s, 1).unwrap();
         //expect_eof(bytes)?;
-        let result = decoder.decode();// decode_inline_never(&mut decoder);
+        let result = decoder.decode(); // decode_inline_never(&mut decoder);
         println!("{}, Got {:?}", s.len(), result);
         //let decoded: Foo<'_> = bitcode::decode(&buf).unwrap();
     }

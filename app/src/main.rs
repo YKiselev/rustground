@@ -1,20 +1,18 @@
 extern crate core;
 
-
 use error::AppError;
 use log::info;
 
 use rg_common::arguments::Arguments;
 
-
-mod client;
-mod server;
-mod app_logger;
-mod net;
-mod bit_code_test;
 mod app;
-mod state;
+mod app_logger;
+mod bit_code_test;
+mod client;
 mod error;
+mod net;
+mod server;
+mod state;
 
 fn main() -> Result<(), AppError> {
     let logger_buf = app_logger::init().expect("Unable to init app logger!");

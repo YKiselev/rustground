@@ -6,8 +6,8 @@ use std::ops::Deref;
 use std::str::Split;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use crate::VariableError::NotFound;
 use crate::vars::VarRegistryError::VarError;
+use crate::VariableError::NotFound;
 
 pub enum Variable<'a> {
     VarBag(&'a dyn VarBag),
@@ -15,7 +15,7 @@ pub enum Variable<'a> {
     Integer(i64),
     Float(f64),
     Boolean(bool),
-    None
+    None,
 }
 
 pub trait VarBag {
@@ -31,13 +31,15 @@ pub trait FromStrMutator {
 }
 
 #[derive(Default)]
-pub struct VarRegistry<T> where T: VarBag {
+pub struct VarRegistry<T>
+where
+    T: VarBag,
+{
     data: Option<Arc<Mutex<T>>>,
 }
 
 impl<T: VarBag> VarRegistry<T> {
-    
-    pub const DELIMITER: &'static str  = "::";
+    pub const DELIMITER: &'static str = "::";
 
     pub fn new(data: Arc<Mutex<T>>) -> Self {
         VarRegistry { data: Some(data) }
@@ -113,7 +115,12 @@ impl<T: VarBag> VarRegistry<T> {
         Ok(())
     }
 
-    fn filter_names(owner: &dyn VarBag, sp: &mut Peekable<Split<&str>>, prefix: &str, result: &mut Vec<String>) {
+    fn filter_names(
+        owner: &dyn VarBag,
+        sp: &mut Peekable<Split<&str>>,
+        prefix: &str,
+        result: &mut Vec<String>,
+    ) {
         if let Some(part) = sp.next() {
             if part.is_empty() {
                 return;
@@ -200,7 +207,6 @@ impl Display for VariableError {
 
 impl Error for VariableError {}
 
-
 #[cfg(test)]
 mod test {
     use std::collections::HashSet;
@@ -210,7 +216,7 @@ mod test {
 
     use rg_macros::VarBag;
 
-    use crate::vars::{FromStrMutator, VarBag, Variable, VarRegistry};
+    use crate::vars::{FromStrMutator, VarBag, VarRegistry, Variable};
 
     #[derive(VarBag, Default)]
     struct TestVars {
@@ -233,15 +239,13 @@ mod test {
             counter: 123,
             name: "some name".to_string(),
             speed: 345.466,
-            sub: MoreTestVars {
-                speed: 330.0
-            },
+            sub: MoreTestVars { speed: 330.0 },
         };
-        let infos = v.get_vars()
+        let infos = v
+            .get_vars()
             .into_iter()
             //.map(|v| (v.name, true))
             .collect::<HashSet<_>>();
-
 
         assert_eq!("false", v.try_get_var("flag").unwrap().to_string());
         assert_eq!("123", v.try_get_var("counter").unwrap().to_string());
@@ -265,9 +269,7 @@ mod test {
             flag: false,
             name: "my name".to_string(),
             speed: 234.567,
-            sub: MoreTestVars {
-                speed: 220.0
-            },
+            sub: MoreTestVars { speed: 220.0 },
         }));
         reg.set_data(root);
         assert_eq!("my name", reg.try_get_value("name").unwrap());
@@ -316,19 +318,22 @@ mod test {
             flag: true,
         };
         let v = Variable::from(&c);
-        assert!(matches!(v, Variable::VarBag{..}));
+        assert!(matches!(v, Variable::VarBag { .. }));
         let v = Variable::from(&c.sub.counter);
-        assert!(matches!(v, Variable::Integer{..}));
+        assert!(matches!(v, Variable::Integer { .. }));
         let v = Variable::from(&c.sub);
-        assert!(matches!(v, Variable::VarBag{..}));
+        assert!(matches!(v, Variable::VarBag { .. }));
         let v = Variable::from(&c.sub.name);
-        assert!(matches!(v, Variable::String{..}));
+        assert!(matches!(v, Variable::String { .. }));
         let v = Variable::from(&c.speed);
-        assert!(matches!(v, Variable::Float{..}));
+        assert!(matches!(v, Variable::Float { .. }));
         let v = Variable::from(&c.flag);
-        assert!(matches!(v, Variable::Boolean{..}));
+        assert!(matches!(v, Variable::Boolean { .. }));
 
-        c.sub.counter.set_from_str(&mut empty_split(), "321").unwrap();
+        c.sub
+            .counter
+            .set_from_str(&mut empty_split(), "321")
+            .unwrap();
         assert_eq!(c.sub.counter, 321);
         c.speed.set_from_str(&mut empty_split(), "3.33").unwrap();
         assert_eq!(c.speed, 3.33);

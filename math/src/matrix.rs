@@ -25,19 +25,14 @@ pub struct Matrix {
 
 impl Matrix {
     pub fn new() -> Self {
-        Matrix {
-            m: [0.; 16]
-        }
+        Matrix { m: [0.; 16] }
     }
 
     pub fn identity() -> Self {
         Matrix {
             m: [
-                1., 0., 0., 0.,
-                0., 1., 0., 0.,
-                0., 0., 1., 0.,
-                0., 0., 0., 1.
-            ]
+                1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1.,
+            ],
         }
     }
 
@@ -52,13 +47,24 @@ impl Matrix {
     /// * `m`      the buffer to store resulting matrix in.
     pub fn orthographic(left: f32, right: f32, top: f32, bottom: f32, near: f32, far: f32) -> Self {
         Matrix {
-            m: [2. / (right - left), 0., 0., 0.,
-                0., 2. / (top - bottom), 0., 0.,
-                0., 0., -2. / (far - near), 0.,
+            m: [
+                2. / (right - left),
+                0.,
+                0.,
+                0.,
+                0.,
+                2. / (top - bottom),
+                0.,
+                0.,
+                0.,
+                0.,
+                -2. / (far - near),
+                0.,
                 -(right + left) / (right - left),
                 -(top + bottom) / (top - bottom),
                 -(far + near) / (far - near),
-                1.]
+                1.,
+            ],
         }
     }
 
@@ -73,14 +79,24 @@ impl Matrix {
     /// * `m`      the buffer to store resulting matrix in.
     pub fn perspective(left: f32, right: f32, top: f32, bottom: f32, near: f32, far: f32) -> Self {
         Matrix {
-            m: [2.0 * near / (right - left), 0., 0., 0.,
-                0., (2.0 * near / (top - bottom)), 0., 0.,
+            m: [
+                2.0 * near / (right - left),
+                0.,
+                0.,
+                0.,
+                0.,
+                (2.0 * near / (top - bottom)),
+                0.,
+                0.,
                 (right + left) / (right - left),
                 (top + bottom) / (top - bottom),
                 -(far + near) / (far - near),
                 -1.,
-                0., 0., -2.0 * far * near / (far - near), 0.
-            ]
+                0.,
+                0.,
+                -2.0 * far * near / (far - near),
+                0.,
+            ],
         }
     }
 
@@ -116,9 +132,7 @@ impl Matrix {
         m[13] = m13;
         m[14] = m14;
         m[15] = m15;
-        Matrix {
-            m
-        }
+        Matrix { m }
     }
 
     /// Combines scaling `(sx,sy,sz)` with this matrix.
@@ -152,11 +166,8 @@ impl Matrix {
 
         Matrix {
             m: [
-                m0, m1, m2, m3,
-                m4, m5, m6, m7,
-                m8, m9, m10, m11,
-                m12, m13, m14, m15
-            ]
+                m0, m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15,
+            ],
         }
     }
 
@@ -184,11 +195,8 @@ impl Matrix {
         let m15 = a[15];
         Matrix {
             m: [
-                m0, m4, m8, m12,
-                m1, m5, m9, m13,
-                m2, m6, m10, m14,
-                m3, m7, m11, m15
-            ]
+                m0, m4, m8, m12, m1, m5, m9, m13, m2, m6, m10, m14, m3, m7, m11, m15,
+            ],
         }
     }
 
@@ -218,8 +226,11 @@ impl Matrix {
                 -b * c,
                 a * c,
                 0.,
-                0., 0., 0., 1.
-            ]
+                0.,
+                0.,
+                0.,
+                1.,
+            ],
         }
     }
 
@@ -350,19 +361,13 @@ impl Matrix {
         assert_ne!(det, 0.0);
 
         let m = Matrix {
-            m: [
-                a, -e, i, -m,
-                -b, f, -j, n,
-                c, -g, k, -o,
-                -d, h, -l, p
-            ]
+            m: [a, -e, i, -m, -b, f, -j, n, c, -g, k, -o, -d, h, -l, p],
         };
 
         let trans = m.transpose();
         let ood = 1.0 / det;
         trans * ood
     }
-
 
     /// Creates viewing matrix derived from the `eye` point, a reference point `target` indicating the center of the scene and vector `up`
     /// Helpful tip: it's better to think of this as a coordinate system rotation.
@@ -376,23 +381,9 @@ impl Matrix {
         let y_axis = z_axis.cross(x_axis);
         let m = Matrix {
             m: [
-                x_axis.x,
-                x_axis.y,
-                x_axis.z,
-                0.,
-                y_axis.x,
-                y_axis.y,
-                y_axis.z,
-                0.,
-                z_axis.x,
-                z_axis.y,
-                z_axis.z,
-                0.,
-                0.,
-                0.,
-                0.,
-                1.
-            ]
+                x_axis.x, x_axis.y, x_axis.z, 0., y_axis.x, y_axis.y, y_axis.z, 0., z_axis.x,
+                z_axis.y, z_axis.z, 0., 0., 0., 0., 1.,
+            ],
         };
         m.transpose().translate(-eye.x, -eye.y, -eye.z)
     }
@@ -455,15 +446,14 @@ impl Mul<f32> for Matrix {
                 rhs * a[12],
                 rhs * a[13],
                 rhs * a[14],
-                rhs * a[15]
-            ]
+                rhs * a[15],
+            ],
         }
     }
 }
 
 impl Mul<Matrix> for Matrix {
     type Output = Matrix;
-
 
     /// Each row of this matrix is multiplied by the column of second (component-wise) and sum of results is stored in result's cell.
     /// # Arguments
@@ -495,15 +485,11 @@ impl Mul<Matrix> for Matrix {
 
         Matrix {
             m: [
-                m0, m1, m2, m3,
-                m4, m5, m6, m7,
-                m8, m9, m10, m11,
-                m12, m13, m14, m15
-            ]
+                m0, m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15,
+            ],
         }
     }
 }
-
 
 impl Add for Matrix {
     type Output = Matrix;
@@ -536,11 +522,8 @@ impl Add for Matrix {
 
         Matrix {
             m: [
-                m0, m1, m2, m3,
-                m4, m5, m6, m7,
-                m8, m9, m10, m11,
-                m12, m13, m14, m15
-            ]
+                m0, m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15,
+            ],
         }
     }
 }
@@ -584,10 +567,7 @@ mod test {
     fn identity() {
         assert_eq!(
             Matrix::identity().m,
-            [1., 0., 0., 0.,
-                0., 1., 0., 0.,
-                0., 0., 1., 0.,
-                0., 0., 0., 1.]
+            [1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1.]
         )
     }
 
@@ -606,7 +586,7 @@ mod test {
             (v3(1., 2., 3.), v3(-1., 0., 0.), v3(0., 2., 3.)),
             (v3(1., 2., 3.), v3(0., -1., 0.), v3(1., 1., 3.)),
             (v3(1., 2., 3.), v3(0., 0., -1.), v3(1., 2., 2.)),
-            (v3(1., 2., 3.), v3(1., 1., 1.), v3(2., 3., 4.))
+            (v3(1., 2., 3.), v3(1., 1., 1.), v3(2., 3., 4.)),
         ];
         for arg in args {
             let (v, t, exp) = arg;
@@ -628,8 +608,7 @@ mod test {
 
     #[test]
     fn translate_existing() {
-        let r = Matrix::rotation(0., 0., 45.0f32.to_radians())
-            .translate(1., 2., 3.);
+        let r = Matrix::rotation(0., 0., 45.0f32.to_radians()).translate(1., 2., 3.);
         let r = r * v3(4., 5., 6.);
         assert_eq!(r, v3(-1.4142137, 8.485281, 9.));
     }
@@ -637,18 +616,13 @@ mod test {
     #[test]
     fn scale() {
         let m = Matrix {
-            m: std::array::from_fn::<f32, 16, _>(|i| i as f32 + 1.)
+            m: std::array::from_fn::<f32, 16, _>(|i| i as f32 + 1.),
         };
         let r = m.scale(2., 4., 8.);
         assert_eq!(
             r,
             Matrix {
-                m: [
-                    2., 4., 6., 8.,
-                    20., 24., 28., 32.,
-                    72., 80., 88., 96.,
-                    13., 14., 15., 16.
-                ]
+                m: [2., 4., 6., 8., 20., 24., 28., 32., 72., 80., 88., 96., 13., 14., 15., 16.]
             }
         )
     }
@@ -656,18 +630,13 @@ mod test {
     #[test]
     fn transpose() {
         let m = Matrix {
-            m: std::array::from_fn::<f32, 16, _>(|i| i as f32 + 1.)
+            m: std::array::from_fn::<f32, 16, _>(|i| i as f32 + 1.),
         };
         let r = m.transpose();
         assert_eq!(
             r,
             Matrix {
-                m: [
-                    1., 5., 9., 13.,
-                    2., 6., 10., 14.,
-                    3., 7., 11., 15.,
-                    4., 8., 12., 16.
-                ]
+                m: [1., 5., 9., 13., 2., 6., 10., 14., 3., 7., 11., 15., 4., 8., 12., 16.]
             }
         )
     }
@@ -675,21 +644,16 @@ mod test {
     #[test]
     fn add() {
         let ma = Matrix {
-            m: std::array::from_fn::<f32, 16, _>(|i| i as f32 + 1.)
+            m: std::array::from_fn::<f32, 16, _>(|i| i as f32 + 1.),
         };
         let mb = Matrix {
-            m: std::array::from_fn::<f32, 16, _>(|i| 16. - i as f32)
+            m: std::array::from_fn::<f32, 16, _>(|i| 16. - i as f32),
         };
         let r = ma + mb;
         assert_eq!(
             r,
             Matrix {
-                m: [
-                    17., 17., 17., 17.,
-                    17., 17., 17., 17.,
-                    17., 17., 17., 17.,
-                    17., 17., 17., 17.
-                ]
+                m: [17., 17., 17., 17., 17., 17., 17., 17., 17., 17., 17., 17., 17., 17., 17., 17.]
             }
         )
     }
@@ -697,18 +661,13 @@ mod test {
     #[test]
     fn multiply_by_scalar() {
         let m = Matrix {
-            m: std::array::from_fn::<f32, 16, _>(|i| i as f32 + 1.)
+            m: std::array::from_fn::<f32, 16, _>(|i| i as f32 + 1.),
         };
         let r = m * 2.;
         assert_eq!(
             r,
             Matrix {
-                m: [
-                    2., 4., 6., 8.,
-                    10., 12., 14., 16.,
-                    18., 20., 22., 24.,
-                    26., 28., 30., 32.
-                ]
+                m: [2., 4., 6., 8., 10., 12., 14., 16., 18., 20., 22., 24., 26., 28., 30., 32.]
             }
         )
     }
@@ -717,11 +676,8 @@ mod test {
     fn multiply_by_vector() {
         let m = Matrix {
             m: [
-                1., 4., 7., 0.,
-                2., 5., 8., 0.,
-                3., 6., 9., 0.,
-                0., 0., 0., 1.
-            ]
+                1., 4., 7., 0., 2., 5., 8., 0., 3., 6., 9., 0., 0., 0., 0., 1.,
+            ],
         };
         let vec = v3(1., 2., 3.);
         let r = m * vec;
@@ -732,28 +688,18 @@ mod test {
     fn multiply() {
         let m = Matrix {
             m: [
-                1., 5., 9., 0.,
-                2., 6., 10., 0.,
-                3., 7., 11., 0.,
-                0., 0., 0., 1.]
+                1., 5., 9., 0., 2., 6., 10., 0., 3., 7., 11., 0., 0., 0., 0., 1.,
+            ],
         };
         let r = m * Matrix {
             m: [
-                1., 0., 0., 1.,
-                0., 1., 0., 2.,
-                0., 0., 1., 3.,
-                0., 0., 0., 1.
-            ]
+                1., 0., 0., 1., 0., 1., 0., 2., 0., 0., 1., 3., 0., 0., 0., 1.,
+            ],
         };
         assert_eq!(
             r,
             Matrix {
-                m: [
-                    1., 5., 9., 1.,
-                    2., 6., 10., 2.,
-                    3., 7., 11., 3.,
-                    0., 0., 0., 1.
-                ]
+                m: [1., 5., 9., 1., 2., 6., 10., 2., 3., 7., 11., 3., 0., 0., 0., 1.]
             }
         );
     }
@@ -761,11 +707,7 @@ mod test {
     #[test]
     fn rotate() {
         fn rotate(ax: f32, ay: f32, az: f32, v: Vector3f, expected: Vector3f) {
-            let m = Matrix::rotation(
-                ax.to_radians(),
-                ay.to_radians(),
-                az.to_radians(),
-            );
+            let m = Matrix::rotation(ax.to_radians(), ay.to_radians(), az.to_radians());
             assert_v(m * v, expected);
         }
         let args = [
@@ -774,7 +716,7 @@ mod test {
             (0.0, 0.0, 90.0, v3(1., 0., 0.), v3(0., 1., 0.)),
             (45.0, 0.0, 0.0, v3(0., 1., 0.), v3(0., 0.707, 0.707)),
             (0.0, 45.0, 0.0, v3(1., 0., 0.), v3(0.707, 0., -0.707)),
-            (0.0, 0.0, 45.0, v3(1., 0., 0.), v3(0.707, 0.707, 0.))
+            (0.0, 0.0, 45.0, v3(1., 0., 0.), v3(0.707, 0.707, 0.)),
         ];
         for n in args {
             rotate(n.0, n.1, n.2, n.3, n.4);
@@ -785,13 +727,10 @@ mod test {
     fn determinant() {
         let m = Matrix {
             m: [
-                1., 3., 4., 10.,
-                2., 5., 9., 11.,
-                6., 8., 12., 15.,
-                7., 13., 14., 16.
-            ]
+                1., 3., 4., 10., 2., 5., 9., 11., 6., 8., 12., 15., 7., 13., 14., 16.,
+            ],
         };
-        assert_relative_eq!(m.determinant(), -594.0, epsilon=0.001);
+        assert_relative_eq!(m.determinant(), -594.0, epsilon = 0.001);
     }
 
     #[test]
@@ -803,22 +742,31 @@ mod test {
     fn inverse() {
         let m = Matrix {
             m: [
-                1., 2., 4., 6.,
-                3., 1., 7., 10.,
-                5., 8., 1., 12.,
-                9., 11., 13., 1.
-            ]
+                1., 2., 4., 6., 3., 1., 7., 10., 5., 8., 1., 12., 9., 11., 13., 1.,
+            ],
         };
         let r = m.inverse();
         assert_m(
             r,
             Matrix {
                 m: [
-                    -1643. / 2369., 744. / 2369., 194. / 2369., 90. / 2369.,
-                    816. / 2369., -593. / 2369., 81. / 2369., 62. / 2369.,
-                    439. / 2369., -20. / 2369., -209. / 2369., 74. / 2369.,
-                    104. / 2369., 87. / 2369., 80. / 2369., -85. / 2369.
-                ]
+                    -1643. / 2369.,
+                    744. / 2369.,
+                    194. / 2369.,
+                    90. / 2369.,
+                    816. / 2369.,
+                    -593. / 2369.,
+                    81. / 2369.,
+                    62. / 2369.,
+                    439. / 2369.,
+                    -20. / 2369.,
+                    -209. / 2369.,
+                    74. / 2369.,
+                    104. / 2369.,
+                    87. / 2369.,
+                    80. / 2369.,
+                    -85. / 2369.,
+                ],
             },
         );
     }
@@ -838,7 +786,14 @@ mod test {
 
     #[test]
     fn look_at() {
-        fn look_at(origin: Vector3f, eye: Vector3f, up: Vector3f, ax: Vector3f, ay: Vector3f, az: Vector3f) {
+        fn look_at(
+            origin: Vector3f,
+            eye: Vector3f,
+            up: Vector3f,
+            ax: Vector3f,
+            ay: Vector3f,
+            az: Vector3f,
+        ) {
             let m = Matrix::look_at(origin, eye, up);
             let v1 = v3(1., 0., 0.);
             let v2 = v3(0., 1., 0.);
@@ -854,7 +809,7 @@ mod test {
                 v3(0., 0., 1.),
                 v3(0., 0., -1.),
                 v3(-1., 0., 0.),
-                v3(0., 1., 0.)
+                v3(0., 1., 0.),
             ),
             (
                 v3(1., 1., 0.),
@@ -862,7 +817,7 @@ mod test {
                 v3(0., 0., 1.),
                 v3(0.707, 0., -0.707),
                 v3(-0.707, 0., -0.707),
-                v3(0., 1., 0.)
+                v3(0., 1., 0.),
             ),
             (
                 v3(0., 1., 0.),
@@ -870,7 +825,7 @@ mod test {
                 v3(0., 0., 1.),
                 v3(1., 0., 0.),
                 v3(0., 0., -1.),
-                v3(0., 1., 0.)
+                v3(0., 1., 0.),
             ),
             (
                 v3(0., 0., 1.),
@@ -878,7 +833,7 @@ mod test {
                 v3(-1., 0., 0.),
                 v3(0., -1., 0.),
                 v3(-1., 0., 0.),
-                v3(0., 0., -1.)
+                v3(0., 0., -1.),
             ),
             (
                 v3(0., 0., 0.),
@@ -886,7 +841,7 @@ mod test {
                 v3(0., 0., 1.),
                 v3(0., 0., -2.),
                 v3(-1., 0., -1.),
-                v3(0., 1., -1.)
+                v3(0., 1., -1.),
             ),
             (
                 v3(0., 0., 0.),
@@ -894,7 +849,7 @@ mod test {
                 v3(0., 0., 1.),
                 v3(0.707, 0., -2.121),
                 v3(-0.707, 0., -2.121),
-                v3(0., 1., -1.414)
+                v3(0., 1., -1.414),
             ),
             (
                 v3(0., 0., 0.),
@@ -902,8 +857,8 @@ mod test {
                 v3(0., 0., 1.),
                 v3(1., 0., -1.),
                 v3(0., 0., -2.),
-                v3(0., 1., -1.)
-            )
+                v3(0., 1., -1.),
+            ),
         ];
         for n in args {
             look_at(n.0, n.1, n.2, n.3, n.4, n.5);
@@ -923,7 +878,7 @@ mod test {
             (v4(0., 0., 10., 1.), v4(0., 0., -14.444, -10.)),
             (v4(0., 0., 15., 1.), v4(0., 0., -20.555, -15.)),
             (v4(1., 1., 1., 1.), v4(1., 1., -3.444, -1.)),
-            (v4(1., 1., 2., 1.), v4(1., 1., -4.666, -2.))
+            (v4(1., 1., 2., 1.), v4(1., 1., -4.666, -2.)),
         ];
     }
 }

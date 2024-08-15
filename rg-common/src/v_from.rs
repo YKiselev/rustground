@@ -24,7 +24,7 @@ impl Display for Variable<'_> {
             }
             Variable::None => {
                 write!(f, "None")
-            },
+            }
         }
     }
 }
@@ -131,8 +131,7 @@ impl From<&mut f32> for Variable<'_> {
     }
 }
 
-impl<'a> From<&'a Option<String>> for Variable<'a>
-{
+impl<'a> From<&'a Option<String>> for Variable<'a> {
     fn from(value: &'a Option<String>) -> Self {
         value
             .as_ref()

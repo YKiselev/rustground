@@ -9,11 +9,7 @@ pub struct Vector3f {
 
 impl Vector3f {
     pub fn new(x: f32, y: f32, z: f32) -> Vector3f {
-        Vector3f {
-            x,
-            y,
-            z,
-        }
+        Vector3f { x, y, z }
     }
 
     pub fn zero() -> Vector3f {
@@ -51,11 +47,7 @@ impl Vector3f {
         let len = self.length();
         if len > 0.0 {
             let ool = 1.0 / len;
-            return Vector3f::new(
-                self.x * ool,
-                self.y * ool,
-                self.z * ool,
-            );
+            return Vector3f::new(self.x * ool, self.y * ool, self.z * ool);
         }
         self.clone()
     }
@@ -138,7 +130,14 @@ mod tests {
     fn cross() {
         let a = Vector3f::new(0., 1., 0.);
         let v = Vector3f::new(1., 0., 0.).cross(a);
-        assert_eq!(v, Vector3f { x: 0., y: 0., z: 1. });
+        assert_eq!(
+            v,
+            Vector3f {
+                x: 0.,
+                y: 0.,
+                z: 1.
+            }
+        );
 
         let a = Vector3f::new(0., -1., 0.);
         let v = Vector3f::new(-1., 0., 0.).cross(a);
@@ -165,7 +164,10 @@ mod tests {
 
     #[test]
     fn normalize() {
-        assert_eq!(Vector3f::new(1., 1., 1.).normalize(), Vector3f::new(0.57735026, 0.57735026, 0.57735026));
+        assert_eq!(
+            Vector3f::new(1., 1., 1.).normalize(),
+            Vector3f::new(0.57735026, 0.57735026, 0.57735026)
+        );
     }
 
     #[test]

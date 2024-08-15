@@ -28,7 +28,9 @@ impl Config {
     pub fn load(name: &str, files: &mut files::AppFiles) -> Self {
         let mut cfg = files.open(name).expect("Unable to load config!");
         let mut tmp = String::new();
-        let read = cfg.read_to_string(&mut tmp).expect("Unable to read from file!");
+        let read = cfg
+            .read_to_string(&mut tmp)
+            .expect("Unable to read from file!");
         toml::from_str(&tmp).expect("Unable to deserialize!")
     }
 }

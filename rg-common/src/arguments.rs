@@ -7,22 +7,20 @@ pub struct Arguments {
 }
 
 impl Arguments {
-    pub fn dedicated(&self) -> bool { self.dedicated }
+    pub fn dedicated(&self) -> bool {
+        self.dedicated
+    }
 
-    pub fn windowed(&self) -> bool { self.windowed }
+    pub fn windowed(&self) -> bool {
+        self.windowed
+    }
 
     fn has_option(v: &Vec<String>, opt: &str) -> bool {
-        v.iter().any(|s| {
-            *s == opt
-        })
+        v.iter().any(|s| *s == opt)
     }
 
     fn get_value<'a>(v: &'a Vec<String>, opt: &str) -> Option<&'a String> {
-        v.iter().position(|v| {
-            v == opt
-        }).map(|idx| {
-            &v[idx + 1]
-        })
+        v.iter().position(|v| v == opt).map(|idx| &v[idx + 1])
     }
 
     pub fn parse() -> Self {

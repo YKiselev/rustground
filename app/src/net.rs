@@ -1,16 +1,15 @@
 use std::cmp::min;
 use std::fmt::{Debug, Formatter};
 use std::io;
-use std::io::{Error, Write};
 use std::io::ErrorKind::WouldBlock;
+use std::io::{Error, Write};
 use std::net::{Ipv4Addr, SocketAddr, ToSocketAddrs, UdpSocket};
 use std::num::NonZeroUsize;
 
-use bitcode::{Decode, Encode};
 use bitcode::__private::{Buffer, Decoder, Encoder, View};
+use bitcode::{Decode, Encode};
 
 pub const MAX_DATAGRAM_SIZE: usize = 65507;
-
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub enum Message<'a> {
@@ -22,7 +21,6 @@ pub enum Message<'a> {
     Ping { time: f64 },
     Pong { time: f64 },
 }
-
 
 pub(crate) trait Endpoint: Debug {
     fn connect(&self, addr: SocketAddr) -> io::Result<()>;
@@ -37,7 +35,10 @@ pub(crate) trait Endpoint: Debug {
 }
 
 pub(crate) trait ServerEndpoint: Endpoint {
-    fn try_clone_and_connect(&self, addr: &SocketAddr) -> io::Result<Box<dyn Endpoint + Sync + Send>>;
+    fn try_clone_and_connect(
+        &self,
+        addr: &SocketAddr,
+    ) -> io::Result<Box<dyn Endpoint + Sync + Send>>;
 }
 
 pub struct NetEndpoint {
@@ -157,19 +158,26 @@ impl Endpoint for NetEndpoint {
                 if amount > 0 {
                     buf.truncate(amount);
                     Ok(Some(ReceivedData::new(buf.as_slice(), addr)))
-                } else { Ok(None) }
+                } else {
+                    Ok(None)
+                }
             }
-            Err(e) => return if e.kind() == WouldBlock {
-                Ok(None) // no data yet
-            } else {
-                Err(e)
+            Err(e) => {
+                return if e.kind() == WouldBlock {
+                    Ok(None) // no data yet
+                } else {
+                    Err(e)
+                }
             }
         }
     }
 }
 
 impl ServerEndpoint for NetEndpoint {
-    fn try_clone_and_connect(&self, addr: &SocketAddr) -> io::Result<Box<dyn Endpoint + Sync + Send>> {
+    fn try_clone_and_connect(
+        &self,
+        addr: &SocketAddr,
+    ) -> io::Result<Box<dyn Endpoint + Sync + Send>> {
         let socket = self.socket.try_clone()?;
         self.socket.connect(addr)?;
         Ok(Box::new(Self::from_socket(socket)))

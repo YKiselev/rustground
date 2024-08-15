@@ -4,8 +4,8 @@ use std::time::Instant;
 use log::{error, info, warn};
 
 use crate::error::AppError;
-use crate::net::{Endpoint, Message};
 use crate::net::Message::{Ping, Pong};
+use crate::net::{Endpoint, Message};
 
 #[derive(Debug)]
 pub struct Client {
@@ -48,7 +48,10 @@ impl Client {
             // Message::Accepted => {}
             // Message::Hello => {}
             Pong { time } => {
-                info!("Ping to client is {:.6} sec.", Instant::now().elapsed().as_secs_f64() - time);
+                info!(
+                    "Ping to client is {:.6} sec.",
+                    Instant::now().elapsed().as_secs_f64() - time
+                );
             }
             Ping { time } => {
                 self.endpoint.send(&Pong { time: *time })?;

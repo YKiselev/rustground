@@ -5,12 +5,11 @@ use std::time::{Duration, Instant};
 use log::{error, info, warn};
 use rsa::RsaPublicKey;
 
-
 use crate::app::App;
 use crate::client::cl_pub_key::PublicKey;
 use crate::error::AppError;
-use crate::net::{Endpoint, MAX_DATAGRAM_SIZE, Message, NetEndpoint};
 use crate::net::Message::{Accepted, Hello, Ping, Pong, ServerInfo};
+use crate::net::{Endpoint, Message, NetEndpoint, MAX_DATAGRAM_SIZE};
 
 #[derive(Eq, PartialEq)]
 enum ClientState {
@@ -60,7 +59,10 @@ impl Client {
                 self.send_connect_message();
             }
             Pong { time } => {
-                info!("Ping to server is {:.2} ms.", 1000.0 * (Instant::now().elapsed().as_secs_f64() - time));
+                info!(
+                    "Ping to server is {:.2} ms.",
+                    1000.0 * (Instant::now().elapsed().as_secs_f64() - time)
+                );
             }
             Ping { time } => {
                 self.send(&Pong { time: *time });
@@ -104,7 +106,10 @@ impl Client {
     }
 
     fn is_time_to_resend(&self) -> bool {
-        Self::CONN_RETRY_INTERVAL <= self.last_send.map_or_else(|| Self::CONN_RETRY_INTERVAL, |v| v.elapsed())
+        Self::CONN_RETRY_INTERVAL
+            <= self
+                .last_send
+                .map_or_else(|| Self::CONN_RETRY_INTERVAL, |v| v.elapsed())
     }
 
     pub(crate) fn frame_start(&mut self) {
@@ -122,7 +127,10 @@ impl Client {
             match self.state {
                 ClientState::INIT => {
                     if let Some(addr) = app.config().lock().unwrap().server.bound_to.as_ref() {
-                        match self.endpoint.connect(addr.parse().expect("Unable to parse server address!")) {
+                        match self
+                            .endpoint
+                            .connect(addr.parse().expect("Unable to parse server address!"))
+                        {
                             Ok(_) => {
                                 info!("Client socket connected to {}", addr);
                                 self.state = ClientState::DISCONNECTED;
@@ -146,7 +154,9 @@ impl Client {
                 }
                 ClientState::CONNECTED => {
                     for i in 0..10 {
-                        self.send(&Ping { time: Instant::now().elapsed().as_secs_f64() });
+                        self.send(&Ping {
+                            time: Instant::now().elapsed().as_secs_f64(),
+                        });
                     }
                 }
             }

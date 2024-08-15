@@ -72,5 +72,4 @@ impl App {
         info!("Leaving main loop.");
         Ok(())
     }
-
 }

@@ -12,7 +12,7 @@ pub(crate) struct KeyPair {
 
 #[derive(Debug, Default)]
 pub(crate) struct KeyPairError {
-    pub message: String
+    pub message: String,
 }
 
 impl Error for KeyPairError {}
@@ -25,8 +25,8 @@ impl Display for KeyPairError {
 
 impl From<rsa::Error> for KeyPairError {
     fn from(value: rsa::Error) -> Self {
-        KeyPairError{
-            message: value.to_string()
+        KeyPairError {
+            message: value.to_string(),
         }
     }
 }
@@ -36,12 +36,10 @@ impl KeyPair {
         let private_key = RsaPrivateKey::new(&mut rand::thread_rng(), bits)
             .map_err(|e| AppError::from("Unable to generate key!"))?;
         let public_key = RsaPublicKey::from(&private_key);
-        Ok(
-            KeyPair {
-                private_key,
-                public_key,
-            }
-        )
+        Ok(KeyPair {
+            private_key,
+            public_key,
+        })
     }
 
     pub(crate) fn public_key(&self) -> &RsaPublicKey {
@@ -49,14 +47,15 @@ impl KeyPair {
     }
 
     pub(crate) fn encode(&self, data: &[u8]) -> Result<Vec<u8>, KeyPairError> {
-        Ok(self.public_key.encrypt(&mut rand::thread_rng(), Pkcs1v15Encrypt, data)?)
+        Ok(self
+            .public_key
+            .encrypt(&mut rand::thread_rng(), Pkcs1v15Encrypt, data)?)
     }
 
     pub(crate) fn decode(&self, data: &[u8]) -> Result<Vec<u8>, KeyPairError> {
         Ok(self.private_key.decrypt(Pkcs1v15Encrypt, data)?)
     }
 }
-
 
 #[cfg(test)]
 mod test {

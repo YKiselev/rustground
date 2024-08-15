@@ -6,10 +6,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use log::{error, info, warn};
 
-
 use crate::app::App;
 use crate::error::AppError;
-use crate::net::{Endpoint, MAX_DATAGRAM_SIZE, Message, NetEndpoint, ServerEndpoint};
+use crate::net::{Endpoint, Message, NetEndpoint, ServerEndpoint, MAX_DATAGRAM_SIZE};
 use crate::server::key_pair::KeyPair;
 use crate::server::sv_client::Client;
 
@@ -63,7 +62,9 @@ impl Server {
         let endpoint = NetEndpoint::with_address(addr).expect("Unable to create server endpoint!");
         let keys = KeyPair::new(cfg.key_bits).expect("Unable to generate server key!");
         let password = cfg.password.to_owned();
-        let server_address = endpoint.local_addr().expect("Unable to get server address!");
+        let server_address = endpoint
+            .local_addr()
+            .expect("Unable to get server address!");
         info!("Server bound to {:?}", server_address);
         cfg.bound_to = Some(server_address.to_string());
         Server {
@@ -78,17 +79,27 @@ impl Server {
 
     fn check_password(&self, encoded: &[u8]) -> bool {
         if let Some(password) = &self.password {
-            return self.keys.decode(encoded)
+            return self
+                .keys
+                .decode(encoded)
                 //.map_err(|e| anyhow::Error::from(e))
-                .and_then(|v| from_utf8(&v)
-                    .map(|p| password.eq(p))
-                    .map_err(|e| KeyPairError::default())
-                ).unwrap_or(false);
+                .and_then(|v| {
+                    from_utf8(&v)
+                        .map(|p| password.eq(p))
+                        .map_err(|e| KeyPairError::default())
+                })
+                .unwrap_or(false);
         }
         true
     }
 
-    fn on_connect(&mut self, key: ClientId, name: &str, password: &[u8], addr: &SocketAddr) -> Result<(),AppError> {
+    fn on_connect(
+        &mut self,
+        key: ClientId,
+        name: &str,
+        password: &[u8],
+        addr: &SocketAddr,
+    ) -> Result<(), AppError> {
         if !self.check_password(password) {
             info!("Wrong password from {:?}!", addr);
             return Ok(());
@@ -118,17 +129,13 @@ impl Server {
     fn process_message(&mut self, msg: &Message, addr: &SocketAddr) -> Result<(), AppError> {
         let key = ClientId(*addr);
         match msg {
-            Message::Connect { name, password } => {
-                self.on_connect(key, name, password, addr)
-            }
+            Message::Connect { name, password } => self.on_connect(key, name, password, addr),
             Message::Hello => {
                 let key = bitcode::serialize(self.keys.public_key()).unwrap();
                 self.endpoint.send_to(&Message::ServerInfo { key }, addr)?;
                 Ok(())
             }
-            other => {
-                self.pass_to_client(key, other)
-            }
+            other => self.pass_to_client(key, other),
         }
     }
 

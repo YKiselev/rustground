@@ -1,10 +1,10 @@
+use crate::app::App;
+use crate::server::Server;
+use log::{info, warn};
 use std::sync::{Arc, RwLock};
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
-use log::{info, warn};
-use crate::app::App;
-use crate::server::Server;
 
 pub(crate) fn server_init(app: &mut App) -> anyhow::Result<(Arc<RwLock<Server>>, JoinHandle<()>)> {
     let server = Arc::new(RwLock::new(Server::new(app)));
@@ -33,6 +33,7 @@ pub(crate) fn server_init(app: &mut App) -> anyhow::Result<(Arc<RwLock<Server>>,
                 }
             }
             info!("Server loop ended.");
-        }).map_err(|e| anyhow::Error::from(e))?;
+        })
+        .map_err(|e| anyhow::Error::from(e))?;
     Ok((server, handle))
 }

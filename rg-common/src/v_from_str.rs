@@ -3,8 +3,8 @@ use std::str::{ParseBoolError, Split};
 
 use rg_common::VarBag;
 
-use crate::VariableError;
 use crate::vars::FromStrMutator;
+use crate::VariableError;
 
 ///
 /// Error converters
@@ -29,7 +29,7 @@ impl From<ParseBoolError> for VariableError {
 
 ///
 /// Mutators
-/// 
+///
 impl FromStrMutator for i32 {
     fn set_from_str(&mut self, sp: &mut Split<&str>, value: &str) -> Result<(), VariableError> {
         assert!(sp.next().is_none());

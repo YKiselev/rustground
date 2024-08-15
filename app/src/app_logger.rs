@@ -2,12 +2,12 @@ use std::collections::VecDeque;
 use std::sync::{Arc, RwLock};
 
 use log::{LevelFilter, Record};
-use log4rs::append::Append;
 use log4rs::append::console::ConsoleAppender;
 use log4rs::append::file::FileAppender;
-use log4rs::Config;
+use log4rs::append::Append;
 use log4rs::config::{Appender, Root};
 use log4rs::encode::pattern::PatternEncoder;
+use log4rs::Config;
 
 use crate::error::AppError;
 
@@ -36,17 +36,16 @@ pub(crate) fn init() -> Result<AppLoggerBuffer, AppError> {
         .appender(Appender::builder().build("file", Box::new(file)))
         .appender(Appender::builder().build("app", Box::new(logger)))
         //.logger(Logger::builder().build("app", LevelFilter::Info))
-        .build(Root::builder()
-            .appender("stdout")
-            .appender("app")
-            .appender("file")
-            .build(LevelFilter::Debug)
+        .build(
+            Root::builder()
+                .appender("stdout")
+                .appender("app")
+                .appender("file")
+                .build(LevelFilter::Debug),
         )?;
 
     let handle = log4rs::init_config(config)?;
-    Ok(AppLoggerBuffer {
-        buffer: buf
-    })
+    Ok(AppLoggerBuffer { buffer: buf })
 }
 
 impl Append for AppLogger {
@@ -65,7 +64,8 @@ impl Append for AppLogger {
 
 impl AppLoggerBuffer {
     pub(crate) fn iterate<F>(&self, handler: F)
-        where F: FnMut(&String) -> ()
+    where
+        F: FnMut(&String) -> (),
     {
         let guard = self.buffer.write().unwrap();
         guard.iter().for_each(handler);
