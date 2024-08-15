@@ -97,7 +97,7 @@ impl<T: VarBag> VarRegistry<T> {
                 }
                 Variable::None => {
                     return if sp.next().is_none() {
-                        Some("".to_string())
+                        Some("None".to_string())
                     } else {
                         None
                     };
