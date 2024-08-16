@@ -20,7 +20,7 @@ impl CommandRegistry {
         name: &str,
         handler: fn(a: A) -> Result<(), CmdError>,
     ) -> Result<(), CmdError> {
-        if self.data.contains_key(&name) {
+        if self.data.contains_key(name) {
             return Err(CmdError::AlreadyExists);
         }
         let h = Holder1 {
@@ -39,7 +39,7 @@ impl CommandRegistry {
         A: FromStr + 'static,
         B: FromStr + 'static,
     {
-        if self.data.contains_key(&key) {
+        if self.data.contains_key(name) {
             return Err(CmdError::AlreadyExists);
         }
         let h = Holder2 {
@@ -49,9 +49,9 @@ impl CommandRegistry {
         Ok(())
     }
 
-    pub fn invoke<T: AsRef<str>>(&self, args: &mut dyn Iterator<Item = T>) -> Result<(), CmdError> {
+    pub fn invoke(&self, args: &mut Iter<&str>) -> Result<(), CmdError> {
         let name = args.next().ok_or(CmdError::ArgNumberMismatch(1))?;
-        if let Some(wrapper) = self.data.get(name.as_ref()) {
+        if let Some(wrapper) = self.data.get(*name) {
             wrapper.invoke(args)
         } else {
             Err(CmdError::NotFound)
@@ -60,7 +60,7 @@ impl CommandRegistry {
 }
 
 trait CommandWrapper {
-    fn invoke(&self, args: Iter<String>) -> Result<(), CmdError>;
+    fn invoke(&self, args: &mut Iter<&str>) -> Result<(), CmdError>;
 }
 
 #[derive(Debug)]
@@ -80,7 +80,7 @@ fn parse<T: FromStr>(value: &str) -> Result<T, CmdError> {
 }
 
 impl<A: FromStr> CommandWrapper for Holder1<A> {
-    fn invoke(&self, mut args: Iter<String>) -> Result<(), CmdError> {
+    fn invoke(&self, args: &mut Iter<&str>) -> Result<(), CmdError> {
         let arg1 = args.next().ok_or(CmdError::ArgNumberMismatch(1))?;
         if args.next().is_some() {
             return Err(CmdError::ArgNumberMismatch(1));
@@ -90,7 +90,7 @@ impl<A: FromStr> CommandWrapper for Holder1<A> {
 }
 
 impl<A: FromStr, B: FromStr> CommandWrapper for Holder2<A, B> {
-    fn invoke(&self, mut args: Iter<String>) -> Result<(), CmdError> {
+    fn invoke(&self, args: &mut Iter<&str>) -> Result<(), CmdError> {
         let arg1 = args.next().ok_or(CmdError::ArgNumberMismatch(2))?;
         let arg2 = args.next().ok_or(CmdError::ArgNumberMismatch(2))?;
         if args.next().is_some() {
@@ -143,7 +143,7 @@ mod test {
             println!("Called test handler with {a}");
             Ok(())
         });
-        assert!(matches!(reg.register1("1", |a:i32|{ Ok(())}), Err(CmdError::AlreadyExists(_))));
+        assert!(matches!(reg.register1("1", |a:i32|{ Ok(())}), Err(CmdError::AlreadyExists)));
         reg.register1("2", |a: i32| {
             println!("Called with {a}");
             Ok(())
@@ -154,15 +154,14 @@ mod test {
             Ok(())
         });
 
-        reg.invoke("1", &["Hello"])
+        reg.invoke( &mut ["1","Hello"].iter())
             .unwrap();
-        reg.invoke("2", &["321"]).unwrap();
+        reg.invoke( &mut ["2","321"].iter()).unwrap();
         reg.invoke(
-            "3",
-            &["123", "Hello_World!"],
+            &mut ["3","123", "Hello_World!"].iter(),
         )
         .unwrap();
-        assert!(matches!(reg.invoke("2", &["2.3"]), Err(CmdError::ParseError(_))));
-        assert!(matches!(reg.invoke("2", &["2", ".3"]), Err(CmdError::ArgNumberMismatch(1))));
+        assert!(matches!(reg.invoke( &mut ["2","2.3"].iter()), Err(CmdError::ParseError(_))));
+        assert!(matches!(reg.invoke( &mut ["2", "2", ".3"].iter()), Err(CmdError::ArgNumberMismatch(1))));
     }
 }
