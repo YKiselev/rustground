@@ -1,105 +1,111 @@
+use std::str::Chars;
+
 ///
 /// Command line parser
 ///
 
 pub struct CmdParser<'a> {
-    data: &'a str,
+    chars: Chars<'a>,
 }
 
 enum State {
     Normal,
-    Quoted,
-    Backslash,
+    Quoted(char),
+    Backslash(char),
     Whitespace,
 }
 
 impl<'a> CmdParser<'a> {
     pub fn new(cmd_line: &'a str) -> Self {
-        CmdParser { data: cmd_line }
+        CmdParser {
+            chars: cmd_line.chars(),
+        }
     }
 
-    pub fn next(&mut self) -> Option<Vec<&str>> {
+    fn is_quote(ch: char) -> bool {
+        ch == '\"' || ch == '\''
+    }
+
+    pub fn next(&mut self) -> Option<Vec<String>> {
         let mut result = Vec::new();
-        let mut pos: usize = 0;
-        let mut len: usize = 0;
-        let mut chars = self.data.chars();
+        let mut buf = String::new();
         let mut state = State::Whitespace;
-        let mut squotes: usize = 0;
-        let mut dquotes: usize = 0;
-        //let mut quotes = Vec::new();
-        while let Some(ch) = chars.next() {
+        while let Some(ch) = self.chars.next() {
             match state {
                 State::Normal => match ch {
                     '\\' => {
-                        state = State::Backslash;
-                        //result.push(&self.data[pos..pos + len]);
-                        //pos += len;
-                        //len = 0;
+                        state = State::Backslash('a');
+                        buf.push(ch);
                     }
                     '"' | '\'' => {
-                        if ch == '"' {
-                            dquotes += 1;
-                        } else {
-                            squotes += 1;
-                        }
-                        //quotes.push(ch);
-                        state = State::Quoted;
-                        result.push(&self.data[pos..pos + len]);
-                        pos += len;
-                        len = 0;
+                        state = State::Quoted(ch);
+                        buf.push(ch);
                     }
                     _ if ch.is_whitespace() => {
                         state = State::Whitespace;
-                        result.push(&self.data[pos..pos + len]);
-                        pos += len + 1;
-                        len = 0;
+                        if !buf.is_empty() {
+                            let last = buf.pop().unwrap();
+                            if !Self::is_quote(last) {
+                                buf.push(last);
+                            }
+                            if !buf.is_empty() {
+                                result.push(buf);
+                                buf = String::new();
+                            }
+                        }
                     }
                     _ => {
-                        len += 1;
+                        buf.push(ch);
                     }
                 },
                 State::Whitespace => {
                     if ch.is_whitespace() {
-                        pos += 1;
                     } else {
                         match ch {
                             '\\' => {
-                                state = State::Backslash;
-                                pos += 1;
+                                state = State::Backslash(' ');
                             }
                             '"' | '\'' => {
-                                if ch == '"' {
-                                    dquotes += 1;
-                                } else {
-                                    squotes += 1;
-                                }
-                                state = State::Quoted;
-                                pos += 1;
+                                state = State::Quoted(ch);
                             }
                             _ => {
                                 state = State::Normal;
-                                len += 1;
+                                buf.push(ch);
                             }
                         }
                     }
                 }
-                State::Quoted => match ch {
-                    '"' | '\\' => {
-
+                State::Quoted(q) => match ch {
+                    '"' | '\'' if q == ch => {
+                        state = State::Normal;
+                        buf.push(ch);
+                    }
+                    '\\' => {
+                        state = State::Backslash(q);
+                        buf.push(ch);
                     }
                     _ => {
-                        len += 1;
+                        buf.push(ch);
                     }
                 },
-                State::Backslash => {}
+                State::Backslash(v) => match v {
+                    '"' | '\'' => {
+                        state = State::Quoted(v);
+                        buf.push(ch);
+                    }
+                    _ if ch.is_whitespace() => {
+                        state = State::Whitespace;
+                        result.push(buf);
+                        buf = String::new();
+                    }
+                    _ => {
+                        state = State::Normal;
+                    }
+                },
             }
         }
-        if len > 0 {
-            result.push(&self.data[pos..pos + len]);
-            pos += len;
-        }
-        if pos > 0 {
-            self.data = &self.data[pos..];
+        if !buf.is_empty() {
+            result.push(buf);
         }
         if result.is_empty() {
             None
@@ -113,12 +119,25 @@ impl<'a> CmdParser<'a> {
 mod test {
     use super::CmdParser;
 
+    fn assert(cmd: &str, expected: Vec<&str>) {
+        let mut parser = CmdParser::new(cmd);
+        let e = expected
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<String>>();
+        assert_eq!(parser.next(), Some(e));
+    }
+
     #[test]
     fn parser() {
-        let mut parser = CmdParser::new("a b c d");
-        assert_eq!(parser.next(), Some(vec!["a", "b", "c", "d"]));
-        // while let Some(args) = parser.next() {
-        //     println!("Got command: {args:?}");
-        // }
+        assert("Ф Ы Ё", vec!["Ф", "Ы", "Ё"]);
+        assert("a b c d", vec!["a", "b", "c", "d"]);
+        assert("a \"b c\" d", vec!["a", "b c", "d"]);
+        assert("a 'b c' d", vec!["a", "b c", "d"]);
+        assert("a \" 'b c' \" d", vec!["a", " 'b c' ", "d"]);
+        assert("a ' \"b c\" ' d", vec!["a", " \"b c\" ", "d"]);
+        assert("a' b c 'd", vec!["a' b c 'd"]);
+        assert("a\" b c \"d", vec!["a\" b c \"d"]);
+        assert("a\" b c\\\" d\"", vec!["a\" b c\\\" d\""]);
     }
 }
