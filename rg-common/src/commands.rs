@@ -20,14 +20,13 @@ impl CommandRegistry {
         name: &str,
         handler: fn(a: A) -> Result<(), CmdError>,
     ) -> Result<(), CmdError> {
-        let key = name.to_owned();
-        if self.data.contains_key(&key) {
-            return Err(CmdError::AlreadyExists(key));
+        if self.data.contains_key(&name) {
+            return Err(CmdError::AlreadyExists);
         }
         let h = Holder1 {
             handler: Box::new(handler),
         };
-        self.data.insert(key, Box::new(h));
+        self.data.insert(name.to_owned(), Box::new(h));
         Ok(())
     }
 
@@ -40,22 +39,22 @@ impl CommandRegistry {
         A: FromStr + 'static,
         B: FromStr + 'static,
     {
-        let key = name.to_owned();
         if self.data.contains_key(&key) {
-            return Err(CmdError::AlreadyExists(key));
+            return Err(CmdError::AlreadyExists);
         }
         let h = Holder2 {
             handler: Box::new(handler),
         };
-        self.data.insert(key, Box::new(h));
+        self.data.insert(name.to_owned(), Box::new(h));
         Ok(())
     }
 
-    pub fn invoke(&self, name: String, args: &[String]) -> Result<(), CmdError> {
-        if let Some(wrapper) = self.data.get(&name) {
-            wrapper.invoke(args.iter())
+    pub fn invoke<T: AsRef<str>>(&self, args: &mut dyn Iterator<Item = T>) -> Result<(), CmdError> {
+        let name = args.next().ok_or(CmdError::ArgNumberMismatch(1))?;
+        if let Some(wrapper) = self.data.get(name.as_ref()) {
+            wrapper.invoke(args)
         } else {
-            Err(CmdError::NotFound(name))
+            Err(CmdError::NotFound)
         }
     }
 }
@@ -106,10 +105,10 @@ impl<A: FromStr, B: FromStr> CommandWrapper for Holder2<A, B> {
 ///
 #[derive(Debug)]
 pub enum CmdError {
-    AlreadyExists(String),
+    AlreadyExists,
     ParseError(String),
     ArgNumberMismatch(i8),
-    NotFound(String),
+    NotFound,
 }
 
 impl std::error::Error for CmdError {}
@@ -123,11 +122,11 @@ impl Display for CmdError {
             CmdError::ArgNumberMismatch(n) => {
                 write!(f, "Expected {n} arguments!")
             }
-            CmdError::AlreadyExists(n) => {
-                write!(f, "Name already registered: {n}")
+            CmdError::AlreadyExists => {
+                write!(f, "Name already registered!")
             }
-            CmdError::NotFound(c) => {
-                write!(f, "No such command: \"{c}\"")
+            CmdError::NotFound => {
+                write!(f, "No such command!")
             }
         }
     }
@@ -135,16 +134,16 @@ impl Display for CmdError {
 
 #[cfg(test)]
 mod test {
-    use crate::CommandRegistry;
+    use crate::{commands::CmdError, CommandRegistry};
 
     #[test]
     fn commands() {
         let mut reg = CommandRegistry::default();
-        let handler = |a: String| {
+        reg.register1("1", |a: String| {
             println!("Called test handler with {a}");
             Ok(())
-        };
-        reg.register1("test", handler);
+        });
+        assert!(matches!(reg.register1("1", |a:i32|{ Ok(())}), Err(CmdError::AlreadyExists(_))));
         reg.register1("2", |a: i32| {
             println!("Called with {a}");
             Ok(())
@@ -155,13 +154,15 @@ mod test {
             Ok(())
         });
 
-        reg.invoke("test".to_owned(), &["Hello".to_owned()])
+        reg.invoke("1", &["Hello"])
             .unwrap();
-        reg.invoke("2".to_owned(), &["321".to_owned()]).unwrap();
+        reg.invoke("2", &["321"]).unwrap();
         reg.invoke(
-            "3".to_owned(),
-            &["123".to_owned(), "Hello_World!".to_owned()],
+            "3",
+            &["123", "Hello_World!"],
         )
         .unwrap();
+        assert!(matches!(reg.invoke("2", &["2.3"]), Err(CmdError::ParseError(_))));
+        assert!(matches!(reg.invoke("2", &["2", ".3"]), Err(CmdError::ArgNumberMismatch(1))));
     }
 }
