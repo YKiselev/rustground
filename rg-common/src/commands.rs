@@ -15,19 +15,38 @@ pub struct CommandRegistry {
 }
 
 impl CommandRegistry {
+    fn register_wrapper(
+        &mut self,
+        name: &str,
+        wrapper: Box<dyn CommandWrapper>,
+    ) -> Result<(), CmdError> {
+        if self.data.contains_key(name) {
+            return Err(CmdError::AlreadyExists);
+        }
+        self.data.insert(name.to_owned(), wrapper);
+        Ok(())
+    }
+
+    pub fn register(
+        &mut self,
+        name: &str,
+        handler: fn(&[String]) -> Result<(), CmdError>,
+    ) -> Result<(), CmdError> {
+        let h = Holder {
+            handler: Box::new(handler),
+        };
+        self.register_wrapper(name, Box::new(h))
+    }
+
     pub fn register1<A: FromStr + 'static>(
         &mut self,
         name: &str,
         handler: fn(a: A) -> Result<(), CmdError>,
     ) -> Result<(), CmdError> {
-        if self.data.contains_key(name) {
-            return Err(CmdError::AlreadyExists);
-        }
         let h = Holder1 {
             handler: Box::new(handler),
         };
-        self.data.insert(name.to_owned(), Box::new(h));
-        Ok(())
+        self.register_wrapper(name, Box::new(h))
     }
 
     pub fn register2<A, B>(
@@ -39,20 +58,18 @@ impl CommandRegistry {
         A: FromStr + 'static,
         B: FromStr + 'static,
     {
-        if self.data.contains_key(name) {
-            return Err(CmdError::AlreadyExists);
-        }
         let h = Holder2 {
             handler: Box::new(handler),
         };
-        self.data.insert(name.to_owned(), Box::new(h));
-        Ok(())
+        self.register_wrapper(name, Box::new(h))
     }
 
-    pub fn invoke(&self, args: &mut Iter<&str>) -> Result<(), CmdError> {
-        let name = args.next().ok_or(CmdError::ArgNumberMismatch(1))?;
-        if let Some(wrapper) = self.data.get(*name) {
-            wrapper.invoke(args)
+    pub fn invoke(&self, args: Vec<String>) -> Result<(), CmdError> {
+        if args.len() < 1 {
+            return Err(CmdError::ArgNumberMismatch(1));
+        }
+        if let Some(wrapper) = self.data.get(&args[0]) {
+            wrapper.invoke(&args[1..])
         } else {
             Err(CmdError::NotFound)
         }
@@ -60,7 +77,12 @@ impl CommandRegistry {
 }
 
 trait CommandWrapper {
-    fn invoke(&self, args: &mut Iter<&str>) -> Result<(), CmdError>;
+    fn invoke(&self, args: &[String]) -> Result<(), CmdError>;
+}
+
+#[derive(Debug)]
+struct Holder {
+    handler: Box<fn(&[String]) -> Result<(), CmdError>>,
 }
 
 #[derive(Debug)]
@@ -79,24 +101,32 @@ fn parse<T: FromStr>(value: &str) -> Result<T, CmdError> {
         .map_err(|e| CmdError::ParseError(value.to_owned()))
 }
 
+impl CommandWrapper for Holder {
+    fn invoke(&self, args: &[String]) -> Result<(), CmdError> {
+        (self.handler)(args)
+    }
+}
+
 impl<A: FromStr> CommandWrapper for Holder1<A> {
-    fn invoke(&self, args: &mut Iter<&str>) -> Result<(), CmdError> {
-        let arg1 = args.next().ok_or(CmdError::ArgNumberMismatch(1))?;
-        if args.next().is_some() {
+    fn invoke(&self, args: &[String]) -> Result<(), CmdError> {
+        let mut it = args.into_iter();
+        let arg1 = it.next().ok_or(CmdError::ArgNumberMismatch(1))?;
+        if it.next().is_some() {
             return Err(CmdError::ArgNumberMismatch(1));
         }
-        (self.handler)(parse(arg1)?)
+        (self.handler)(parse(&arg1)?)
     }
 }
 
 impl<A: FromStr, B: FromStr> CommandWrapper for Holder2<A, B> {
-    fn invoke(&self, args: &mut Iter<&str>) -> Result<(), CmdError> {
-        let arg1 = args.next().ok_or(CmdError::ArgNumberMismatch(2))?;
-        let arg2 = args.next().ok_or(CmdError::ArgNumberMismatch(2))?;
-        if args.next().is_some() {
+    fn invoke(&self, args: &[String]) -> Result<(), CmdError> {
+        let mut it = args.into_iter();
+        let arg1 = it.next().ok_or(CmdError::ArgNumberMismatch(2))?;
+        let arg2 = it.next().ok_or(CmdError::ArgNumberMismatch(2))?;
+        if it.next().is_some() {
             return Err(CmdError::ArgNumberMismatch(1));
         }
-        (self.handler)(parse(arg1)?, parse(arg2)?)
+        (self.handler)(parse(&arg1)?, parse(&arg2)?)
     }
 }
 
@@ -136,6 +166,10 @@ impl Display for CmdError {
 mod test {
     use crate::{commands::CmdError, CommandRegistry};
 
+    fn invoke<const N: usize>(reg: &CommandRegistry, args: [&str;N]) -> Result<(), CmdError> {
+        reg.invoke(args.iter().map(|v| v.to_string()).collect())
+    }
+
     #[test]
     fn commands() {
         let mut reg = CommandRegistry::default();
@@ -143,7 +177,10 @@ mod test {
             println!("Called test handler with {a}");
             Ok(())
         });
-        assert!(matches!(reg.register1("1", |a:i32|{ Ok(())}), Err(CmdError::AlreadyExists)));
+        assert!(matches!(
+            reg.register1("1", |a: i32| { Ok(()) }),
+            Err(CmdError::AlreadyExists)
+        ));
         reg.register1("2", |a: i32| {
             println!("Called with {a}");
             Ok(())
@@ -153,15 +190,22 @@ mod test {
             println!("Called with {a} and {b}");
             Ok(())
         });
+        reg.register("4", |a: &[String]| {
+            println!("Called with {a:?}");
+            Ok(())
+        });
 
-        reg.invoke( &mut ["1","Hello"].iter())
-            .unwrap();
-        reg.invoke( &mut ["2","321"].iter()).unwrap();
-        reg.invoke(
-            &mut ["3","123", "Hello_World!"].iter(),
-        )
-        .unwrap();
-        assert!(matches!(reg.invoke( &mut ["2","2.3"].iter()), Err(CmdError::ParseError(_))));
-        assert!(matches!(reg.invoke( &mut ["2", "2", ".3"].iter()), Err(CmdError::ArgNumberMismatch(1))));
+        invoke(&reg, ["1", "Hello"]).unwrap();
+        invoke(&reg, ["2", "321"]).unwrap();
+        invoke(&reg, ["3", "123", "Hello_World!"]).unwrap();
+        invoke(&reg, ["4", "1", "2"]).unwrap();
+        assert!(matches!(
+            invoke(&reg, ["2", "2.3"]),
+            Err(CmdError::ParseError(_))
+        ));
+        assert!(matches!(
+            invoke(&reg, ["2", "2", ".3"]),
+            Err(CmdError::ArgNumberMismatch(1))
+        ));
     }
 }
