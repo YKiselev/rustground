@@ -1,17 +1,43 @@
 use std::{
+    borrow::Borrow,
+    cell::RefCell,
     collections::HashMap,
-    fmt::{Debug, Display},
-    slice::Iter,
+    fmt::Display,
+    rc::{Rc, Weak},
     str::FromStr,
+    sync::{Arc, Mutex, MutexGuard, PoisonError},
 };
 
 ///
 ///
 ///
 
+type CmdMap = HashMap<String, Box<dyn CommandWrapper>>;
+
 #[derive(Default)]
 pub struct CommandRegistry {
-    data: HashMap<String, Box<dyn CommandWrapper>>,
+    data: Arc<Mutex<CmdMap>>,
+}
+
+struct ThreadLocalGuard<'a> {
+    guard: Rc<MutexGuard<'a, CmdMap>>,
+}
+
+impl<'a> ThreadLocalGuard<'a> {
+    std::thread_local! {
+        static GUARD: RefCell<Weak<MutexGuard<'static, CmdMap>>> = RefCell::new(Weak::new());
+    }
+
+    fn new(data: &'static Arc<Mutex<CmdMap>>) -> Self {
+        let guard = if let Some(existing) = Self::GUARD.with(|cell| cell.borrow().upgrade()) {
+            existing
+        } else {
+            let rc = Rc::new(data.lock().unwrap());
+            Self::GUARD.set(Rc::downgrade(&rc));
+            rc
+        };
+        ThreadLocalGuard { guard }
+    }
 }
 
 impl CommandRegistry {
@@ -20,10 +46,11 @@ impl CommandRegistry {
         name: &str,
         wrapper: Box<dyn CommandWrapper>,
     ) -> Result<(), CmdError> {
-        if self.data.contains_key(name) {
+        let mut guard = self.data.lock()?;
+        if guard.contains_key(name) {
             return Err(CmdError::AlreadyExists);
         }
-        self.data.insert(name.to_owned(), wrapper);
+        guard.insert(name.to_owned(), wrapper);
         Ok(())
     }
 
@@ -68,7 +95,8 @@ impl CommandRegistry {
         if args.len() < 1 {
             return Err(CmdError::ArgNumberMismatch(1));
         }
-        if let Some(wrapper) = self.data.get(&args[0]) {
+        let guard = self.data.lock()?;
+        if let Some(wrapper) = guard.get(&args[0]) {
             wrapper.invoke(&args[1..])
         } else {
             Err(CmdError::NotFound)
@@ -139,6 +167,7 @@ pub enum CmdError {
     ParseError(String),
     ArgNumberMismatch(i8),
     NotFound,
+    LockPoisoned,
 }
 
 impl std::error::Error for CmdError {}
@@ -158,7 +187,16 @@ impl Display for CmdError {
             CmdError::NotFound => {
                 write!(f, "No such command!")
             }
+            CmdError::LockPoisoned => {
+                write!(f, "Lock poisoned!")
+            }
         }
+    }
+}
+
+impl<T> From<PoisonError<T>> for CmdError {
+    fn from(value: PoisonError<T>) -> Self {
+        CmdError::LockPoisoned
     }
 }
 
@@ -166,34 +204,22 @@ impl Display for CmdError {
 mod test {
     use crate::{commands::CmdError, CommandRegistry};
 
-    fn invoke<const N: usize>(reg: &CommandRegistry, args: [&str;N]) -> Result<(), CmdError> {
+    fn invoke<const N: usize>(reg: &CommandRegistry, args: [&str; N]) -> Result<(), CmdError> {
         reg.invoke(args.iter().map(|v| v.to_string()).collect())
     }
 
     #[test]
     fn commands() {
         let mut reg = CommandRegistry::default();
-        reg.register1("1", |a: String| {
-            println!("Called test handler with {a}");
-            Ok(())
-        });
+        reg.register1("1", |a: String| Ok(()));
         assert!(matches!(
             reg.register1("1", |a: i32| { Ok(()) }),
             Err(CmdError::AlreadyExists)
         ));
-        reg.register1("2", |a: i32| {
-            println!("Called with {a}");
-            Ok(())
-        });
+        reg.register1("2", |a: i32| Ok(()));
 
-        reg.register2("3", |a: i32, b: String| {
-            println!("Called with {a} and {b}");
-            Ok(())
-        });
-        reg.register("4", |a: &[String]| {
-            println!("Called with {a:?}");
-            Ok(())
-        });
+        reg.register2("3", |a: i32, b: String| Ok(()));
+        reg.register("4", |a: &[String]| Ok(()));
 
         invoke(&reg, ["1", "Hello"]).unwrap();
         invoke(&reg, ["2", "321"]).unwrap();
@@ -206,6 +232,10 @@ mod test {
         assert!(matches!(
             invoke(&reg, ["2", "2", ".3"]),
             Err(CmdError::ArgNumberMismatch(1))
+        ));
+        assert!(matches!(
+            invoke(&reg, ["nope", "2", ".3"]),
+            Err(CmdError::NotFound)
         ));
     }
 }
