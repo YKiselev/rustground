@@ -1,11 +1,5 @@
 use std::{
-    borrow::Borrow,
-    cell::RefCell,
-    collections::HashMap,
-    fmt::Display,
-    rc::{Rc, Weak},
-    str::FromStr,
-    sync::{Arc, Mutex, MutexGuard, PoisonError},
+    borrow::Borrow, cell::RefCell, collections::HashMap, fmt::Display, ops::Deref, rc::{Rc, Weak}, str::FromStr, sync::{Arc, Mutex, MutexGuard, PoisonError}
 };
 
 ///
@@ -40,6 +34,14 @@ impl<'a> ThreadLocalGuard<'a> {
     }
 }
 
+impl<'a> Deref for ThreadLocalGuard<'a> {
+    type Target = MutexGuard<'a, CmdMap>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.guard
+    }
+}
+
 impl CommandRegistry {
     fn register_wrapper(
         &mut self,
@@ -57,10 +59,10 @@ impl CommandRegistry {
     pub fn register(
         &mut self,
         name: &str,
-        handler: fn(&[String]) -> Result<(), CmdError>,
+        handler: &'static dyn Fn(&[String]) -> Result<(), CmdError>
     ) -> Result<(), CmdError> {
         let h = Holder {
-            handler: Box::new(handler),
+            handler: Box::new(handler)
         };
         self.register_wrapper(name, Box::new(h))
     }
@@ -68,10 +70,10 @@ impl CommandRegistry {
     pub fn register1<A: FromStr + 'static>(
         &mut self,
         name: &str,
-        handler: fn(a: A) -> Result<(), CmdError>,
+        handler: impl Fn(A) -> Result<(), CmdError> + 'static,
     ) -> Result<(), CmdError> {
         let h = Holder1 {
-            handler: Box::new(handler),
+            handler: Box::new(handler)
         };
         self.register_wrapper(name, Box::new(h))
     }
@@ -108,17 +110,14 @@ trait CommandWrapper {
     fn invoke(&self, args: &[String]) -> Result<(), CmdError>;
 }
 
-#[derive(Debug)]
 struct Holder {
-    handler: Box<fn(&[String]) -> Result<(), CmdError>>,
+    handler: Box<dyn Fn(&[String]) -> Result<(), CmdError>>,
 }
 
-#[derive(Debug)]
-struct Holder1<A: FromStr> {
-    handler: Box<fn(A) -> Result<(), CmdError>>,
+struct Holder1<A: FromStr + 'static> {
+    handler: Box<dyn Fn(A) -> Result<(), CmdError>>,
 }
 
-#[derive(Debug)]
 struct Holder2<A: FromStr, B: FromStr> {
     handler: Box<fn(A, B) -> Result<(), CmdError>>,
 }
@@ -202,6 +201,8 @@ impl<T> From<PoisonError<T>> for CmdError {
 
 #[cfg(test)]
 mod test {
+    use std::sync::{atomic::{AtomicUsize, Ordering}, Arc};
+
     use crate::{commands::CmdError, CommandRegistry};
 
     fn invoke<const N: usize>(reg: &CommandRegistry, args: [&str; N]) -> Result<(), CmdError> {
@@ -211,15 +212,15 @@ mod test {
     #[test]
     fn commands() {
         let mut reg = CommandRegistry::default();
-        reg.register1("1", |a: String| Ok(()));
+        reg.register1("1", &|a: String| Ok(()));
         assert!(matches!(
-            reg.register1("1", |a: i32| { Ok(()) }),
+            reg.register1("1", &|a: i32| { Ok(()) }),
             Err(CmdError::AlreadyExists)
         ));
-        reg.register1("2", |a: i32| Ok(()));
+        reg.register1("2", &|a: i32| Ok(()));
 
         reg.register2("3", |a: i32, b: String| Ok(()));
-        reg.register("4", |a: &[String]| Ok(()));
+        reg.register("4", &|a: &[String]| Ok(()));
 
         invoke(&reg, ["1", "Hello"]).unwrap();
         invoke(&reg, ["2", "321"]).unwrap();
@@ -237,5 +238,18 @@ mod test {
             invoke(&reg, ["nope", "2", ".3"]),
             Err(CmdError::NotFound)
         ));
+    }
+
+    #[test]
+    fn threading() {
+        let mut reg = CommandRegistry::default();
+        let counter = Arc::new(AtomicUsize::default());
+        let c2 = Arc::clone(&counter);
+        reg.register1("1", move |a: usize| {
+            c2.fetch_add(a, Ordering::SeqCst);
+            Ok(())
+        });
+        invoke(&reg, ["1", "5"]).unwrap();
+        assert_eq!(5, counter.load(Ordering::Acquire));
     }
 }
