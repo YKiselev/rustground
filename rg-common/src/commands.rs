@@ -177,11 +177,11 @@ impl<T> From<PoisonError<T>> for CmdError {
 ///
 pub struct CommandBuilder<'a> {
     registry: &'a CommandRegistry,
-    handlers: Vec<Arc<dyn Any>>,
+    handlers: Vec<Arc<dyn CommandWrapper>>,
 }
 
 pub struct CommandOwner {
-    _handlers: Vec<Arc<dyn Any>>,
+    _handlers: Vec<Arc<dyn CommandWrapper>>,
 }
 
 impl CommandBuilder<'_> {
@@ -271,9 +271,9 @@ impl CommandBuilder<'_> {
 #[cfg(test)]
 mod test {
     use std::sync::{
-            atomic::{AtomicUsize, Ordering},
-            Arc,
-        };
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
 
     use crate::{commands::CmdError, CommandRegistry};
 
@@ -352,10 +352,11 @@ mod test {
         let reg = CommandRegistry::default();
         let counter = Arc::new(AtomicUsize::default());
         let c2 = Arc::clone(&counter);
-        let mut b = CommandBuilder::new(&reg);
+        let reg_ref = &reg;
+        let mut b = CommandBuilder::new(reg_ref);
         b.add1("1", move |a: usize| {
             c2.fetch_add(a, Ordering::SeqCst);
-            //invoke(&reg, ["2", "Hello!"])
+            //invoke(reg_ref, ["2", "Hello!"]);
             Ok(())
         });
         invoke(&reg, ["1", "5"]).unwrap();
