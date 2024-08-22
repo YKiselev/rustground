@@ -49,13 +49,6 @@ impl<T: VarBag> VarRegistry<T> {
         self.data = Some(config);
     }
 
-    pub fn get_data(&self) -> Option<&Arc<Mutex<T>>> {
-        self.data.as_ref()
-    }
-    pub fn get_mut_data(&mut self) -> Option<&mut Arc<Mutex<T>>> {
-        self.data.as_mut()
-    }
-
     fn lock_data(&self) -> Option<MutexGuard<T>> {
         self.data.as_ref()?.lock().ok()
     }
