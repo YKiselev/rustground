@@ -167,7 +167,7 @@ impl Endpoint for NetEndpoint {
                     Ok(None) // no data yet
                 } else {
                     Err(e)
-                }
+                };
             }
         }
     }

@@ -58,11 +58,7 @@ impl<'a> DerefMut for ThreadLocalGuard<'a> {
 }
 */
 impl CommandRegistry {
-    pub fn register(
-        &self,
-        name: &str,
-        wrapper: Weak<dyn CommandWrapper>,
-    ) -> Result<(), CmdError> {
+    pub fn register(&self, name: &str, wrapper: Weak<dyn CommandWrapper>) -> Result<(), CmdError> {
         let mut guard = self.data.lock()?;
         if let Some(v) = guard.get(name) {
             if v.strong_count() > 0 {
@@ -278,10 +274,13 @@ impl CommandBuilder<'_> {
 ///
 #[cfg(test)]
 mod test {
-    use std::{borrow::BorrowMut, sync::{
-        atomic::{AtomicUsize, Ordering},
-        Arc, Weak,
-    }};
+    use std::{
+        borrow::BorrowMut,
+        sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc, Weak,
+        },
+    };
 
     use crate::{commands::CmdError, CommandRegistry};
 
