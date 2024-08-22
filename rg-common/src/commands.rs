@@ -1,13 +1,9 @@
 use std::{
     any::Any,
-    borrow::Borrow,
-    cell::RefCell,
     collections::HashMap,
     fmt::Display,
-    ops::{Deref, DerefMut},
-    rc::Rc,
     str::FromStr,
-    sync::{Arc, Mutex, MutexGuard, PoisonError, Weak},
+    sync::{Arc, Mutex, PoisonError, Weak},
 };
 
 ///
@@ -274,13 +270,10 @@ impl CommandBuilder<'_> {
 ///
 #[cfg(test)]
 mod test {
-    use std::{
-        borrow::BorrowMut,
-        sync::{
+    use std::sync::{
             atomic::{AtomicUsize, Ordering},
-            Arc, Weak,
-        },
-    };
+            Arc,
+        };
 
     use crate::{commands::CmdError, CommandRegistry};
 
