@@ -1,9 +1,12 @@
 use std::{
     any::Any,
+    borrow::Borrow,
+    cell::RefCell,
     collections::HashMap,
     fmt::Display,
+    marker::PhantomData,
     str::FromStr,
-    sync::{Arc, Mutex, PoisonError, Weak},
+    sync::{Arc, Mutex, MutexGuard, PoisonError, Weak},
 };
 
 ///
@@ -14,45 +17,9 @@ type CmdMap = HashMap<String, Weak<dyn CommandWrapper>>;
 
 #[derive(Default)]
 pub struct CommandRegistry {
-    data: Arc<Mutex<CmdMap>>,
+    data: Mutex<CmdMap>,
 }
 
-/*
-struct ThreadLocalGuard<'a> {
-    guard: Rc<MutexGuard<'a, CmdMap>>,
-}
-
-impl<'a> ThreadLocalGuard<'a> {
-    std::thread_local! {
-        static GUARD: RefCell<Weak<MutexGuard<'static, CmdMap>>> = RefCell::new(Weak::new());
-    }
-
-    fn new(data: &'a Arc<Mutex<CmdMap>>) -> Self {
-        let guard = if let Some(existing) = Self::GUARD.with(|cell| cell.borrow().upgrade()) {
-            existing
-        } else {
-            let rc = Rc::new(data.lock().unwrap());
-            Self::GUARD.set(Rc::downgrade(&rc));
-            rc
-        };
-        ThreadLocalGuard { guard }
-    }
-}
-
-impl<'a> Deref for ThreadLocalGuard<'a> {
-    type Target = MutexGuard<'a, CmdMap>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.guard
-    }
-}
-
-impl<'a> DerefMut for ThreadLocalGuard<'a> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        Rc::get_mut(&mut self.guard)
-    }
-}
-*/
 impl CommandRegistry {
     pub fn register(&self, name: &str, wrapper: Weak<dyn CommandWrapper>) -> Result<(), CmdError> {
         let mut guard = self.data.lock()?;
@@ -69,11 +36,11 @@ impl CommandRegistry {
         if args.len() < 1 {
             return Err(CmdError::ArgNumberMismatch(1));
         }
-        let guard = self.data.lock()?;
-        if let Some(weak) = guard.get(&args[0]) {
-            if let Some(w) = weak.upgrade() {
-                return w.invoke(&args[1..]);
-            }
+        if let Some(wrapper) = {
+            let guard = self.data.lock()?;
+            guard.get(&args[0]).and_then(|weak| weak.upgrade())
+        } {
+            return wrapper.invoke(&args[1..]);
         }
         Err(CmdError::NotFound)
     }
@@ -270,14 +237,13 @@ impl CommandBuilder<'_> {
 ///
 #[cfg(test)]
 mod test {
-    use std::sync::{
-        atomic::{AtomicUsize, Ordering},
-        Arc,
-    };
+    use std::{collections::HashMap, sync::{
+        atomic::{AtomicUsize, Ordering}, Arc, Mutex, MutexGuard
+    }};
 
     use crate::{commands::CmdError, CommandRegistry};
 
-    use super::CommandBuilder;
+    use super::{CmdMap, CommandBuilder};
 
     fn invoke<const N: usize>(reg: &CommandRegistry, args: [&str; N]) -> Result<(), CmdError> {
         reg.invoke(args.iter().map(|v| v.to_string()).collect())
@@ -349,17 +315,22 @@ mod test {
 
     #[test]
     fn recusrive() {
-        let reg = CommandRegistry::default();
+        let reg = Arc::new(CommandRegistry::default());
         let counter = Arc::new(AtomicUsize::default());
         let c2 = Arc::clone(&counter);
-        let reg_ref = &reg;
-        let mut b = CommandBuilder::new(reg_ref);
+        let r2 = reg.clone();
+        let mut b = CommandBuilder::new(reg.as_ref());
         b.add1("1", move |a: usize| {
             c2.fetch_add(a, Ordering::SeqCst);
-            //invoke(reg_ref, ["2", "Hello!"]);
+            invoke(r2.as_ref(), ["2", &(a * 2).to_string()]).unwrap();
+            Ok(())
+        });
+        let c3 = Arc::clone(&counter);
+        b.add1("2", move |a: usize| {
+            c3.fetch_add(a, Ordering::SeqCst);
             Ok(())
         });
         invoke(&reg, ["1", "5"]).unwrap();
-        assert_eq!(5, counter.load(Ordering::Acquire));
+        assert_eq!(15, counter.load(Ordering::Acquire));
     }
 }
