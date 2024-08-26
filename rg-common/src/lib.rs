@@ -1,6 +1,5 @@
 extern crate self as rg_common;
 
-pub use cmd_parser::CmdParser;
 pub use commands::CommandRegistry;
 pub use files::AppFiles;
 pub use vars::FromStrMutator;

@@ -7,7 +7,6 @@ use rg_common::arguments::Arguments;
 
 mod app;
 mod app_logger;
-mod bit_code_test;
 mod client;
 mod error;
 mod net;
@@ -15,10 +14,10 @@ mod server;
 mod state;
 
 fn main() -> Result<(), AppError> {
-    let logger_buf = app_logger::init().expect("Unable to init app logger!");
+    let args = Arguments::parse();
+    let (handle, log_buf) = app_logger::init().expect("Unable to init app logger!");
     info!("Begin initialization...");
 
-    let args = Arguments::parse();
-    let mut app = app::App::new(&args);
+    let mut app = app::App::new(args, handle, log_buf);
     app.run()
 }

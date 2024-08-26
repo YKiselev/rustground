@@ -4,33 +4,39 @@ use std::time::{Duration, Instant};
 
 use log::{error, info};
 
+use log4rs::Handle;
 use rg_common::arguments::Arguments;
 use rg_common::{AppFiles, VarRegistry};
 
+use crate::app_logger::AppLoggerBuffer;
 use crate::error::AppError;
 use crate::state::{AppState, InitialState};
 use rg_common::config::Config;
 
 pub(crate) struct App {
     arguments: Arguments,
+    log_handle: Handle,
+    log_buffer: AppLoggerBuffer,
     exit_flag: AtomicBool,
     started_at: Instant,
     config: Arc<Mutex<Config>>,
-    files: Arc<RwLock<AppFiles>>,
+    files: Arc<Mutex<AppFiles>>,
     vars: VarRegistry<Config>,
 }
 
 impl App {
-    pub(crate) fn new(args: &Arguments) -> Self {
+    pub(crate) fn new(args: Arguments, log_handle: Handle, log_buffer: AppLoggerBuffer) -> Self {
         let mut files = AppFiles::new(&args);
         let cfg = Arc::new(Mutex::new(Config::load("config.toml", &mut files)));
-        info!("Loaded config: {cfg:?}");
+        info!("Loaded config: {:?}", cfg.lock().unwrap());
         App {
-            arguments: *args,
+            arguments: args,
+            log_handle,
+            log_buffer,
             exit_flag: AtomicBool::new(false),
             started_at: Instant::now(),
             config: cfg.clone(),
-            files: Arc::new(RwLock::new(files)),
+            files: Arc::new(Mutex::new(files)),
             vars: VarRegistry::new(cfg),
         }
     }

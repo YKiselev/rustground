@@ -56,7 +56,7 @@ impl<T: VarBag> VarRegistry<T> {
     pub fn try_get_value(&self, name: &str) -> Option<String> {
         let guard = self.lock_data()?;
         let mut v = Variable::from(guard.deref());
-        let mut sp = name.split("::");
+        let mut sp = name.split(Self::DELIMITER);
         loop {
             match v {
                 Variable::VarBag(bag) => {
@@ -102,7 +102,7 @@ impl<T: VarBag> VarRegistry<T> {
     }
 
     pub fn try_set_value(&self, name: &str, value: &str) -> Result<(), VarRegistryError> {
-        let mut sp = name.split("::");
+        let mut sp = name.split(Self::DELIMITER);
         let mut guard = self.lock_data().ok_or(VarRegistryError::LockFailed)?;
         guard.try_set_var(&mut sp, value)?;
         Ok(())
@@ -124,7 +124,7 @@ impl<T: VarBag> VarRegistry<T> {
                 }
                 if let Some(v) = owner.try_get_var(&var_name) {
                     let local_prefix = if !prefix.is_empty() {
-                        prefix.to_string() + "::" + &var_name
+                        prefix.to_string() + Self::DELIMITER + &var_name
                     } else {
                         var_name.clone()
                     };
@@ -143,7 +143,7 @@ impl<T: VarBag> VarRegistry<T> {
     }
 
     pub fn complete(&self, part: &str) -> Option<Vec<String>> {
-        let mut sp = part.split("::").peekable();
+        let mut sp = part.split(Self::DELIMITER).peekable();
         self.lock_data().map(|guard| {
             let mut result = Vec::new();
             Self::filter_names(guard.deref(), &mut sp, "", &mut result);
