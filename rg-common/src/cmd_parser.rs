@@ -26,6 +26,24 @@ impl<'a> CmdParser<'a> {
         ch == '\"' || ch == '\''
     }
 
+    fn strip_last_quote(mut value: String) -> Option<String> {
+        let result = if value.len() >= 2
+            && Self::is_quote(value.chars().next().unwrap())
+            && Self::is_quote(value.chars().next_back().unwrap())
+        {
+            value.remove(0);
+            value.pop();
+            value
+        } else {
+            value
+        };
+        if !result.is_empty() {
+            Some(result)
+        } else {
+            None
+        }
+    }
+
     pub fn next(&mut self) -> Option<Vec<String>> {
         let mut result = Vec::new();
         let mut buf = String::new();
@@ -33,6 +51,9 @@ impl<'a> CmdParser<'a> {
         while let Some(ch) = self.chars.next() {
             match state {
                 State::Normal => match ch {
+                    ';' => {
+                        break;
+                    }
                     '\\' => {
                         state = State::Backslash('a');
                         buf.push(ch);
@@ -44,14 +65,10 @@ impl<'a> CmdParser<'a> {
                     _ if ch.is_whitespace() => {
                         state = State::Whitespace;
                         if !buf.is_empty() {
-                            let last = buf.pop().unwrap();
-                            if !Self::is_quote(last) {
-                                buf.push(last);
+                            if let Some(v) = Self::strip_last_quote(buf) {
+                                result.push(v);
                             }
-                            if !buf.is_empty() {
-                                result.push(buf);
-                                buf = String::new();
-                            }
+                            buf = String::new();
                         }
                     }
                     _ => {
@@ -59,14 +76,18 @@ impl<'a> CmdParser<'a> {
                     }
                 },
                 State::Whitespace => {
-                    if ch.is_whitespace() {
-                    } else {
+                    if !ch.is_whitespace() {
                         match ch {
+                            ';' => {
+                                break;
+                            }
                             '\\' => {
                                 state = State::Backslash(' ');
+                                buf.push(ch);
                             }
                             '"' | '\'' => {
                                 state = State::Quoted(ch);
+                                buf.push(ch);
                             }
                             _ => {
                                 state = State::Normal;
@@ -88,24 +109,21 @@ impl<'a> CmdParser<'a> {
                         buf.push(ch);
                     }
                 },
-                State::Backslash(v) => match v {
-                    '"' | '\'' => {
-                        state = State::Quoted(v);
-                        buf.push(ch);
+                State::Backslash(v) => {
+                    buf.push(ch);
+                    match v {
+                        '"' | '\'' => {
+                            state = State::Quoted(v);
+                        }
+                        _ => {
+                            state = State::Normal;
+                        }
                     }
-                    _ if ch.is_whitespace() => {
-                        state = State::Whitespace;
-                        result.push(buf);
-                        buf = String::new();
-                    }
-                    _ => {
-                        state = State::Normal;
-                    }
-                },
+                }
             }
         }
-        if !buf.is_empty() {
-            result.push(buf);
+        if let Some(v) = Self::strip_last_quote(buf) {
+            result.push(v);
         }
         if result.is_empty() {
             None
@@ -129,15 +147,34 @@ mod test {
     }
 
     #[test]
-    fn parser() {
+    fn multibyte_chars() {
         assert("Ф Ы Ё", vec!["Ф", "Ы", "Ё"]);
+    }
+
+    #[test]
+    fn whitespaces() {
         assert("a b c d", vec!["a", "b", "c", "d"]);
+    }
+
+    #[test]
+    fn quotes() {
         assert("a \"b c\" d", vec!["a", "b c", "d"]);
         assert("a 'b c' d", vec!["a", "b c", "d"]);
         assert("a \" 'b c' \" d", vec!["a", " 'b c' ", "d"]);
         assert("a ' \"b c\" ' d", vec!["a", " \"b c\" ", "d"]);
         assert("a' b c 'd", vec!["a' b c 'd"]);
+    }
+
+    #[test]
+    fn backslash() {
         assert("a\" b c \"d", vec!["a\" b c \"d"]);
         assert("a\" b c\\\" d\"", vec!["a\" b c\\\" d\""]);
+    }
+
+    #[test]
+    fn semicolon() {
+        assert("a b; c d", vec!["a", "b"]);
+        assert("a b\\; c d", vec!["a", "b\\;", "c", "d"]);
+        assert("a \"b; c d\"", vec!["a", "b; c d"]);
     }
 }

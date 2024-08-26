@@ -36,10 +36,9 @@ impl CommandRegistry {
         if args.len() < 1 {
             return Err(CmdError::ArgNumberMismatch(1));
         }
-        if let Some(wrapper) = {
-            let guard = self.data.lock()?;
-            guard.get(&args[0]).and_then(|weak| weak.upgrade())
-        } {
+        let guard = self.data.lock()?;
+        if let Some(wrapper) = guard.get(&args[0]).and_then(|weak| weak.upgrade()) {
+            drop(guard);
             return wrapper.invoke(&args[1..]);
         }
         Err(CmdError::NotFound)
@@ -237,9 +236,13 @@ impl CommandBuilder<'_> {
 ///
 #[cfg(test)]
 mod test {
-    use std::{collections::HashMap, sync::{
-        atomic::{AtomicUsize, Ordering}, Arc, Mutex, MutexGuard
-    }};
+    use std::{
+        collections::HashMap,
+        sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc, Mutex, MutexGuard,
+        },
+    };
 
     use crate::{commands::CmdError, CommandRegistry};
 
