@@ -1,8 +1,6 @@
 use std::collections::vec_deque::Iter;
 use std::collections::VecDeque;
-use std::fmt::Write;
-use std::sync::mpsc::{self, Receiver, Sender, SyncSender};
-use std::sync::{Arc, Mutex};
+use std::sync::mpsc::{self, Receiver, SyncSender};
 
 use log::{LevelFilter, Record};
 use log4rs::append::console::ConsoleAppender;
@@ -113,14 +111,14 @@ impl AppLoggerBuffer {
 
 #[cfg(test)]
 mod test {
-    use std::sync::mpsc::{self, Receiver, Sender};
+    
 
     use log::Record;
     use log4rs::append::Append;
 
     use crate::app_logger::create_app_logger;
 
-    use super::{AppLogger, AppLoggerBuffer};
+    
 
     #[test]
     fn buffer_overflow() {

@@ -1,7 +1,6 @@
 extern crate core;
 
 use error::AppError;
-use log::info;
 
 use rg_common::Arguments;
 

@@ -1,16 +1,14 @@
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use log::{error, info};
+use log::info;
 
 use log4rs::Handle;
 use rg_common::arguments::Arguments;
 use rg_common::{AppFiles, VarRegistry};
 
 use crate::app_logger::AppLoggerBuffer;
-use crate::error::AppError;
-use crate::state::{AppState, InitialState};
 use rg_common::config::Config;
 
 pub(crate) struct App {
