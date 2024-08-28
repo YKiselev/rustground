@@ -3,7 +3,7 @@ extern crate core;
 use error::AppError;
 use log::info;
 
-use rg_common::arguments::Arguments;
+use rg_common::Arguments;
 
 mod app;
 mod app_logger;
@@ -12,12 +12,13 @@ mod error;
 mod net;
 mod server;
 mod state;
+mod application;
 
 fn main() -> Result<(), AppError> {
     let args = Arguments::parse();
-    let (handle, log_buf) = app_logger::init().expect("Unable to init app logger!");
-    info!("Begin initialization...");
-
-    let mut app = app::App::new(args, handle, log_buf);
-    app.run()
+    if args.dedicated() {
+        todo!("Not implemented!");
+    } else {
+        application::run_client_server(args)
+    }
 }

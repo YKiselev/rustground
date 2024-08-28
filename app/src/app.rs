@@ -16,7 +16,7 @@ use rg_common::config::Config;
 pub(crate) struct App {
     arguments: Arguments,
     log_handle: Handle,
-    log_buffer: AppLoggerBuffer,
+    log_buffer: Option<AppLoggerBuffer>,
     exit_flag: AtomicBool,
     started_at: Instant,
     config: Arc<Mutex<Config>>,
@@ -25,7 +25,7 @@ pub(crate) struct App {
 }
 
 impl App {
-    pub(crate) fn new(args: Arguments, log_handle: Handle, log_buffer: AppLoggerBuffer) -> Self {
+    pub(crate) fn new(args: Arguments, log_handle: Handle, log_buffer: Option<AppLoggerBuffer>) -> Self {
         let mut files = AppFiles::new(&args);
         let cfg = Arc::new(Mutex::new(Config::load("config.toml", &mut files)));
         info!("Loaded config: {:?}", cfg.lock().unwrap());
@@ -57,25 +57,25 @@ impl App {
         self.started_at.elapsed()
     }
 
-    pub(crate) fn run(&mut self) -> Result<(), AppError> {
-        let mut state: Box<dyn AppState> = Box::new(InitialState::default());
-        info!("Entering main loop...");
-        loop {
-            match state.try_advance(self) {
-                Ok(Some(s)) => {
-                    state = s;
-                }
-                Ok(None) => {
-                    info!("No state to transition to, exiting...");
-                    break;
-                }
-                Err(e) => {
-                    error!("Got error: {}", e);
-                    break;
-                }
-            }
-        }
-        info!("Leaving main loop.");
-        Ok(())
-    }
+    // pub(crate) fn run(&mut self) -> Result<(), AppError> {
+    //     let mut state: Box<dyn AppState> = Box::new(InitialState::default());
+    //     info!("Entering main loop...");
+    //     loop {
+    //         match state.try_advance(self) {
+    //             Ok(Some(s)) => {
+    //                 state = s;
+    //             }
+    //             Ok(None) => {
+    //                 info!("No state to transition to, exiting...");
+    //                 break;
+    //             }
+    //             Err(e) => {
+    //                 error!("Got error: {}", e);
+    //                 break;
+    //             }
+    //         }
+    //     }
+    //     info!("Leaving main loop.");
+    //     Ok(())
+    // }
 }
