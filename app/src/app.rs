@@ -25,7 +25,11 @@ pub(crate) struct App {
 }
 
 impl App {
-    pub(crate) fn new(args: Arguments, log_handle: Handle, log_buffer: Option<AppLoggerBuffer>) -> Self {
+    pub(crate) fn new(
+        args: Arguments,
+        log_handle: Handle,
+        log_buffer: Option<AppLoggerBuffer>,
+    ) -> Self {
         let mut files = AppFiles::new(&args);
         let cfg = Arc::new(Mutex::new(Config::load("config.toml", &mut files)));
         info!("Loaded config: {:?}", cfg.lock().unwrap());

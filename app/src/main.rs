@@ -7,12 +7,12 @@ use rg_common::Arguments;
 
 mod app;
 mod app_logger;
+mod application;
 mod client;
 mod error;
 mod net;
 mod server;
 mod state;
-mod application;
 
 fn main() -> Result<(), AppError> {
     let args = Arguments::parse();
