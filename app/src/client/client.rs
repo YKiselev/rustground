@@ -1,5 +1,6 @@
 use std::io::Read;
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use log::{error, info, warn};
@@ -121,7 +122,7 @@ impl Client {
         }
     }
 
-    pub(crate) fn update(&mut self, app: &mut App) {
+    pub(crate) fn update(&mut self, app: &Arc<App>) {
         self.receive_from_server();
         if self.is_time_to_resend() {
             match self.state {
@@ -171,7 +172,7 @@ impl Client {
         }
     }
 
-    pub(crate) fn new(app: &mut App) -> Self {
+    pub(crate) fn new(app: &Arc<App>) -> Self {
         info!("Starting client...");
         let endpoint = NetEndpoint::new().expect("Unable to create client socket!");
         //endpoint.connect(&server_addr).expect("Unable to set server address on client socket!");

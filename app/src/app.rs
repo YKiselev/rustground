@@ -13,8 +13,6 @@ use rg_common::config::Config;
 
 pub(crate) struct App {
     arguments: Arguments,
-    log_handle: Handle,
-    log_buffer: Option<AppLoggerBuffer>,
     exit_flag: AtomicBool,
     started_at: Instant,
     config: Arc<Mutex<Config>>,
@@ -24,17 +22,13 @@ pub(crate) struct App {
 
 impl App {
     pub(crate) fn new(
-        args: Arguments,
-        log_handle: Handle,
-        log_buffer: Option<AppLoggerBuffer>,
+        args: Arguments
     ) -> Self {
         let mut files = AppFiles::new(&args);
         let cfg = Arc::new(Mutex::new(Config::load("config.toml", &mut files)));
         info!("Loaded config: {:?}", cfg.lock().unwrap());
         App {
             arguments: args,
-            log_handle,
-            log_buffer,
             exit_flag: AtomicBool::new(false),
             started_at: Instant::now(),
             config: cfg.clone(),

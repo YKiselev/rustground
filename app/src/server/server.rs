@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::str::from_utf8;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use log::{error, info, warn};
 
@@ -54,7 +55,7 @@ impl Server {
         self.exit_flag.store(true, Ordering::Release);
     }
 
-    pub fn new(app: &mut App) -> Self {
+    pub fn new(app: &Arc<App>) -> Self {
         info!("Starting server...");
         let mut cfg_guard = app.config().lock().unwrap();
         let cfg = &mut cfg_guard.server;

@@ -11,7 +11,6 @@ mod client;
 mod error;
 mod net;
 mod server;
-mod state;
 
 fn main() -> Result<(), AppError> {
     let args = Arguments::parse();
