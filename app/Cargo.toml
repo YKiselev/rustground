@@ -6,9 +6,9 @@ edition = "2021"
 [dependencies]
 log = "0.4.22"
 log4rs = "1.3.0"
-rg-common = { path = "../rg-common" }
-math = { path = "../math" }
-rg-macros = { path = "../rg-macros" }
+rg_common = { path = "../rg_common" }
+rg_math = { path = "../rg_math" }
+rg_macros = { path = "../rg_macros" }
 anyhow = "1.0.86"
 rsa = { version = "0.9.6", features = ["serde"] }
 rand = "0.8.5"

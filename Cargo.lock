@@ -31,10 +31,10 @@ dependencies = [
  "bitcode",
  "log",
  "log4rs",
- "math",
  "rand",
- "rg-common",
- "rg-macros",
+ "rg_common",
+ "rg_macros",
+ "rg_math",
  "rsa",
  "serde",
  "toml",
@@ -396,13 +396,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "math"
-version = "0.1.0"
-dependencies = [
- "approx",
-]
-
-[[package]]
 name = "memchr"
 version = "2.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -605,21 +598,28 @@ dependencies = [
 ]
 
 [[package]]
-name = "rg-common"
+name = "rg_common"
 version = "0.1.0"
 dependencies = [
  "dirs",
  "log",
- "rg-macros",
+ "rg_macros",
  "serde",
  "toml",
 ]
 
 [[package]]
-name = "rg-macros"
+name = "rg_macros"
 version = "0.1.0"
 dependencies = [
  "syn 2.0.72",
+]
+
+[[package]]
+name = "rg_math"
+version = "0.1.0"
+dependencies = [
+ "approx",
 ]
 
 [[package]]

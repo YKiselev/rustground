@@ -52,26 +52,4 @@ impl App {
     pub(crate) fn elapsed(&self) -> Duration {
         self.started_at.elapsed()
     }
-
-    // pub(crate) fn run(&mut self) -> Result<(), AppError> {
-    //     let mut state: Box<dyn AppState> = Box::new(InitialState::default());
-    //     info!("Entering main loop...");
-    //     loop {
-    //         match state.try_advance(self) {
-    //             Ok(Some(s)) => {
-    //                 state = s;
-    //             }
-    //             Ok(None) => {
-    //                 info!("No state to transition to, exiting...");
-    //                 break;
-    //             }
-    //             Err(e) => {
-    //                 error!("Got error: {}", e);
-    //                 break;
-    //             }
-    //         }
-    //     }
-    //     info!("Leaving main loop.");
-    //     Ok(())
-    // }
 }

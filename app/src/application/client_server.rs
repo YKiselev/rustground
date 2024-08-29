@@ -13,7 +13,7 @@ pub(crate) fn run_client_server(args: Arguments) -> Result<(), AppError> {
     //let mut state: Box<dyn AppState> = Box::new(InitialState::default());
     info!("Entering main loop...");
     let mut client = Client::new(&app);
-    let (server, sv_handle) = server_init(&app).expect("Server initialization failed!");
+    let (_, sv_handle) = server_init(&app).expect("Server initialization failed!");
     while !app.exit_flag() {
         client.frame_start();
 

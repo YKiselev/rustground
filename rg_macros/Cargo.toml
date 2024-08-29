@@ -1,5 +1,5 @@
 [package]
-name = "rg-macros"
+name = "rg_macros"
 version = "0.1.0"
 edition = "2021"
 
