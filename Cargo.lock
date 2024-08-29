@@ -609,6 +609,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "rg_ecs"
+version = "0.1.0"
+
+[[package]]
 name = "rg_macros"
 version = "0.1.0"
 dependencies = [
