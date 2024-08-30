@@ -1,6 +1,10 @@
-use std::{any::{Any, TypeId}, hash::{DefaultHasher, Hash, Hasher}, ptr::hash};
+use std::{
+    any::{Any, TypeId},
+    hash::{DefaultHasher, Hash, Hasher},
+    ptr::hash,
+};
 
-#[derive(PartialEq, Eq, Hash)]
+#[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
 pub struct ComponentId(u64);
 
 impl ComponentId {
@@ -9,6 +13,24 @@ impl ComponentId {
         let mut hasher = DefaultHasher::new();
         type_id.hash(&mut hasher);
         ComponentId(hasher.finish())
+    }
+}
+
+pub(crate) struct ComponentStorageFactory {
+    pub id: ComponentId,
+    create: Box<dyn Fn() -> Box<dyn ComponentStorage>>,
+}
+
+impl ComponentStorageFactory {
+    pub fn new<T: Default + 'static>() -> Self {
+        ComponentStorageFactory {
+            id: ComponentId::new::<T>(),
+            create: Box::new(|| Box::new(TypedComponentStorage::<T>::default())),
+        }
+    }
+
+    pub fn create(&self) -> Box<dyn ComponentStorage> {
+        (self.create)()
     }
 }
 
@@ -57,6 +79,18 @@ mod test {
         pub y: f32,
     }
 
+    struct Make {
+        factory: Box<dyn Fn() -> Box<dyn ComponentStorage>>,
+    }
+
+    impl Make {
+        fn new<T: Default + 'static>() -> Self {
+            Make {
+                factory: Box::new(|| Box::new(TypedComponentStorage::<T>::default())),
+            }
+        }
+    }
+
     #[test]
     fn test() {
         let mut columns: Vec<Box<dyn ComponentStorage>> = vec![
@@ -86,5 +120,14 @@ mod test {
             .unwrap();
         t2.push(A { x: 1., y: 2. });
         assert_eq!(A { x: 1., y: 2. }, *t2.get(0).unwrap());
+
+        let m = Make::new::<f32>();
+        let mut s = (m.factory)();
+        let t3 = s
+            .as_mut_any()
+            .downcast_mut::<TypedComponentStorage<f32>>()
+            .unwrap();
+        t3.push(3.2);
+        assert_eq!(3.2, *t3.get(0).unwrap())
     }
 }
