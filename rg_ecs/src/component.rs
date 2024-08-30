@@ -1,4 +1,16 @@
-use std::any::Any;
+use std::{any::{Any, TypeId}, hash::{DefaultHasher, Hash, Hasher}, ptr::hash};
+
+#[derive(PartialEq, Eq, Hash)]
+pub struct ComponentId(u64);
+
+impl ComponentId {
+    pub fn new<T: 'static>() -> Self {
+        let type_id = TypeId::of::<T>();
+        let mut hasher = DefaultHasher::new();
+        type_id.hash(&mut hasher);
+        ComponentId(hasher.finish())
+    }
+}
 
 pub trait ComponentStorage {
     fn as_any(&self) -> &dyn Any;
@@ -7,11 +19,11 @@ pub trait ComponentStorage {
 }
 
 #[derive(Default)]
-struct TypedComponentStorage<T: Copy> {
+pub(crate) struct TypedComponentStorage<T: Default> {
     data: Vec<T>,
 }
 
-impl<T: Copy> TypedComponentStorage<T> {
+impl<T: Default> TypedComponentStorage<T> {
     fn push(&mut self, value: T) {
         self.data.push(value);
     }
@@ -25,7 +37,7 @@ impl<T: Copy> TypedComponentStorage<T> {
     }
 }
 
-impl<T: Any + Copy + 'static> ComponentStorage for TypedComponentStorage<T> {
+impl<T: Any + Default + Default + 'static> ComponentStorage for TypedComponentStorage<T> {
     fn as_any(&self) -> &dyn Any {
         self
     }
