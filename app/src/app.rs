@@ -4,11 +4,9 @@ use std::time::{Duration, Instant};
 
 use log::info;
 
-use log4rs::Handle;
 use rg_common::arguments::Arguments;
 use rg_common::{AppFiles, VarRegistry};
 
-use crate::app_logger::AppLoggerBuffer;
 use rg_common::config::Config;
 
 pub(crate) struct App {

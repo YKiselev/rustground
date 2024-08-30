@@ -1,11 +1,7 @@
-use std::{
-    any::TypeId,
-    collections::HashMap,
-    hash::{DefaultHasher, Hash, Hasher},
-};
+use std::hash::{DefaultHasher, Hash, Hasher};
 
 use crate::component::{
-    ComponentId, ComponentStorage, ComponentStorageFactory, TypedComponentStorage,
+    ComponentId, ComponentStorage, ComponentStorageFactory,
 };
 
 #[derive(Default)]
@@ -19,7 +15,7 @@ impl ArchetypeBuilder {
         self
     }
 
-    fn build(mut self) -> Archetype {
+    fn build(self) -> Archetype {
         let mut hasher = DefaultHasher::new();
         for f in self.data.iter() {
             f.id.hash(&mut hasher);
@@ -60,9 +56,9 @@ impl ArchetypeStorage {
 
 #[cfg(test)]
 mod test {
-    use crate::component::{ComponentStorage, TypedComponentStorage};
+    
 
-    use super::{ArchetypeBuilder, ArchetypeId};
+    use super::ArchetypeBuilder;
 
     #[test]
     fn test() {

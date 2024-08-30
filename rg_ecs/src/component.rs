@@ -1,7 +1,6 @@
 use std::{
     any::{Any, TypeId},
     hash::{DefaultHasher, Hash, Hasher},
-    ptr::hash,
 };
 
 #[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
