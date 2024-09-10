@@ -1,7 +1,7 @@
 use std::{
     any::{Any, TypeId},
     collections::HashSet,
-    hash::Hash,
+    hash::Hash, slice::{Iter, IterMut},
 };
 
 ///
@@ -62,6 +62,18 @@ pub(crate) fn try_cast_mut<'a, T: Default + 'static>(
         .downcast_mut::<TypedComponentStorage<T>>()
 }
 
+pub(crate) fn cast<'a, T: Default + 'static>(
+    value: &'a dyn ComponentStorage,
+) -> &'a TypedComponentStorage<T> {
+    try_cast::<T>(value).unwrap()
+}
+
+pub(crate) fn cast_mut<'a, T: Default + 'static>(
+    value: &'a mut dyn ComponentStorage,
+) -> &'a mut TypedComponentStorage<T> {
+    try_cast_mut(value).unwrap()
+}
+
 ///
 /// TypedComponentStorage
 ///
@@ -95,6 +107,14 @@ impl<T: Default + 'static> TypedComponentStorage<T> {
 
     pub(crate) fn set(&mut self, index: usize, value: T) {
         self.data[index] = value;
+    }
+
+    pub(crate) fn iter(&self) -> Iter<'_, T> {
+        self.data.iter()
+    }
+
+    pub(crate) fn iter_mut(&mut self) -> IterMut<'_, T> {
+        self.data.iter_mut()
     }
 }
 

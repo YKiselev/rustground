@@ -2,12 +2,18 @@ use std::{
     collections::{HashMap, HashSet},
     error::Error,
     fmt::Display,
+    slice::Iter,
     sync::atomic::{AtomicUsize, Ordering},
 };
 
+use itertools::izip;
+
 use crate::{
     archetype::{ArchetypeId, EMPTY_ARCHETYPE_ID},
-    component::{try_cast, try_cast_mut, ComponentId, ComponentStorage, TypedComponentStorage},
+    component::{
+        cast, cast_mut, try_cast, try_cast_mut, ComponentId, ComponentStorage,
+        TypedComponentStorage,
+    },
 };
 
 ///
@@ -79,11 +85,10 @@ impl Entities {
         Ok(id)
     }
 
-    pub fn set<T: Default + 'static>(
-        &mut self,
-        entity: EntityId,
-        value: T,
-    ) -> Result<(), EntityError> {
+    pub fn set<T>(&mut self, entity: EntityId, value: T) -> Result<(), EntityError>
+    where
+        T: Default + 'static,
+    {
         let comp_id = ComponentId::new::<T>();
         let EntityRef {
             archetype: base_archetype,
@@ -135,12 +140,47 @@ impl Entities {
         Ok(())
     }
 
-    pub fn get<T: Default + 'static>(&self, entity: EntityId) -> Option<&T> {
+    pub fn get<T>(&self, entity: EntityId) -> Option<&T>
+    where
+        T: Default + 'static,
+    {
         let e_ref = self.entities.get(&entity)?;
         let storage = self.archetypes.get(&e_ref.archetype)?;
         let column = storage.get(ComponentId::new::<T>())?;
         let typed = try_cast::<T>(column)?;
         typed.get(e_ref.index)
+    }
+
+    pub fn remove(&mut self, entity: EntityId) {
+        unimplemented!()
+    }
+
+    pub fn query1<T>(&self) -> impl Iterator<Item = &T>
+    where
+        T: Default + 'static,
+    {
+        let comp_id = ComponentId::new::<T>();
+        self.archetypes
+            .iter()
+            .map(move |(_, v)| v.get(comp_id))
+            .filter(|v| v.is_some())
+            .map(|v| try_cast::<T>(v.unwrap()).unwrap())
+            .flat_map(|v| v.iter())
+    }
+
+    pub fn query2_mut<T1, T2>(&mut self) -> impl Iterator<Item = (&mut T1, &mut T2)>
+    where
+        T1: Default + 'static,
+        T2: Default + 'static,
+    {
+        let comp_id1 = ComponentId::new::<T1>();
+        let comp_id2 = ComponentId::new::<T2>();
+        self.archetypes
+            .iter_mut()
+            .map(move |(_, v)| (v.get_mut(comp_id1), v.get_mut(comp_id2)))
+            .filter(|(v1, v2)| v1.is_some() && v2.is_some())
+            .map(|(v1, v2)| (cast_mut::<T1>(v1.unwrap()), cast_mut::<T2>(v1.unwrap())))
+            .flat_map(|(v1, v2)| izip!(v1.iter_mut(), v2.iter_mut()))
     }
 }
 
@@ -194,6 +234,14 @@ mod test {
 
         assert_eq!(456, *entities.get::<i32>(e2).unwrap());
         assert_eq!(5.5, *entities.get::<f64>(e2).unwrap());
-        assert_eq!("yep yep yep".to_owned(), *entities.get::<String>(e2).unwrap());
+        assert_eq!(
+            "yep yep yep".to_owned(),
+            *entities.get::<String>(e2).unwrap()
+        );
+
+        assert_eq!(
+            vec!["test", "yep yep yep"],
+            entities.query1::<String>().collect::<Vec<_>>()
+        );
     }
 }
