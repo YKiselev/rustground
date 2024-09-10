@@ -32,13 +32,14 @@ impl ArchetypeId {
 ///
 /// ArchetypeStorage
 ///
+/*
 pub(crate) struct ArchetypeStorage {
     data: Vec<Box<dyn ComponentStorage>>,
 }
 
 impl ArchetypeStorage {
     pub fn new() -> ArchetypeStorage {
-        let entity_id_column = TypedComponentStorage::<EntityId>::new();
+        let entity_id_column = TypedComponentStorage::<EntityId>::new(None);
         ArchetypeStorage {
             data: vec![Box::new(entity_id_column)],
         }
@@ -100,25 +101,24 @@ impl ArchetypeStorage {
         index
     }
 }
-
+*/
 ///
 /// Tests
 ///
 #[cfg(test)]
 mod test {
-    use super::ArchetypeStorage;
 
     #[test]
     fn test() {
-        let storage = ArchetypeStorage::new();
-        let storage = storage.extend_new::<i32>();
-        let storage = storage.extend_new::<String>();
-        let mut storage = storage.extend_new::<f64>();
+        // let storage = ArchetypeStorage::new();
+        // let storage = storage.extend_new::<i32>();
+        // let storage = storage.extend_new::<String>();
+        // let mut storage = storage.extend_new::<f64>();
 
-        let c1 = storage.get::<i32>().unwrap();
-        let c3 = storage.get::<f64>().unwrap();
+        // let c1 = storage.get::<i32>().unwrap();
+        // let c3 = storage.get::<f64>().unwrap();
 
-        assert_eq!(0, storage.add_row());
-        assert_eq!(1, storage.add_row());
+        // assert_eq!(0, storage.add_row());
+        // assert_eq!(1, storage.add_row());
     }
 }

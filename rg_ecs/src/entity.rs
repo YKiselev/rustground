@@ -1,13 +1,13 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     error::Error,
     fmt::Display,
     sync::atomic::{AtomicUsize, Ordering},
 };
 
 use crate::{
-    archetype::{ArchetypeId, ArchetypeStorage, EMPTY_ARCHETYPE_ID},
-    component::{try_cast, ComponentId},
+    archetype::{ArchetypeId, EMPTY_ARCHETYPE_ID},
+    component::{try_cast, try_cast_mut, ComponentId, ComponentStorage, TypedComponentStorage},
 };
 
 ///
@@ -29,7 +29,8 @@ struct EntityRef {
 /// Entities
 ///
 type EntityRefMap = HashMap<EntityId, EntityRef>;
-type ArchetypeMap = HashMap<ArchetypeId, ArchetypeStorage>;
+type ArchetypeMap = HashMap<ArchetypeId, Box<dyn ComponentStorage>>;
+
 pub struct Entities {
     entity_seq: AtomicUsize,
     entities: EntityRefMap,
@@ -39,8 +40,11 @@ pub struct Entities {
 impl Entities {
     pub fn new() -> Self {
         let entities = HashMap::new();
-        let mut archetypes = HashMap::new();
-        archetypes.insert(EMPTY_ARCHETYPE_ID, ArchetypeStorage::new());
+        let mut archetypes: ArchetypeMap = HashMap::new();
+        archetypes.insert(
+            EMPTY_ARCHETYPE_ID,
+            Box::new(TypedComponentStorage::<EntityId>::new(None)),
+        );
         Entities {
             entity_seq: AtomicUsize::new(1),
             entities,
@@ -56,11 +60,20 @@ impl Entities {
             .get_mut(&EMPTY_ARCHETYPE_ID)
             .ok_or(EntityError::NotFound)?;
         let index = storage.add_row();
+        if let Some(s) = storage
+            .get_mut(ComponentId::new::<EntityId>())
+            .and_then(|v| {
+                v.as_mut_any()
+                    .downcast_mut::<TypedComponentStorage<EntityId>>()
+            })
+        {
+            s.set(index, id);
+        }
         self.entities.insert(
             id,
             EntityRef {
                 archetype: EMPTY_ARCHETYPE_ID,
-                index: 0,
+                index,
             },
         );
         Ok(id)
@@ -71,20 +84,23 @@ impl Entities {
         entity: EntityId,
         value: T,
     ) -> Result<(), EntityError> {
-        let entity_ref = self
+        let comp_id = ComponentId::new::<T>();
+        let EntityRef {
+            archetype: base_archetype,
+            index: base_index,
+        } = self
             .entities
             .get(&entity)
-            .map(|v| v.clone())
             .ok_or_else(|| EntityError::NotFound)?;
         let base = self
             .archetypes
-            .get_mut(&entity_ref.archetype)
+            .get_mut(base_archetype)
             .ok_or_else(|| EntityError::NotFound)?;
-        if let Some(column) = base.get_mut::<T>() {
-            column.set(entity_ref.index, value);
+        if let Some(column) = base.get_mut(comp_id) {
+            try_cast_mut::<T>(column).unwrap().set(*base_index, value);
         } else {
             let mut comps = base.components();
-            comps.insert(ComponentId::new::<T>());
+            comps.insert(comp_id);
             let existing = self
                 .archetypes
                 .iter()
@@ -94,19 +110,37 @@ impl Entities {
             let (dest_id, mut dest) = if let Some(k) = existing {
                 self.archetypes.remove_entry(&k).unwrap()
             } else {
-                let new_storage = self
+                let base_columns = self
                     .archetypes
-                    .get_mut(&entity_ref.archetype)
+                    .get_mut(base_archetype)
                     .unwrap()
-                    .extend_new::<T>();
+                    .create_new();
+                let new_storage: Box<dyn ComponentStorage> =
+                    Box::new(TypedComponentStorage::<T>::new(Some(base_columns)));
                 let new_id = ArchetypeId::new(&comps);
                 (new_id, new_storage)
             };
-            let mut src = self.archetypes.get_mut(&entity_ref.archetype).unwrap();
-            src.move_to(&mut dest, entity_ref.index, value);
+            let src = self.archetypes.get_mut(base_archetype).unwrap();
+            src.move_to(*base_index, dest.as_mut());
+            let new_index = try_cast_mut::<T>(dest.get_mut(comp_id).unwrap())
+                .unwrap()
+                .push(value);
+            let new_ref = EntityRef {
+                archetype: dest_id,
+                index: new_index,
+            };
+            self.entities.insert(entity, new_ref);
             self.archetypes.insert(dest_id, dest);
         }
         Ok(())
+    }
+
+    pub fn get<T: Default + 'static>(&self, entity: EntityId) -> Option<&T> {
+        let e_ref = self.entities.get(&entity)?;
+        let storage = self.archetypes.get(&e_ref.archetype)?;
+        let column = storage.get(ComponentId::new::<T>())?;
+        let typed = try_cast::<T>(column)?;
+        typed.get(e_ref.index)
     }
 }
 
@@ -146,6 +180,20 @@ mod test {
 
         entities.set::<i32>(e1, 123).unwrap();
         entities.set::<f64>(e1, 3.14).unwrap();
-        //entities.set::<String>(e1, "test".to_owned()).unwrap();
+        entities.set::<String>(e1, "test".to_owned()).unwrap();
+
+        entities.set::<i32>(e2, 456).unwrap();
+        entities.set::<f64>(e2, 5.5).unwrap();
+        entities
+            .set::<String>(e2, "yep yep yep".to_owned())
+            .unwrap();
+
+        assert_eq!(123, *entities.get::<i32>(e1).unwrap());
+        assert_eq!(3.14, *entities.get::<f64>(e1).unwrap());
+        assert_eq!("test".to_owned(), *entities.get::<String>(e1).unwrap());
+
+        assert_eq!(456, *entities.get::<i32>(e2).unwrap());
+        assert_eq!(5.5, *entities.get::<f64>(e2).unwrap());
+        assert_eq!("yep yep yep".to_owned(), *entities.get::<String>(e2).unwrap());
     }
 }
