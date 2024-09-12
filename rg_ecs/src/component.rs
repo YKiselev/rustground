@@ -1,7 +1,8 @@
 use std::{
     any::{Any, TypeId},
     collections::HashSet,
-    hash::Hash, slice::{Iter, IterMut},
+    hash::Hash,
+    slice::{Iter, IterMut},
 };
 
 ///
@@ -28,7 +29,9 @@ pub trait ComponentStorage {
 
     fn create_new(&self) -> Box<dyn ComponentStorage>;
 
-    fn add_row(&mut self) -> usize;
+    fn add(&mut self) -> usize;
+
+    fn remove(&mut self, index: usize);
 
     fn move_to(&mut self, index: usize, dest: &mut dyn ComponentStorage);
 
@@ -137,10 +140,10 @@ impl<T: Any + Default + 'static> ComponentStorage for TypedComponentStorage<T> {
         self.id
     }
 
-    fn add_row(&mut self) -> usize {
+    fn add(&mut self) -> usize {
         self.data.push(T::default());
         if let Some(n) = self.next.as_mut() {
-            n.add_row();
+            n.add();
         }
         self.data.len() - 1
     }
@@ -180,6 +183,14 @@ impl<T: Any + Default + 'static> ComponentStorage for TypedComponentStorage<T> {
         result.insert(self.id);
         if let Some(n) = self.next.as_ref() {
             n.collect_components(result);
+        }
+    }
+
+    fn remove(&mut self, index: usize) {
+        if index + 1 < self.data.len() {
+            self.data.swap_remove(index);
+        } else if index < self.data.len() {
+            self.data.pop();
         }
     }
 }

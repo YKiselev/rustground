@@ -65,7 +65,7 @@ impl Entities {
             .archetypes
             .get_mut(&EMPTY_ARCHETYPE_ID)
             .ok_or(EntityError::NotFound)?;
-        let index = storage.add_row();
+        let index = storage.add();
         if let Some(s) = storage
             .get_mut(ComponentId::new::<EntityId>())
             .and_then(|v| {
@@ -168,20 +168,20 @@ impl Entities {
             .flat_map(|v| v.iter())
     }
 
-    pub fn query2_mut<T1, T2>(&mut self) -> impl Iterator<Item = (&mut T1, &mut T2)>
-    where
-        T1: Default + 'static,
-        T2: Default + 'static,
-    {
-        let comp_id1 = ComponentId::new::<T1>();
-        let comp_id2 = ComponentId::new::<T2>();
-        self.archetypes
-            .iter_mut()
-            .map(move |(_, v)| (v.get_mut(comp_id1), v.get_mut(comp_id2)))
-            .filter(|(v1, v2)| v1.is_some() && v2.is_some())
-            .map(|(v1, v2)| (cast_mut::<T1>(v1.unwrap()), cast_mut::<T2>(v1.unwrap())))
-            .flat_map(|(v1, v2)| izip!(v1.iter_mut(), v2.iter_mut()))
-    }
+    // pub fn query2_mut<T1, T2>(&mut self) -> impl Iterator<Item = (&mut T1, &mut T2)>
+    // where
+    //     T1: Default + 'static,
+    //     T2: Default + 'static,
+    // {
+    //     let comp_id1 = ComponentId::new::<T1>();
+    //     let comp_id2 = ComponentId::new::<T2>();
+    //     self.archetypes
+    //         .iter_mut()
+    //         .map(move |(_, v)| (v.get_mut(comp_id1), v.get_mut(comp_id2)))
+    //         .filter(|(v1, v2)| v1.is_some() && v2.is_some())
+    //         .map(|(v1, v2)| (cast_mut::<T1>(v1.unwrap()), cast_mut::<T2>(v1.unwrap())))
+    //         .flat_map(|(v1, v2)| izip!(v1.iter_mut(), v2.iter_mut()))
+    // }
 }
 
 ///
