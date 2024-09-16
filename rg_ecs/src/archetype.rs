@@ -5,15 +5,17 @@ use std::{
     sync::RwLock,
 };
 
+use once_cell::sync::{self, Lazy};
+
 use crate::{
-    component::{try_cast, try_cast_mut, ComponentId, ComponentStorage, TypedComponentStorage},
+    component::{cast_mut, try_cast, try_cast_mut, ComponentId, ComponentStorage, TypedComponentStorage},
     entity::EntityId,
 };
-
 ///
 /// Constants
 ///
-pub(crate) const EMPTY_ARCHETYPE_ID: ArchetypeId = ArchetypeId(0);
+pub(crate) static COLUMN_ENTITY_ID: Lazy<ComponentId> = sync::Lazy::new(|| ComponentId::new::<EntityId>());
+pub(crate) const ARCH_ID_EMPTY: ArchetypeId = ArchetypeId(0);
 
 ///
 /// ArchetypeId
@@ -22,7 +24,7 @@ pub(crate) const EMPTY_ARCHETYPE_ID: ArchetypeId = ArchetypeId(0);
 pub struct ArchetypeId(u64);
 
 impl ArchetypeId {
-    pub fn new(components: &HashSet<ComponentId>) -> Self {
+    pub fn new<'a>(components: impl Iterator<Item = &'a ComponentId>) -> Self {
         let mut hasher = DefaultHasher::new();
         for c in components {
             c.hash(&mut hasher);
@@ -89,8 +91,11 @@ impl Archetype {
 ///
 /// ArchetypeStorage
 ///
+type ColumnMap = HashMap<ComponentId, RwLock<Box<dyn ComponentStorage>>>;
+
+#[derive(Default)]
 pub(crate) struct ArchetypeStorage {
-    columns: HashMap<ComponentId, RwLock<Box<dyn ComponentStorage>>>,
+    columns: ColumnMap,
 }
 
 impl ArchetypeStorage {
@@ -112,40 +117,42 @@ impl ArchetypeStorage {
         self.columns.get(&comp_id)
     }
 
-    // pub(crate) fn move_to<T: Default + 'static>(
-    //     &mut self,
-    //     dest: &mut ArchetypeStorage,
-    //     index: usize,
-    //     value: T,
-    // ) {
-    //     for s in self.data.iter_mut() {
-    //         for d in dest.data.iter_mut() {
-    //             if s.move_to(index, d.as_mut()) {
-    //                 break;
-    //             }
-    //         }
-    //     }
-    //     for d in dest.data.iter_mut() {
-    //         if let Some(c) = d.as_mut_any().downcast_mut::<TypedComponentStorage<T>>() {
-    //             c.push(value);
-    //             break;
-    //         }
-    //     }
-    //     //unimplemented!()
-    // }
+    pub(crate) fn move_to<T: Default + 'static>(
+        &self,
+        dest: &ArchetypeStorage,
+        index: usize,
+        value: T,
+    ) -> usize {
+        for (comp_id, column) in self.columns.iter() {
+            column
+                .write()
+                .unwrap()
+                .move_to(index, dest.get(*comp_id).unwrap().write().unwrap().as_mut());
+        }
+        cast_mut::<T>(dest.get_by_type::<T>().unwrap().write().unwrap().as_mut())
+                .push(value)
+    }
 
-    // pub(crate) fn extend_new<T: Default + 'static>(&self) -> ArchetypeStorage {
-    //     let new_comp_storage = TypedComponentStorage::<T>::new();
-    //     let mut data: Vec<Box<dyn ComponentStorage>> =
-    //         self.data.iter().map(|v| v.create_new()).collect();
-    //     data.push(Box::new(new_comp_storage));
-    //     ArchetypeStorage { data }
-    // }
+    pub(crate) fn new_extended<T: Default + 'static>(&self) -> ArchetypeStorage {
+        let new_comp_id = ComponentId::new::<T>();
+        let new_comp_storage = TypedComponentStorage::<T>::new(None);
+        let mut columns: ColumnMap = self
+            .columns
+            .iter()
+            .map(|(k, v)| (*k, RwLock::new(v.read().unwrap().create_new())))
+            .collect();
+        columns.insert(new_comp_id, RwLock::new(Box::new(new_comp_storage)));
+        ArchetypeStorage { columns }
+    }
 
-    pub(crate) fn add(&self) -> usize {
+    pub(crate) fn add(&self, ent_id: EntityId) -> usize {
         let mut index = 0;
-        for column in self.columns.values() {
-            index = column.write().unwrap().add();
+        for (id, column) in self.columns.iter() {
+            if *id == *COLUMN_ENTITY_ID {
+                column.write().unwrap().add();
+            } else {
+                index = column.write().unwrap().add();
+            }
         }
         index
     }
@@ -154,6 +161,10 @@ impl ArchetypeStorage {
         for column in self.columns.values() {
             column.write().unwrap().remove(index);
         }
+    }
+
+    pub(crate) fn components(&self) -> HashSet<ComponentId> {
+        self.columns.keys().cloned().collect()
     }
 }
 
@@ -181,24 +192,19 @@ mod test {
     use super::ArchetypeBuilder;
 
     #[test]
-    fn macros() {
-        let archetype = archetype![i32, String, f64, bool];
-    }
-
-    #[test]
     fn test() {
         let archetype = archetype![i32, String, f64, bool];
         let (id, storage) = archetype.create_storage();
 
-        assert_eq!(0, storage.add());
-        assert_eq!(1, storage.add());
-        assert_eq!(2, storage.add());
+        assert_eq!(0, storage.add(EntityId(1)));
+        assert_eq!(1, storage.add(EntityId(2)));
+        assert_eq!(2, storage.add(EntityId(3)));
 
         storage.remove(0);
         storage.remove(1);
         storage.remove(0);
 
-        assert_eq!(0, storage.add());
+        assert_eq!(0, storage.add(EntityId(4)));
 
         storage.get_by_type::<i32>().unwrap();
         storage.get_by_type::<f64>().unwrap();

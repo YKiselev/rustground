@@ -1,26 +1,30 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{hash_map, HashMap, HashSet},
     error::Error,
     fmt::Display,
     slice::Iter,
-    sync::atomic::{AtomicUsize, Ordering},
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        PoisonError, RwLock,
+    },
 };
 
 use itertools::izip;
 
 use crate::{
-    archetype::{ArchetypeId, EMPTY_ARCHETYPE_ID},
+    archetype::{ArchetypeId, ArchetypeStorage, ARCH_ID_EMPTY},
     component::{
         cast, cast_mut, try_cast, try_cast_mut, ComponentId, ComponentStorage,
         TypedComponentStorage,
     },
+    error::EntityError,
 };
 
 ///
 /// EntityId
 ///
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
-pub struct EntityId(usize);
+pub struct EntityId(pub(crate) usize);
 
 ///
 /// EntityRef
@@ -32,60 +36,59 @@ struct EntityRef {
 }
 
 ///
-/// Entities
+/// Entity storage
 ///
 type EntityRefMap = HashMap<EntityId, EntityRef>;
-type ArchetypeMap = HashMap<ArchetypeId, Box<dyn ComponentStorage>>;
+type ArchetypeMap = HashMap<ArchetypeId, Box<ArchetypeStorage>>;
 
-pub struct Entities {
+#[derive(Default)]
+struct EntityStorage {
     entity_seq: AtomicUsize,
     entities: EntityRefMap,
     archetypes: ArchetypeMap,
 }
 
-impl Entities {
-    pub fn new() -> Self {
-        let entities = HashMap::new();
-        let mut archetypes: ArchetypeMap = HashMap::new();
-        archetypes.insert(
-            EMPTY_ARCHETYPE_ID,
-            Box::new(TypedComponentStorage::<EntityId>::new(None)),
-        );
-        Entities {
-            entity_seq: AtomicUsize::new(1),
-            entities,
+impl EntityStorage {
+    fn new() -> Self {
+        let mut archetypes = HashMap::new();
+        archetypes.insert(ARCH_ID_EMPTY, Box::new(ArchetypeStorage::default()));
+        EntityStorage {
+            entity_seq: AtomicUsize::new(0),
+            entities: HashMap::new(),
             archetypes,
         }
     }
 
-    pub fn add(&mut self) -> Result<EntityId, EntityError> {
-        let seq = self.entity_seq.fetch_add(1, Ordering::AcqRel);
-        let id = EntityId(seq);
+    fn add(&mut self, archetype: ArchetypeId) -> Result<EntityId, EntityError> {
+        let seq = self.entity_seq.fetch_add(1, Ordering::Relaxed);
+        let ent_id = EntityId(seq);
         let storage = self
             .archetypes
-            .get_mut(&EMPTY_ARCHETYPE_ID)
+            .get(&ARCH_ID_EMPTY)
             .ok_or(EntityError::NotFound)?;
-        let index = storage.add();
-        if let Some(s) = storage
-            .get_mut(ComponentId::new::<EntityId>())
-            .and_then(|v| {
-                v.as_mut_any()
-                    .downcast_mut::<TypedComponentStorage<EntityId>>()
-            })
-        {
-            s.set(index, id);
-        }
-        self.entities.insert(
-            id,
-            EntityRef {
-                archetype: EMPTY_ARCHETYPE_ID,
-                index,
-            },
-        );
-        Ok(id)
+        let index = storage.add(ent_id);
+        let ent_ref = EntityRef {
+            archetype: ARCH_ID_EMPTY,
+            index,
+        };
+        self.entities.insert(ent_id, ent_ref);
+        Ok(ent_id)
     }
 
-    pub fn set<T>(&mut self, entity: EntityId, value: T) -> Result<(), EntityError>
+    fn get<T, F, R>(&self, entity: EntityId, consumer: F) -> Option<R>
+    where
+        T: Default + 'static,
+        R: Sized + 'static,
+        F: FnOnce(Option<&T>) -> R,
+    {
+        let e_ref = self.entities.get(&entity)?;
+        let storage = self.archetypes.get(&e_ref.archetype)?;
+        let column = storage.get(ComponentId::new::<T>())?;
+        let guard = column.read().unwrap();
+        Some(consumer(cast::<T>(guard.as_ref()).get(e_ref.index)))
+    }
+
+    fn set<T>(&mut self, entity: EntityId, value: T) -> Result<(), EntityError>
     where
         T: Default + 'static,
     {
@@ -99,74 +102,116 @@ impl Entities {
             .ok_or_else(|| EntityError::NotFound)?;
         let base = self
             .archetypes
-            .get_mut(base_archetype)
+            .get(base_archetype)
             .ok_or_else(|| EntityError::NotFound)?;
-        if let Some(column) = base.get_mut(comp_id) {
-            try_cast_mut::<T>(column).unwrap().set(*base_index, value);
+        if let Some(column) = base.get(comp_id) {
+            let mut guard = column.write()?;
+            cast_mut::<T>(guard.as_mut()).set(*base_index, value);
         } else {
             let mut comps = base.components();
             comps.insert(comp_id);
-            let existing = self
-                .archetypes
-                .iter()
-                .find(|(_, v)| v.components() == comps)
-                .map(|(k, _)| k.clone());
-
-            let (dest_id, mut dest) = if let Some(k) = existing {
-                self.archetypes.remove_entry(&k).unwrap()
-            } else {
-                let base_columns = self
-                    .archetypes
-                    .get_mut(base_archetype)
-                    .unwrap()
-                    .create_new();
-                let new_storage: Box<dyn ComponentStorage> =
-                    Box::new(TypedComponentStorage::<T>::new(Some(base_columns)));
-                let new_id = ArchetypeId::new(&comps);
-                (new_id, new_storage)
-            };
-            let src = self.archetypes.get_mut(base_archetype).unwrap();
-            src.move_to(*base_index, dest.as_mut());
-            let new_index = try_cast_mut::<T>(dest.get_mut(comp_id).unwrap())
-                .unwrap()
-                .push(value);
+            let dest_arc_id = ArchetypeId::new(comps.iter());
+            if !self.archetypes.contains_key(&dest_arc_id) {
+                let d = Box::new(base.new_extended::<T>());
+                self.archetypes.insert(dest_arc_id, d);
+            }
+            let dest = self.archetypes.get(&dest_arc_id).unwrap();
+            let base = self.archetypes.get(base_archetype).unwrap();
+            let new_index = base.move_to(dest, *base_index, value);
             let new_ref = EntityRef {
-                archetype: dest_id,
+                archetype: dest_arc_id,
                 index: new_index,
             };
             self.entities.insert(entity, new_ref);
-            self.archetypes.insert(dest_id, dest);
         }
         Ok(())
     }
 
-    pub fn get<T>(&self, entity: EntityId) -> Option<&T>
-    where
-        T: Default + 'static,
-    {
-        let e_ref = self.entities.get(&entity)?;
-        let storage = self.archetypes.get(&e_ref.archetype)?;
-        let column = storage.get(ComponentId::new::<T>())?;
-        let typed = try_cast::<T>(column)?;
-        typed.get(e_ref.index)
-    }
-
-    pub fn remove(&mut self, entity: EntityId) {
-        unimplemented!()
-    }
-
-    pub fn query1<T>(&self) -> impl Iterator<Item = &T>
-    where
-        T: Default + 'static,
-    {
-        let comp_id = ComponentId::new::<T>();
+    fn remove(&mut self, entity: EntityId) -> Result<(), EntityError> {
+        let EntityRef {
+            archetype: archetype,
+            index: index,
+        } = self
+            .entities
+            .remove(&entity)
+            .ok_or_else(|| EntityError::NotFound)?;
         self.archetypes
-            .iter()
-            .map(move |(_, v)| v.get(comp_id))
-            .filter(|v| v.is_some())
-            .map(|v| try_cast::<T>(v.unwrap()).unwrap())
-            .flat_map(|v| v.iter())
+            .remove(&archetype)
+            .map(|_| ())
+            .ok_or_else(|| EntityError::NotFound)
     }
+}
+
+///
+/// Entities
+///
+#[derive(Default)]
+pub struct Entities {
+    storage: RwLock<EntityStorage>,
+}
+
+impl Entities {
+    ///
+    /// Creates new instance
+    ///
+    pub fn new() -> Self {
+        Entities {
+            storage: RwLock::new(EntityStorage::new()),
+        }
+    }
+
+    ///
+    /// Adds new entity into this storage
+    ///
+    pub fn add(&self, archetype: Option<ArchetypeId>) -> Result<EntityId, EntityError> {
+        self.storage
+            .write()
+            .unwrap()
+            .add(archetype.unwrap_or(ARCH_ID_EMPTY))
+    }
+
+    ///
+    /// Sets component on specified entity.
+    /// Entity will be moved from one table to another (possibly new one) if current table doesn't have such component column.
+    ///
+    pub fn set<T>(&self, entity: EntityId, value: T) -> Result<(), EntityError>
+    where
+        T: Default + 'static,
+    {
+        self.storage.write().unwrap().set(entity, value)
+    }
+
+    ///
+    /// Gets the value of component of specified entity.
+    ///
+    pub fn get<T, F, R>(&self, entity: EntityId, consumer: F) -> Option<R>
+    where
+        T: Default + 'static,
+        R: 'static,
+        F: FnOnce(Option<&T>) -> R,
+    {
+        self.storage.read().unwrap().get(entity, consumer)
+    }
+
+    ///
+    /// Removes entity from storage
+    ///
+    pub fn remove(&self, entity: EntityId) -> Result<(), EntityError> {
+        self.storage.write().unwrap().remove(entity)
+    }
+
+    // pub fn query1<T>(&self) -> impl Iterator<Item = &T>
+    // where
+    //     T: Default + 'static,
+    // {
+    //     let comp_id = ComponentId::new::<T>();
+    //     self.archetypes
+    //         .iter()
+    //         .map(move |(_, v)| v.get(comp_id))
+    //         .filter(|v| v.is_some())
+    //         .map(|v| try_cast::<T>(v.unwrap()).unwrap())
+    //         .flat_map(|v| v.iter())
+    // }
 
     // pub fn query2_mut<T1, T2>(&mut self) -> impl Iterator<Item = (&mut T1, &mut T2)>
     // where
@@ -185,24 +230,6 @@ impl Entities {
 }
 
 ///
-/// EntityError
-///
-#[derive(Debug)]
-pub enum EntityError {
-    NotFound,
-}
-
-impl Error for EntityError {}
-
-impl Display for EntityError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            EntityError::NotFound => write!(f, "No such entity!"),
-        }
-    }
-}
-
-///
 /// Tests
 ///
 #[cfg(test)]
@@ -215,8 +242,8 @@ mod test {
     fn test() {
         let mut entities = Entities::new();
 
-        let e1 = entities.add().unwrap();
-        let e2 = entities.add().unwrap();
+        let e1 = entities.add(None).unwrap();
+        let e2 = entities.add(None).unwrap();
 
         entities.set::<i32>(e1, 123).unwrap();
         entities.set::<f64>(e1, 3.14).unwrap();
@@ -228,20 +255,30 @@ mod test {
             .set::<String>(e2, "yep yep yep".to_owned())
             .unwrap();
 
-        assert_eq!(123, *entities.get::<i32>(e1).unwrap());
-        assert_eq!(3.14, *entities.get::<f64>(e1).unwrap());
-        assert_eq!("test".to_owned(), *entities.get::<String>(e1).unwrap());
+        assert_eq!(123, entities.get::<i32, _, _>(e1, |v| *v.unwrap()).unwrap());
+        assert_eq!(
+            3.14,
+            entities.get::<f64, _, _>(e1, |v| *v.unwrap()).unwrap()
+        );
+        assert_eq!(
+            "test".to_owned(),
+            entities
+                .get::<String, _, _>(e1, |v| v.unwrap().clone())
+                .unwrap()
+        );
 
-        assert_eq!(456, *entities.get::<i32>(e2).unwrap());
-        assert_eq!(5.5, *entities.get::<f64>(e2).unwrap());
+        assert_eq!(456, entities.get::<i32, _, _>(e2, |v| *v.unwrap()).unwrap());
+        assert_eq!(5.5, entities.get::<f64, _, _>(e2, |v| *v.unwrap()).unwrap());
         assert_eq!(
             "yep yep yep".to_owned(),
-            *entities.get::<String>(e2).unwrap()
+            entities
+                .get::<String, _, _>(e2, |v| v.unwrap().clone())
+                .unwrap()
         );
 
-        assert_eq!(
-            vec!["test", "yep yep yep"],
-            entities.query1::<String>().collect::<Vec<_>>()
-        );
+        // assert_eq!(
+        //     vec!["test", "yep yep yep"],
+        //     entities.query1::<String>().collect::<Vec<_>>()
+        // );
     }
 }
