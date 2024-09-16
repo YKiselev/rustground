@@ -1,6 +1,5 @@
 use std::{
     any::{Any, TypeId},
-    collections::HashSet,
     hash::Hash,
     slice::{Iter, IterMut},
 };

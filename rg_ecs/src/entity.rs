@@ -1,21 +1,15 @@
 use std::{
-    collections::{hash_map, HashMap, HashSet},
-    error::Error,
-    fmt::Display,
-    slice::Iter,
+    collections::HashMap,
     sync::{
-        atomic::{AtomicUsize, Ordering},
-        PoisonError, RwLock,
+        atomic::{AtomicUsize, Ordering}, RwLock,
     },
 };
 
-use itertools::izip;
 
 use crate::{
     archetype::{ArchetypeId, ArchetypeStorage, ARCH_ID_EMPTY},
     component::{
-        cast, cast_mut, try_cast, try_cast_mut, ComponentId, ComponentStorage,
-        TypedComponentStorage,
+        cast, cast_mut, ComponentId, ComponentStorage,
     },
     error::EntityError,
 };
@@ -129,8 +123,8 @@ impl EntityStorage {
 
     fn remove(&mut self, entity: EntityId) -> Result<(), EntityError> {
         let EntityRef {
-            archetype: archetype,
-            index: index,
+            archetype,
+            index,
         } = self
             .entities
             .remove(&entity)
@@ -234,13 +228,13 @@ impl Entities {
 ///
 #[cfg(test)]
 mod test {
-    use std::sync::Mutex;
+    
 
     use super::Entities;
 
     #[test]
     fn test() {
-        let mut entities = Entities::new();
+        let entities = Entities::new();
 
         let e1 = entities.add(None).unwrap();
         let e2 = entities.add(None).unwrap();

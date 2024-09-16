@@ -1,5 +1,4 @@
 use std::{
-    borrow::BorrowMut,
     collections::{HashMap, HashSet},
     hash::{DefaultHasher, Hash, Hasher},
     sync::RwLock,
@@ -8,7 +7,7 @@ use std::{
 use once_cell::sync::{self, Lazy};
 
 use crate::{
-    component::{cast_mut, try_cast, try_cast_mut, ComponentId, ComponentStorage, TypedComponentStorage},
+    component::{cast_mut, ComponentId, ComponentStorage, TypedComponentStorage},
     entity::EntityId,
 };
 ///
@@ -185,11 +184,11 @@ macro_rules! archetype {
 #[cfg(test)]
 mod test {
     use crate::{
-        component::{cast, ComponentStorage},
+        component::ComponentStorage,
         entity::EntityId,
     };
 
-    use super::ArchetypeBuilder;
+    
 
     #[test]
     fn test() {
