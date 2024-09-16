@@ -34,18 +34,6 @@ pub trait ComponentStorage {
     fn remove(&mut self, index: usize);
 
     fn move_to(&mut self, index: usize, dest: &mut dyn ComponentStorage);
-
-    fn get(&self, comp_id: ComponentId) -> Option<&dyn ComponentStorage>;
-
-    fn get_mut(&mut self, comp_id: ComponentId) -> Option<&mut dyn ComponentStorage>;
-
-    fn collect_components(&self, result: &mut HashSet<ComponentId>);
-
-    fn components(&self) -> HashSet<ComponentId> {
-        let mut result = HashSet::new();
-        self.collect_components(&mut result);
-        result
-    }
 }
 
 ///
@@ -83,15 +71,13 @@ pub(crate) fn cast_mut<'a, T: Default + 'static>(
 pub(crate) struct TypedComponentStorage<T: Default> {
     id: ComponentId,
     data: Vec<T>,
-    next: Option<Box<dyn ComponentStorage>>,
 }
 
 impl<T: Default + 'static> TypedComponentStorage<T> {
-    pub(crate) fn new(next: Option<Box<dyn ComponentStorage>>) -> Self {
+    pub(crate) fn new() -> Self {
         TypedComponentStorage {
             id: ComponentId::new::<T>(),
             data: Vec::new(),
-            next,
         }
     }
 
@@ -131,9 +117,7 @@ impl<T: Any + Default + 'static> ComponentStorage for TypedComponentStorage<T> {
     }
 
     fn create_new(&self) -> Box<dyn ComponentStorage> {
-        Box::new(TypedComponentStorage::<T>::new(
-            self.next.as_ref().map(|n| n.create_new()),
-        ))
+        Box::new(TypedComponentStorage::<T>::new())
     }
 
     fn id(&self) -> ComponentId {
@@ -142,47 +126,17 @@ impl<T: Any + Default + 'static> ComponentStorage for TypedComponentStorage<T> {
 
     fn add(&mut self) -> usize {
         self.data.push(T::default());
-        if let Some(n) = self.next.as_mut() {
-            n.add();
-        }
         self.data.len() - 1
     }
 
     fn move_to(&mut self, index: usize, dest: &mut dyn ComponentStorage) {
-        if let Some(storage) = dest.get_mut(self.id) {
-            if let Some(value) = if index + 1 < self.data.len() {
-                Some(self.data.swap_remove(index))
-            } else {
-                self.data.pop()
-            } {
-                try_cast_mut::<T>(storage).unwrap().push(value);
-            }
-        }
-        if let Some(n) = self.next.as_mut() {
-            n.move_to(index, dest)
-        }
-    }
-
-    fn get(&self, comp_id: ComponentId) -> Option<&dyn ComponentStorage> {
-        if self.id == comp_id {
-            Some(self)
+        let opt = if index + 1 < self.data.len() {
+            Some(self.data.swap_remove(index))
         } else {
-            self.next.as_ref().and_then(|n| n.get(comp_id))
-        }
-    }
-
-    fn get_mut(&mut self, comp_id: ComponentId) -> Option<&mut dyn ComponentStorage> {
-        if self.id == comp_id {
-            Some(self)
-        } else {
-            self.next.as_mut().and_then(|n| n.get_mut(comp_id))
-        }
-    }
-
-    fn collect_components(&self, result: &mut HashSet<ComponentId>) {
-        result.insert(self.id);
-        if let Some(n) = self.next.as_ref() {
-            n.collect_components(result);
+            self.data.pop()
+        };
+        if let Some(value) = opt {
+            cast_mut::<T>(dest).push(value);
         }
     }
 
@@ -211,8 +165,8 @@ mod test {
     #[test]
     fn test() {
         let mut columns: Vec<Box<dyn ComponentStorage>> = vec![
-            Box::new(TypedComponentStorage::<i32>::new(None)),
-            Box::new(TypedComponentStorage::<A>::new(None)),
+            Box::new(TypedComponentStorage::<i32>::new()),
+            Box::new(TypedComponentStorage::<A>::new()),
         ];
 
         let s1 = columns[0].as_mut();

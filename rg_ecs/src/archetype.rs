@@ -51,7 +51,7 @@ impl ArchetypeBuilder {
         let comp_id = ComponentId::new::<T>();
         self.factories.insert(
             comp_id,
-            Box::new(|| Box::new(TypedComponentStorage::<T>::new(None))),
+            Box::new(|| Box::new(TypedComponentStorage::<T>::new())),
         );
         self
     }
@@ -135,7 +135,7 @@ impl ArchetypeStorage {
 
     pub(crate) fn new_extended<T: Default + 'static>(&self) -> ArchetypeStorage {
         let new_comp_id = ComponentId::new::<T>();
-        let new_comp_storage = TypedComponentStorage::<T>::new(None);
+        let new_comp_storage = TypedComponentStorage::<T>::new();
         let mut columns: ColumnMap = self
             .columns
             .iter()
