@@ -1,9 +1,8 @@
 use std::{
     any::{Any, TypeId},
-    fmt::{Debug, Display},
+    fmt::Debug,
     hash::Hash,
     slice::{Iter, IterMut},
-    sync::Arc,
 };
 
 ///

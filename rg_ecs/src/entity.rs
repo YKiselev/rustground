@@ -1,5 +1,5 @@
 use std::{
-    collections::{hash_map, HashMap},
+    collections::HashMap,
     sync::{
         atomic::{AtomicUsize, Ordering},
         RwLock,
