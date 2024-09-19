@@ -13,8 +13,8 @@ use crate::{
 ///
 /// Constants
 ///
-pub(crate) static COLUMN_ENTITY_ID: Lazy<ComponentId> = sync::Lazy::new(|| ComponentId::new::<EntityId>());
-pub(crate) const ARCH_ID_EMPTY: ArchetypeId = ArchetypeId(0);
+pub(crate) static COLUMN_ENTITY_ID: Lazy<ComponentId> =
+    sync::Lazy::new(|| ComponentId::new::<EntityId>());
 
 ///
 /// ArchetypeId
@@ -73,7 +73,7 @@ pub struct Archetype {
 }
 
 impl Archetype {
-    fn create_storage(&self) -> (ArchetypeId, ArchetypeStorage) {
+    pub(crate) fn create_storage(&self) -> (ArchetypeId, ArchetypeStorage) {
         (
             self.id,
             ArchetypeStorage {
@@ -128,8 +128,7 @@ impl ArchetypeStorage {
                 .unwrap()
                 .move_to(index, dest.get(*comp_id).unwrap().write().unwrap().as_mut());
         }
-        cast_mut::<T>(dest.get_by_type::<T>().unwrap().write().unwrap().as_mut())
-                .push(value)
+        cast_mut::<T>(dest.get_by_type::<T>().unwrap().write().unwrap().as_mut()).push(value)
     }
 
     pub(crate) fn new_extended<T: Default + 'static>(&self) -> ArchetypeStorage {
@@ -183,12 +182,7 @@ macro_rules! archetype {
 ///
 #[cfg(test)]
 mod test {
-    use crate::{
-        component::ComponentStorage,
-        entity::EntityId,
-    };
-
-    
+    use crate::{component::ComponentStorage, entity::EntityId};
 
     #[test]
     fn test() {

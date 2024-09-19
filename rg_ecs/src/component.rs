@@ -1,7 +1,9 @@
 use std::{
     any::{Any, TypeId},
+    fmt::{Debug, Display},
     hash::Hash,
     slice::{Iter, IterMut},
+    sync::Arc,
 };
 
 ///
@@ -11,7 +13,7 @@ use std::{
 pub struct ComponentId(TypeId);
 
 impl ComponentId {
-    pub fn new<T: 'static>() -> Self {
+    pub fn new<T: Default + 'static>() -> Self {
         ComponentId(TypeId::of::<T>())
     }
 }
@@ -153,12 +155,21 @@ impl<T: Any + Default + 'static> ComponentStorage for TypedComponentStorage<T> {
 ///
 #[cfg(test)]
 mod test {
-    use super::{ComponentStorage, TypedComponentStorage};
+    use super::{ComponentId, ComponentStorage, TypedComponentStorage};
 
     #[derive(Copy, Clone, Default, Debug, PartialEq)]
     struct A {
         pub x: f32,
         pub y: f32,
+    }
+
+    #[test]
+    fn component_id() {
+        let i1 = ComponentId::new::<i32>();
+        let i2 = ComponentId::new::<i32>();
+        assert_eq!(i1, i2);
+        let i3 = ComponentId::new::<i16>();
+        assert_ne!(i1, i3);
     }
 
     #[test]

@@ -1,16 +1,14 @@
 use std::{
-    collections::HashMap,
+    collections::{hash_map, HashMap},
     sync::{
-        atomic::{AtomicUsize, Ordering}, RwLock,
+        atomic::{AtomicUsize, Ordering},
+        RwLock,
     },
 };
 
-
 use crate::{
-    archetype::{ArchetypeId, ArchetypeStorage, ARCH_ID_EMPTY},
-    component::{
-        cast, cast_mut, ComponentId, ComponentStorage,
-    },
+    archetype::{Archetype, ArchetypeBuilder, ArchetypeId, ArchetypeStorage},
+    component::{cast, cast_mut, ComponentId, ComponentStorage},
     error::EntityError,
 };
 
@@ -35,8 +33,8 @@ struct EntityRef {
 type EntityRefMap = HashMap<EntityId, EntityRef>;
 type ArchetypeMap = HashMap<ArchetypeId, Box<ArchetypeStorage>>;
 
-#[derive(Default)]
 struct EntityStorage {
+    def_arch_id: ArchetypeId,
     entity_seq: AtomicUsize,
     entities: EntityRefMap,
     archetypes: ArchetypeMap,
@@ -45,24 +43,34 @@ struct EntityStorage {
 impl EntityStorage {
     fn new() -> Self {
         let mut archetypes = HashMap::new();
-        archetypes.insert(ARCH_ID_EMPTY, Box::new(ArchetypeStorage::default()));
+        let def_arc = ArchetypeBuilder::new().build();
+        let (def_arch_id, def_storage) = def_arc.create_storage();
+        archetypes.insert(def_arch_id, Box::new(def_storage));
         EntityStorage {
+            def_arch_id,
             entity_seq: AtomicUsize::new(0),
             entities: HashMap::new(),
             archetypes,
         }
     }
 
-    fn add(&mut self, archetype: ArchetypeId) -> Result<EntityId, EntityError> {
+    fn add_archetype(&mut self, archetype: &Archetype) -> ArchetypeId {
+        let (arc_id, arc_storage) = archetype.create_storage();
+        self.archetypes.insert(arc_id, Box::new(arc_storage));
+        arc_id
+    }
+
+    fn add(&mut self, archetype: Option<ArchetypeId>) -> Result<EntityId, EntityError> {
+        let arch_id = archetype.unwrap_or(self.def_arch_id);
         let seq = self.entity_seq.fetch_add(1, Ordering::Relaxed);
         let ent_id = EntityId(seq);
         let storage = self
             .archetypes
-            .get(&ARCH_ID_EMPTY)
-            .ok_or(EntityError::NotFound)?;
+            .get(&arch_id)
+            .ok_or(EntityError::NotSuchArchetype)?;
         let index = storage.add(ent_id);
         let ent_ref = EntityRef {
-            archetype: ARCH_ID_EMPTY,
+            archetype: arch_id,
             index,
         };
         self.entities.insert(ent_id, ent_ref);
@@ -122,10 +130,7 @@ impl EntityStorage {
     }
 
     fn remove(&mut self, entity: EntityId) -> Result<(), EntityError> {
-        let EntityRef {
-            archetype,
-            index,
-        } = self
+        let EntityRef { archetype, index } = self
             .entities
             .remove(&entity)
             .ok_or_else(|| EntityError::NotFound)?;
@@ -139,7 +144,6 @@ impl EntityStorage {
 ///
 /// Entities
 ///
-#[derive(Default)]
 pub struct Entities {
     storage: RwLock<EntityStorage>,
 }
@@ -155,13 +159,17 @@ impl Entities {
     }
 
     ///
+    /// Adds new archetype to this storage
+    ///
+    pub fn add_archetype(&self, archetype: &Archetype) -> ArchetypeId {
+        self.storage.write().unwrap().add_archetype(archetype)
+    }
+
+    ///
     /// Adds new entity into this storage
     ///
     pub fn add(&self, archetype: Option<ArchetypeId>) -> Result<EntityId, EntityError> {
-        self.storage
-            .write()
-            .unwrap()
-            .add(archetype.unwrap_or(ARCH_ID_EMPTY))
+        self.storage.write().unwrap().add(archetype)
     }
 
     ///
@@ -228,7 +236,6 @@ impl Entities {
 ///
 #[cfg(test)]
 mod test {
-    
 
     use super::Entities;
 

@@ -9,6 +9,8 @@ use snafu::Snafu;
 pub enum EntityError {
     #[snafu(display("No such entity!"))]
     NotFound,
+    #[snafu(display("No such archetype!"))]
+    NotSuchArchetype,
     #[snafu(display("Lock is poisoned!"))]
     LockPoisoned
 }
