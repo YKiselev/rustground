@@ -179,7 +179,7 @@ impl ArchetypeStorage {
         }
     }
 
-    pub(crate) fn get_by_type<T>(&self) -> Option<&RwLock<Box<dyn ComponentStorage>>>
+    pub(crate) fn get_by_type<T>(&mut self) -> Option<&RwLock<Box<dyn ComponentStorage>>>
     where
         T: Default + 'static,
     {
@@ -200,16 +200,20 @@ impl ArchetypeStorage {
     /// Returns chunk with at least 1 unused row for adding
     ///
     pub(crate) fn get_chunk(&mut self) -> Option<&Box<Chunk>> {
-        for chunk in self.chunks {
+        let mut index = None;
+        for (i, chunk) in self.chunks.iter().enumerate() {
             if chunk.available() > 0 {
-                return Some(&chunk);
+                index = Some(i);
+                break;
             }
         }
-        // No unfilled chunks (or no chunks at all). Let's add new
-        let chunk = Box::new(self.archetype.new_chunk(self.chunk_size));
-        let ch_ref = chunk.as_ref();
-        self.chunks.push(chunk);
-        self.chunks.last()
+        if index.is_none() {
+            // No unfilled chunks (or no chunks at all). Let's add new
+            let chunk = Box::new(self.archetype.new_chunk(self.chunk_size));
+            index = Some(self.chunks.len());
+            self.chunks.push(chunk);
+        }
+        self.chunks.get(index.unwrap())
     }
 
     ///
@@ -330,7 +334,7 @@ mod test {
     #[test]
     fn test() {
         //let archetype = build_archetype![i32, String, f64, bool];
-        let storage = ArchetypeStorage::new(build_archetype![i32, String, f64, bool], 256);
+        let mut storage = ArchetypeStorage::new(build_archetype![i32, String, f64, bool], 256);
         //let (id, storage) = archetype.create_storage();
 
         assert_eq!(0, storage.add(EntityId(1)));

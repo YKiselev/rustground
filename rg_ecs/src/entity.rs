@@ -32,7 +32,7 @@ struct EntityRef {
 /// Entity storage
 ///
 type EntityRefMap = HashMap<EntityId, EntityRef>;
-type ArchetypeMap = HashMap<ArchetypeId, Box<ArchetypeStorage>>;
+type ArchetypeMap = HashMap<ArchetypeId, RwLock<ArchetypeStorage>>;
 
 struct EntityStorage {
     def_arch_id: ArchetypeId,
@@ -48,7 +48,7 @@ impl EntityStorage {
         let def_arc = build_archetype! {};
         let def_arch_id = def_arc.id;
         let def_storage = ArchetypeStorage::new(def_arc, chunk_size);
-        archetypes.insert(def_arch_id, Box::new(def_storage));
+        archetypes.insert(def_arch_id, RwLock::new(def_storage));
         EntityStorage {
             def_arch_id,
             chunk_size,
@@ -61,7 +61,7 @@ impl EntityStorage {
     fn add_archetype(&mut self, archetype: Archetype) -> ArchetypeId {
         let arc_id = archetype.id;
         let arc_storage = ArchetypeStorage::new(archetype, self.chunk_size);
-        self.archetypes.insert(arc_id, Box::new(arc_storage));
+        self.archetypes.insert(arc_id, RwLock::new(arc_storage));
         arc_id
     }
 
@@ -69,10 +69,11 @@ impl EntityStorage {
         let arch_id = archetype.unwrap_or(self.def_arch_id);
         let seq = self.entity_seq.fetch_add(1, Ordering::Relaxed);
         let ent_id = EntityId(seq);
-        let storage = self
+        let mut storage = self
             .archetypes
-            .get_mut(&arch_id)
-            .ok_or(EntityError::NotSuchArchetype)?;
+            .get(&arch_id)
+            .ok_or(EntityError::NotSuchArchetype)?
+            .write()?;
         let index = storage.add(ent_id);
         let ent_ref = EntityRef {
             archetype: arch_id,
@@ -89,7 +90,7 @@ impl EntityStorage {
         F: FnOnce(Option<&T>) -> R,
     {
         let e_ref = self.entities.get(&entity)?;
-        let storage = self.archetypes.get(&e_ref.archetype)?;
+        let storage = self.archetypes.get(&e_ref.archetype)?.read().ok()?;
         let (column, local_idx) = storage.get_at(ComponentId::new::<T>(), e_ref.index)?;
         let guard = column.read().unwrap();
         Some(consumer(cast::<T>(guard.as_ref()).get(local_idx)))
@@ -110,24 +111,22 @@ impl EntityStorage {
         let base = self
             .archetypes
             .get(base_archetype)
-            .ok_or_else(|| EntityError::NotFound)?;
+            .ok_or_else(|| EntityError::NotFound)?
+            .read()?;
         if let Some((column, local_index)) = base.get_at(comp_id, *base_index) {
             let mut guard = column.write()?;
             cast_mut::<T>(guard.as_mut()).set(local_index, value);
         } else {
             let dest_arch = base.archetype.to_builder().add::<T>().build();
-            // let mut comps = base.components();
-            // comps.insert(comp_id);
-            // let dest_arc_id = ArchetypeId::new(comps.iter());
             let dest_arch_id = dest_arch.id;
+            drop(base);
             if !self.archetypes.contains_key(&dest_arch_id) {
                 let dest = ArchetypeStorage::new(dest_arch, self.chunk_size);
-                //let d = Box::new(base.new_extended::<T>());
-                self.archetypes.insert(dest_arch_id, Box::new(dest));
+                self.archetypes.insert(dest_arch_id, RwLock::new(dest));
             }
-            let dest = self.archetypes.get_mut(&dest_arch_id).unwrap();
-            let base = self.archetypes.get(base_archetype).unwrap();
-            let new_index = base.move_to(dest, *base_index, value);
+            let mut dest = self.archetypes.get(&dest_arch_id).unwrap().write().unwrap();
+            let base = self.archetypes.get(base_archetype).unwrap().read().unwrap();
+            let new_index = base.move_to(&mut dest, *base_index, value);
             let new_ref = EntityRef {
                 archetype: dest_arch_id,
                 index: new_index,
