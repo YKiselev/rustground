@@ -74,10 +74,10 @@ pub(crate) struct TypedComponentStorage<T: Default> {
 }
 
 impl<T: Default + 'static> TypedComponentStorage<T> {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(capacity: usize) -> Self {
         TypedComponentStorage {
             id: ComponentId::new::<T>(),
-            data: Vec::new(),
+            data: Vec::with_capacity(capacity),
         }
     }
 
@@ -117,7 +117,7 @@ impl<T: Any + Default + 'static> ComponentStorage for TypedComponentStorage<T> {
     }
 
     fn create_new(&self) -> Box<dyn ComponentStorage> {
-        Box::new(TypedComponentStorage::<T>::new())
+        Box::new(TypedComponentStorage::<T>::new(self.data.capacity()))
     }
 
     fn id(&self) -> ComponentId {
@@ -174,8 +174,8 @@ mod test {
     #[test]
     fn test() {
         let mut columns: Vec<Box<dyn ComponentStorage>> = vec![
-            Box::new(TypedComponentStorage::<i32>::new()),
-            Box::new(TypedComponentStorage::<A>::new()),
+            Box::new(TypedComponentStorage::<i32>::new(128)),
+            Box::new(TypedComponentStorage::<A>::new(128)),
         ];
 
         let s1 = columns[0].as_mut();
