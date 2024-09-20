@@ -8,7 +8,7 @@ use std::{
 ///
 /// ComponentId
 ///
-#[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
+#[derive(PartialEq, Eq, Hash, PartialOrd, Ord, Clone, Copy, Debug)]
 pub struct ComponentId(TypeId);
 
 impl ComponentId {

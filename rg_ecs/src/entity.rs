@@ -101,19 +101,17 @@ impl EntityStorage {
         T: Default + 'static,
     {
         let comp_id = ComponentId::new::<T>();
-        let EntityRef {
-            archetype: base_archetype,
-            index: base_index,
-        } = self
+        let ent_ref = self
             .entities
             .get(&entity)
-            .ok_or_else(|| EntityError::NotFound)?;
+            .ok_or_else(|| EntityError::NotFound)?
+            .clone();
         let base = self
             .archetypes
-            .get(base_archetype)
+            .get(&ent_ref.archetype)
             .ok_or_else(|| EntityError::NotFound)?
             .read()?;
-        if let Some((column, local_index)) = base.get_at(comp_id, *base_index) {
+        if let Some((column, local_index)) = base.get_at(comp_id, ent_ref.index) {
             let mut guard = column.write()?;
             cast_mut::<T>(guard.as_mut()).set(local_index, value);
         } else {
@@ -124,27 +122,37 @@ impl EntityStorage {
                 let dest = ArchetypeStorage::new(dest_arch, self.chunk_size);
                 self.archetypes.insert(dest_arch_id, RwLock::new(dest));
             }
-            let mut dest = self.archetypes.get(&dest_arch_id).unwrap().write().unwrap();
-            let base = self.archetypes.get(base_archetype).unwrap().read().unwrap();
-            let new_index = base.move_to(&mut dest, *base_index, value);
-            let new_ref = EntityRef {
-                archetype: dest_arch_id,
-                index: new_index,
-            };
-            self.entities.insert(entity, new_ref);
+            let mut dest = self.archetypes[&dest_arch_id].write().unwrap();
+            let base = self.archetypes[&ent_ref.archetype].read().unwrap();
+            let (new_index, moved_ent_id) = base.move_to(&mut dest, ent_ref.index, value);
+            self.entities.insert(
+                entity,
+                EntityRef {
+                    archetype: dest_arch_id,
+                    index: new_index,
+                },
+            );
+            if let Some(moved_ent_id) = moved_ent_id {
+                self.entities.insert(moved_ent_id, ent_ref);
+            }
         }
         Ok(())
     }
 
     fn remove(&mut self, entity: EntityId) -> Result<(), EntityError> {
-        let EntityRef { archetype, index } = self
-            .entities
-            .remove(&entity)
-            .ok_or_else(|| EntityError::NotFound)?;
-        self.archetypes
-            .remove(&archetype)
-            .map(|_| ())
-            .ok_or_else(|| EntityError::NotFound)
+        let EntityRef { archetype, index } =
+            self.entities.remove(&entity).ok_or(EntityError::NotFound)?;
+        let storage = self
+            .archetypes
+            .get(&archetype)
+            .ok_or(EntityError::NotSuchArchetype)?;
+        if let Some(moved_ent_id) = storage.read().unwrap().remove(index) {
+            // Entity was removed with swap remove, so it's place now occupied by another entity (moved)
+            // Let's update it's reference
+            self.entities
+                .insert(moved_ent_id, EntityRef { archetype, index });
+        }
+        Ok(())
     }
 }
 
@@ -259,6 +267,13 @@ mod test {
 
         let e1 = entities.add(None).unwrap();
         let e2 = entities.add(Some(arch_id1)).unwrap();
+        let e3 = entities.add(Some(arch_id1)).unwrap();
+        let e4 = entities.add(Some(arch_id1)).unwrap();
+        let e5 = entities.add(Some(arch_id1)).unwrap();
+        entities.remove(e3).unwrap();
+        entities.remove(e5).unwrap();
+        entities.remove(e4).unwrap();
+        let e5 = entities.add(Some(arch_id1)).unwrap();
 
         entities.set::<i32>(e1, 123).unwrap();
         entities.set::<f64>(e1, 3.14).unwrap();
