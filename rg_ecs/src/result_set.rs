@@ -1,0 +1,10 @@
+///
+/// 
+/// 
+struct ResultSet {
+
+}
+
+impl ResultSet {
+
+}

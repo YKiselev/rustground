@@ -1,10 +1,11 @@
 use std::{
-    collections::HashMap,
-    sync::{
+    collections::HashMap, fmt::Debug, sync::{
         atomic::{AtomicUsize, Ordering},
         RwLock,
-    },
+    }
 };
+
+use itertools::izip;
 
 use crate::{
     archetype::{Archetype, ArchetypeBuilder, ArchetypeId, ArchetypeStorage},
@@ -154,6 +155,34 @@ impl EntityStorage {
         }
         Ok(())
     }
+
+    fn query2_mut<T1, T2>(&self)
+    // -> impl Iterator<Item = (&mut T1, &mut T2)>
+    where
+        T1: Default + 'static + Debug,
+        T2: Default + 'static + Debug,
+    {
+        let comp_id1 = ComponentId::new::<T1>();
+        let comp_id2 = ComponentId::new::<T2>();
+        for (_, v) in self.archetypes.iter() {
+            let guard = v.read().unwrap();
+            for chunk in guard.iter() {
+                let lock1 = chunk.get_column(comp_id1);
+                let lock2 = chunk.get_column(comp_id2);
+                if lock1.is_none() || lock2.is_none() {
+                    break;
+                }
+                let mut guard1 = lock1.unwrap().write().unwrap();
+                let mut guard2 = lock2.unwrap().write().unwrap();
+                let iter1 = cast_mut::<T1>(guard1.as_mut()).iter();
+                let iter2 = cast_mut::<T2>(guard2.as_mut()).iter();
+                let iter = izip!(iter1, iter2);
+                for v in iter {
+                    dbg!(v);
+                }
+            }
+        }
+    }
 }
 
 ///
@@ -230,20 +259,14 @@ impl Entities {
     //         .flat_map(|v| v.iter())
     // }
 
-    // pub fn query2_mut<T1, T2>(&mut self) -> impl Iterator<Item = (&mut T1, &mut T2)>
-    // where
-    //     T1: Default + 'static,
-    //     T2: Default + 'static,
-    // {
-    //     let comp_id1 = ComponentId::new::<T1>();
-    //     let comp_id2 = ComponentId::new::<T2>();
-    //     self.archetypes
-    //         .iter_mut()
-    //         .map(move |(_, v)| (v.get_mut(comp_id1), v.get_mut(comp_id2)))
-    //         .filter(|(v1, v2)| v1.is_some() && v2.is_some())
-    //         .map(|(v1, v2)| (cast_mut::<T1>(v1.unwrap()), cast_mut::<T2>(v1.unwrap())))
-    //         .flat_map(|(v1, v2)| izip!(v1.iter_mut(), v2.iter_mut()))
-    // }
+    pub fn query2_mut<T1, T2>(&self)
+    // -> impl Iterator<Item = (&mut T1, &mut T2)>
+    where
+        T1: Default + 'static + Debug,
+        T2: Default + 'static + Debug,
+    {
+        self.storage.read().unwrap().query2_mut::<T1, T2>();
+    }
 }
 
 ///
@@ -268,6 +291,7 @@ mod test {
         let e1 = entities.add(None).unwrap();
         let e2 = entities.add(Some(arch_id1)).unwrap();
         let e3 = entities.add(Some(arch_id1)).unwrap();
+        entities.set(e3, "hehe").unwrap();
         let e4 = entities.add(Some(arch_id1)).unwrap();
         let e5 = entities.add(Some(arch_id1)).unwrap();
         entities.remove(e3).unwrap();
@@ -277,7 +301,7 @@ mod test {
 
         entities.set::<i32>(e1, 123).unwrap();
         entities.set::<f64>(e1, 3.14).unwrap();
-        entities.set::<String>(e1, "test".to_owned()).unwrap();
+        entities.set(e1, "test".to_owned()).unwrap();
 
         entities.set::<i32>(e2, 456).unwrap();
         entities.set::<f64>(e2, 5.5).unwrap();
@@ -306,6 +330,7 @@ mod test {
                 .unwrap()
         );
 
+        entities.query2_mut::<i32, String>();
         // assert_eq!(
         //     vec!["test", "yep yep yep"],
         //     entities.query1::<String>().collect::<Vec<_>>()

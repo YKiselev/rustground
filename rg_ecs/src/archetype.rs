@@ -2,6 +2,7 @@ use std::{
     collections::{HashMap, HashSet},
     fmt::Display,
     hash::{DefaultHasher, Hash, Hasher},
+    slice::Iter,
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc, RwLock,
@@ -145,7 +146,7 @@ impl std::fmt::Debug for Archetype {
 ///
 type ColumnMap = HashMap<ComponentId, RwLock<Box<dyn ComponentStorage>>>;
 
-struct Chunk {
+pub(crate) struct Chunk {
     columns: ColumnMap,
     available_rows: AtomicUsize,
 }
@@ -210,6 +211,13 @@ impl Chunk {
         }
         self.get_entity_id(index)
     }
+
+    pub(crate) fn get_column(
+        &self,
+        comp_id: ComponentId,
+    ) -> Option<&RwLock<Box<dyn ComponentStorage>>> {
+        self.columns.get(&comp_id)
+    }
 }
 
 ///
@@ -218,7 +226,7 @@ impl Chunk {
 pub(crate) struct ArchetypeStorage {
     pub(crate) archetype: Archetype,
     chunk_size: usize,
-    chunks: Vec<Box<Chunk>>,
+    chunks: Vec<Chunk>,
 }
 
 impl ArchetypeStorage {
@@ -260,7 +268,7 @@ impl ArchetypeStorage {
         }
         if index.is_none() {
             // No unfilled chunks (or no chunks at all). Let's add new
-            let chunk = Box::new(self.archetype.new_chunk(self.chunk_size));
+            let chunk = self.archetype.new_chunk(self.chunk_size);
             index = Some(self.chunks.len());
             self.chunks.push(chunk);
         }
@@ -300,20 +308,12 @@ impl ArchetypeStorage {
     ) -> (usize, Option<EntityId>) {
         let (ch_num, local_index) = self.to_local(index);
         let chunk = &self.chunks[ch_num];
-        let moved_ent_id = chunk.move_to(dest, index);
+        let moved_ent_id = chunk.move_to(dest, local_index);
         (
             cast_mut::<T>(dest.get_by_type::<T>().unwrap().write().unwrap().as_mut()).push(value),
             moved_ent_id,
         )
     }
-
-    ///
-    /// Creates new ArchetypeStorage from this one with additional column of type T
-    ///
-    // pub(crate) fn new_extended<T: Default + 'static>(&self) -> ArchetypeStorage {
-    //     let new_archetype = self.archetype.to_builder().add::<T>().build();
-    //     ArchetypeStorage::new(new_archetype, self.chunk_size)
-    // }
 
     ///
     /// Adds new row for passed entity to this storage
@@ -333,6 +333,13 @@ impl ArchetypeStorage {
             return chunk.remove(local_index);
         }
         None
+    }
+
+    ///
+    /// Gets iterator over chunks of this storage
+    ///
+    pub(crate) fn iter(&self) -> Iter<'_, Chunk> {
+        self.chunks.iter()
     }
 }
 
@@ -378,7 +385,7 @@ mod test {
     #[test]
     fn test() {
         //let archetype = build_archetype![i32, String, f64, bool];
-        let mut storage = ArchetypeStorage::new(build_archetype![i32, String, f64, bool], 256);
+        let mut storage = ArchetypeStorage::new(build_archetype![i32, String, f64, bool], 3);
         //let (id, storage) = archetype.create_storage();
 
         assert_eq!(0, storage.add(EntityId(1)));
