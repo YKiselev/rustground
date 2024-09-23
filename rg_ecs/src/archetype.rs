@@ -114,6 +114,10 @@ impl Archetype {
                 .collect(),
         }
     }
+
+    pub fn has_component(&self, comp_id: &ComponentId) -> bool {
+        self.factories.contains_key(comp_id)
+    }
 }
 
 impl PartialEq for Archetype {
@@ -146,7 +150,7 @@ impl std::fmt::Debug for Archetype {
 ///
 type ColumnMap = HashMap<ComponentId, RwLock<Box<dyn ComponentStorage>>>;
 
-pub(crate) struct Chunk {
+pub struct Chunk {
     columns: ColumnMap,
     available_rows: AtomicUsize,
 }
@@ -238,6 +242,7 @@ impl ArchetypeStorage {
         }
     }
 
+    #[inline]
     pub(crate) fn get_by_type<T>(&mut self) -> Option<&RwLock<Box<dyn ComponentStorage>>>
     where
         T: Default + 'static,
@@ -245,6 +250,7 @@ impl ArchetypeStorage {
         self.get(ComponentId::new::<T>())
     }
 
+    #[inline]
     pub(crate) fn get_by_type_at<T>(
         &self,
         index: usize,
@@ -278,6 +284,7 @@ impl ArchetypeStorage {
     ///
     /// Returns column with at least 1 free row
     ///
+    #[inline]
     pub(crate) fn get(
         &mut self,
         comp_id: ComponentId,
@@ -296,6 +303,7 @@ impl ArchetypeStorage {
         chunk.columns.get(&comp_id).map(|c| (c, local_index))
     }
 
+    #[inline]
     fn to_local(&self, index: usize) -> (usize, usize) {
         (index / self.chunk_size, index % self.chunk_size)
     }
@@ -308,10 +316,10 @@ impl ArchetypeStorage {
     ) -> (usize, Option<EntityId>) {
         let (ch_num, local_index) = self.to_local(index);
         let chunk = &self.chunks[ch_num];
-        let moved_ent_id = chunk.move_to(dest, local_index);
+        let swapped_ent_id = chunk.move_to(dest, local_index);
         (
             cast_mut::<T>(dest.get_by_type::<T>().unwrap().write().unwrap().as_mut()).push(value),
-            moved_ent_id,
+            swapped_ent_id,
         )
     }
 

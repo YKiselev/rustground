@@ -2,3 +2,4 @@
 /.idea
 /.vscode
 app.log
+perf.data*

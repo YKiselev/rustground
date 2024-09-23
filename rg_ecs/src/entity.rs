@@ -1,23 +1,26 @@
 use std::{
-    collections::HashMap, fmt::Debug, sync::{
+    collections::HashMap,
+    fmt::Debug,
+    sync::{
         atomic::{AtomicUsize, Ordering},
         RwLock,
-    }
+    },
 };
 
 use itertools::izip;
 
 use crate::{
-    archetype::{Archetype, ArchetypeBuilder, ArchetypeId, ArchetypeStorage},
+    archetype::{self, Archetype, ArchetypeBuilder, ArchetypeId, ArchetypeStorage, Chunk},
     build_archetype,
     component::{cast, cast_mut, ComponentId, ComponentStorage},
     error::EntityError,
+    visitor::{Tuple1, Tuple2, Visitor},
 };
 
 ///
 /// EntityId
 ///
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Debug)]
 pub struct EntityId(pub(crate) usize);
 
 ///
@@ -54,7 +57,7 @@ impl EntityStorage {
             def_arch_id,
             chunk_size,
             entity_seq: AtomicUsize::new(0),
-            entities: HashMap::new(),
+            entities: HashMap::with_capacity(1000),
             archetypes,
         }
     }
@@ -119,13 +122,12 @@ impl EntityStorage {
             let dest_arch = base.archetype.to_builder().add::<T>().build();
             let dest_arch_id = dest_arch.id;
             drop(base);
-            if !self.archetypes.contains_key(&dest_arch_id) {
-                let dest = ArchetypeStorage::new(dest_arch, self.chunk_size);
-                self.archetypes.insert(dest_arch_id, RwLock::new(dest));
-            }
-            let mut dest = self.archetypes[&dest_arch_id].write().unwrap();
-            let base = self.archetypes[&ent_ref.archetype].read().unwrap();
-            let (new_index, moved_ent_id) = base.move_to(&mut dest, ent_ref.index, value);
+            self.archetypes
+                .entry(dest_arch_id)
+                .or_insert_with(|| RwLock::new(ArchetypeStorage::new(dest_arch, self.chunk_size)));
+            let mut dest = self.archetypes[&dest_arch_id].write()?;
+            let base = self.archetypes[&ent_ref.archetype].read()?;
+            let (new_index, swapped_ent_id) = base.move_to(&mut dest, ent_ref.index, value);
             self.entities.insert(
                 entity,
                 EntityRef {
@@ -133,53 +135,39 @@ impl EntityStorage {
                     index: new_index,
                 },
             );
-            if let Some(moved_ent_id) = moved_ent_id {
-                self.entities.insert(moved_ent_id, ent_ref);
+            // If moved entity was swapped in source storage, fix it's ref
+            if let Some(swapped_ent_id) = swapped_ent_id {
+                self.entities.insert(swapped_ent_id, ent_ref);
             }
         }
         Ok(())
     }
 
     fn remove(&mut self, entity: EntityId) -> Result<(), EntityError> {
+        // Remove entity reference
         let EntityRef { archetype, index } =
             self.entities.remove(&entity).ok_or(EntityError::NotFound)?;
         let storage = self
             .archetypes
             .get(&archetype)
             .ok_or(EntityError::NotSuchArchetype)?;
-        if let Some(moved_ent_id) = storage.read().unwrap().remove(index) {
-            // Entity was removed with swap remove, so it's place now occupied by another entity (moved)
-            // Let's update it's reference
+        // Remove entitie's row from storage
+        if let Some(swapped_ent_id) = storage.read().unwrap().remove(index) {
+            // Fix swapped entity reference
             self.entities
-                .insert(moved_ent_id, EntityRef { archetype, index });
+                .insert(swapped_ent_id, EntityRef { archetype, index });
         }
         Ok(())
     }
 
-    fn query2_mut<T1, T2>(&self)
-    // -> impl Iterator<Item = (&mut T1, &mut T2)>
-    where
-        T1: Default + 'static + Debug,
-        T2: Default + 'static + Debug,
-    {
-        let comp_id1 = ComponentId::new::<T1>();
-        let comp_id2 = ComponentId::new::<T2>();
+    fn visit(&self, visitor: &impl Visitor) {
         for (_, v) in self.archetypes.iter() {
             let guard = v.read().unwrap();
+            if !visitor.accept(&guard.archetype) {
+                continue;
+            }
             for chunk in guard.iter() {
-                let lock1 = chunk.get_column(comp_id1);
-                let lock2 = chunk.get_column(comp_id2);
-                if lock1.is_none() || lock2.is_none() {
-                    break;
-                }
-                let mut guard1 = lock1.unwrap().write().unwrap();
-                let mut guard2 = lock2.unwrap().write().unwrap();
-                let iter1 = cast_mut::<T1>(guard1.as_mut()).iter();
-                let iter2 = cast_mut::<T2>(guard2.as_mut()).iter();
-                let iter = izip!(iter1, iter2);
-                for v in iter {
-                    dbg!(v);
-                }
+                visitor.visit(chunk);
             }
         }
     }
@@ -198,13 +186,14 @@ impl Entities {
     ///
     pub fn new() -> Self {
         Entities {
-            storage: RwLock::new(EntityStorage::new(256)),
+            storage: RwLock::new(EntityStorage::new(1024)),
         }
     }
 
     ///
     /// Adds new archetype to this storage
     ///
+    #[inline]
     pub fn add_archetype(&self, archetype: Archetype) -> ArchetypeId {
         self.storage.write().unwrap().add_archetype(archetype)
     }
@@ -212,6 +201,7 @@ impl Entities {
     ///
     /// Adds new entity into this storage
     ///
+    #[inline]
     pub fn add(&self, archetype: Option<ArchetypeId>) -> Result<EntityId, EntityError> {
         self.storage.write().unwrap().add(archetype)
     }
@@ -220,6 +210,7 @@ impl Entities {
     /// Sets component on specified entity.
     /// Entity will be moved from one table to another (possibly new one) if current table doesn't have such component column.
     ///
+    #[inline]
     pub fn set<T>(&self, entity: EntityId, value: T) -> Result<(), EntityError>
     where
         T: Default + 'static,
@@ -230,6 +221,7 @@ impl Entities {
     ///
     /// Gets the value of component of specified entity.
     ///
+    #[inline]
     pub fn get<T, F, R>(&self, entity: EntityId, consumer: F) -> Option<R>
     where
         T: Default + 'static,
@@ -242,30 +234,18 @@ impl Entities {
     ///
     /// Removes entity from storage
     ///
+    #[inline]
     pub fn remove(&self, entity: EntityId) -> Result<(), EntityError> {
         self.storage.write().unwrap().remove(entity)
     }
 
-    // pub fn query1<T>(&self) -> impl Iterator<Item = &T>
-    // where
-    //     T: Default + 'static,
-    // {
-    //     let comp_id = ComponentId::new::<T>();
-    //     self.archetypes
-    //         .iter()
-    //         .map(move |(_, v)| v.get(comp_id))
-    //         .filter(|v| v.is_some())
-    //         .map(|v| try_cast::<T>(v.unwrap()).unwrap())
-    //         .flat_map(|v| v.iter())
-    // }
-
-    pub fn query2_mut<T1, T2>(&self)
-    // -> impl Iterator<Item = (&mut T1, &mut T2)>
+    pub fn visit<V>(&self, visitor: &V)
     where
-        T1: Default + 'static + Debug,
-        T2: Default + 'static + Debug,
+        V: Visitor,
     {
-        self.storage.read().unwrap().query2_mut::<T1, T2>();
+        self.storage.read().unwrap().visit(visitor);
+        //self.storage.read().unwrap().visit(Tuple1::<i32>::new());
+        //self.storage.read().unwrap().visit(Tuple2::<i32, String>::new());
     }
 }
 
@@ -278,6 +258,8 @@ mod test {
     use crate::{
         archetype::{self, ArchetypeBuilder},
         build_archetype,
+        entity::EntityId,
+        visitor::Tuple2,
     };
 
     use super::Entities;
@@ -330,7 +312,11 @@ mod test {
                 .unwrap()
         );
 
-        entities.query2_mut::<i32, String>();
+        let tup2 = Tuple2::<EntityId, String>::new(|(v1, v2)| {
+            dbg!(v1);
+            dbg!(v2);
+        });
+        entities.visit(&tup2);
         // assert_eq!(
         //     vec!["test", "yep yep yep"],
         //     entities.query1::<String>().collect::<Vec<_>>()

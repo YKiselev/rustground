@@ -39,12 +39,14 @@ pub trait ComponentStorage {
 ///
 /// Helper functions
 ///
+#[inline]
 pub(crate) fn try_cast<'a, T: Default + 'static>(
     value: &'a dyn ComponentStorage,
 ) -> Option<&'a TypedComponentStorage<T>> {
     value.as_any().downcast_ref::<TypedComponentStorage<T>>()
 }
 
+#[inline]
 pub(crate) fn try_cast_mut<'a, T: Default + 'static>(
     value: &'a mut dyn ComponentStorage,
 ) -> Option<&'a mut TypedComponentStorage<T>> {
@@ -53,12 +55,14 @@ pub(crate) fn try_cast_mut<'a, T: Default + 'static>(
         .downcast_mut::<TypedComponentStorage<T>>()
 }
 
+#[inline]
 pub(crate) fn cast<'a, T: Default + 'static>(
     value: &'a dyn ComponentStorage,
 ) -> &'a TypedComponentStorage<T> {
     try_cast::<T>(value).unwrap()
 }
 
+#[inline]
 pub(crate) fn cast_mut<'a, T: Default + 'static>(
     value: &'a mut dyn ComponentStorage,
 ) -> &'a mut TypedComponentStorage<T> {
