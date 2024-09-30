@@ -23,6 +23,8 @@ impl ComponentId {
 pub trait ComponentStorage {
     fn id(&self) -> ComponentId;
 
+    fn row_count(&self) -> usize;
+
     fn as_any(&self) -> &dyn Any;
 
     fn as_mut_any(&mut self) -> &mut dyn Any;
@@ -150,6 +152,10 @@ impl<T: Any + Default + 'static> ComponentStorage for TypedComponentStorage<T> {
         } else if index < self.data.len() {
             self.data.pop();
         }
+    }
+
+    fn row_count(&self) -> usize {
+        self.data.len()
     }
 }
 

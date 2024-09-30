@@ -222,6 +222,13 @@ impl Chunk {
     ) -> Option<&RwLock<Box<dyn ComponentStorage>>> {
         self.columns.get(&comp_id)
     }
+
+    fn row_count(&self) -> usize {
+        for (_, col) in self.columns.iter() {
+            return col.read().unwrap().row_count();
+        }
+        0
+    }
 }
 
 ///
@@ -349,6 +356,20 @@ impl ArchetypeStorage {
     pub(crate) fn iter(&self) -> Iter<'_, Chunk> {
         self.chunks.iter()
     }
+
+    ///
+    /// Removes all rows from this storage
+    ///
+    pub(crate) fn clear(&mut self) {
+        self.chunks.clear();
+    }
+
+    ///
+    /// Returns number of rows in this storage
+    ///
+    pub(crate) fn row_count(&self) -> usize {
+        self.chunks.iter().map(|chunk| chunk.row_count()).sum()
+    }
 }
 
 ///
@@ -392,9 +413,7 @@ mod test {
 
     #[test]
     fn test() {
-        //let archetype = build_archetype![i32, String, f64, bool];
         let mut storage = ArchetypeStorage::new(build_archetype![i32, String, f64, bool], 3);
-        //let (id, storage) = archetype.create_storage();
 
         assert_eq!(0, storage.add(EntityId(1)));
         assert_eq!(1, storage.add(EntityId(2)));
@@ -413,5 +432,9 @@ mod test {
         storage.get_by_type::<EntityId>().unwrap();
 
         assert!(storage.get_by_type::<i8>().is_none());
+
+        assert!(storage.row_count() > 0);
+        storage.clear();
+        assert_eq!(0, storage.row_count());
     }
 }

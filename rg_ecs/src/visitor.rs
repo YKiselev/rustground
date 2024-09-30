@@ -18,29 +18,29 @@ pub trait Visitor {
 ///
 /// Tuple1
 ///
-pub struct Tuple1<T>
+pub struct Tuple1<'a, T>
 where
     T: Default + 'static,
 {
     comp_id: ComponentId,
-    handler: Box<dyn Fn(&T) -> ()>,
-    _phantom: PhantomData<T>,
+    handler: Box<dyn Fn(&T) + 'a>,
+    //_phantom: PhantomData<T>,
 }
 
-impl<T: Default + 'static> Tuple1<T> {
+impl<'a, T: Default + 'static> Tuple1<'a, T> {
     pub fn new<H>(handler: H) -> Self
     where
-        H: Fn(&T) -> () + 'static,
+        H: Fn(&T) + 'a,
     {
         Tuple1 {
             comp_id: ComponentId::new::<T>(),
             handler: Box::new(handler),
-            _phantom: PhantomData::default(),
+            //_phantom: PhantomData::default(),
         }
     }
 }
 
-impl<T: Default + 'static> Visitor for Tuple1<T> {
+impl<'a, T: Default + 'static> Visitor for Tuple1<'a, T> {
     fn accept(&self, archetype: &Archetype) -> bool {
         archetype.has_component(&self.comp_id)
     }
@@ -58,32 +58,32 @@ impl<T: Default + 'static> Visitor for Tuple1<T> {
 ///
 /// Tuple2
 ///
-pub struct Tuple2<T1, T2>
+pub struct Tuple2<'a, T1, T2>
 where
     T1: Default + 'static,
     T2: Default + 'static,
 {
     comp_id1: ComponentId,
     comp_id2: ComponentId,
-    handler: Box<dyn Fn((&T1, &T2)) -> ()>,
-    _phantom: PhantomData<(T1, T2)>,
+    handler: Box<dyn Fn((&T1, &T2)) + 'a>,
+    //_phantom: PhantomData<(T1, T2)>,
 }
 
-impl<T1: Default + 'static, T2: Default + 'static> Tuple2<T1, T2> {
+impl<'a, T1: Default + 'static, T2: Default + 'static> Tuple2<'a, T1, T2> {
     pub fn new<H>(handler: H) -> Self
     where
-        H: Fn((&T1, &T2)) -> () + 'static,
+        H: Fn((&T1, &T2)) -> () + 'a,
     {
         Tuple2 {
             comp_id1: ComponentId::new::<T1>(),
             comp_id2: ComponentId::new::<T2>(),
             handler: Box::new(handler),
-            _phantom: PhantomData::default(),
+            //_phantom: PhantomData::default(),
         }
     }
 }
 
-impl<T1: Default + 'static, T2: Default + 'static> Visitor for Tuple2<T1, T2> {
+impl<'a, T1: Default + 'static, T2: Default + 'static> Visitor for Tuple2<'a, T1, T2> {
     fn accept(&self, archetype: &Archetype) -> bool {
         archetype.has_component(&self.comp_id1) && archetype.has_component(&self.comp_id2)
     }
@@ -99,5 +99,20 @@ impl<T1: Default + 'static, T2: Default + 'static> Visitor for Tuple2<T1, T2> {
         for v in iter {
             (self.handler)(v);
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::sync::atomic::{AtomicI64, Ordering};
+
+    use super::{Tuple1, Visitor};
+
+    #[test]
+    fn visitor() {
+        let counter = AtomicI64::default();
+        let _ = Tuple1::<String>::new(|_| {
+            counter.fetch_add(1, Ordering::Relaxed);
+        });
     }
 }

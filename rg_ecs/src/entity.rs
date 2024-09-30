@@ -171,6 +171,13 @@ impl EntityStorage {
             }
         }
     }
+
+    fn clear(&mut self) {
+        self.entities.clear();
+        for (_, lock) in self.archetypes.iter() {
+            lock.write().unwrap().clear();
+        }
+    }
 }
 
 ///
@@ -244,8 +251,13 @@ impl Entities {
         V: Visitor,
     {
         self.storage.read().unwrap().visit(visitor);
-        //self.storage.read().unwrap().visit(Tuple1::<i32>::new());
-        //self.storage.read().unwrap().visit(Tuple2::<i32, String>::new());
+    }
+
+    ///
+    /// Removes all entities from storage
+    /// 
+    pub fn clear(&self) {
+        self.storage.write().unwrap().clear();
     }
 }
 

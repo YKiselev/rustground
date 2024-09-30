@@ -15,7 +15,7 @@ struct Velocity(f32, f32, f32);
 struct Name(String);
 
 fn ecs_benchmark(c: &mut Criterion) {
-    let mut entities = Entities::new();
+    let entities = Entities::new();
     let arch_id1 = entities.add_archetype(build_archetype! {i32, f64, String});
     let arch_id2 =
         entities.add_archetype(build_archetype! {Location, Velocity, Name, bool, char, i8, i16});
