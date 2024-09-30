@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fmt::Debug,
     sync::{
         atomic::{AtomicUsize, Ordering},
@@ -172,6 +172,21 @@ impl EntityStorage {
         }
     }
 
+    fn visit2<H>(&self, columns: &HashSet<ComponentId>, handler: H)
+    where
+        H: Fn(&Chunk),
+    {
+        for (_, v) in self.archetypes.iter() {
+            let guard = v.read().unwrap();
+            if !columns.iter().all(|c| guard.archetype.has_component(c)) {
+                continue;
+            }
+            for chunk in guard.iter() {
+                (handler)(chunk);
+            }
+        }
+    }
+
     fn clear(&mut self) {
         self.entities.clear();
         for (_, lock) in self.archetypes.iter() {
@@ -253,9 +268,16 @@ impl Entities {
         self.storage.read().unwrap().visit(visitor);
     }
 
+    pub fn visit2<H>(&self, columns: &HashSet<ComponentId>, handler: H)
+    where
+        H: Fn(&Chunk),
+    {
+        self.storage.read().unwrap().visit2(columns, handler);
+    }
+
     ///
     /// Removes all entities from storage
-    /// 
+    ///
     pub fn clear(&self) {
         self.storage.write().unwrap().clear();
     }
@@ -267,11 +289,14 @@ impl Entities {
 #[cfg(test)]
 mod test {
 
+    use std::collections::{hash_set, HashSet};
+
     use crate::{
         archetype::{self, ArchetypeBuilder},
         build_archetype,
+        component::ComponentId,
         entity::EntityId,
-        visitor::Tuple2,
+        visitor::{visit_2, Tuple2},
     };
 
     use super::Entities;
@@ -329,6 +354,10 @@ mod test {
             dbg!(v2);
         });
         entities.visit(&tup2);
+
+        let columns = HashSet::from([ComponentId::new::<EntityId>(), ComponentId::new::<String>()]);
+        let v2 = visit_2::<EntityId, String, _>(move |(v1, v2)| {});
+        entities.visit2(&columns, v2);
         // assert_eq!(
         //     vec!["test", "yep yep yep"],
         //     entities.query1::<String>().collect::<Vec<_>>()

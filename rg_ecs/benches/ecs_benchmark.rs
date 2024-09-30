@@ -1,11 +1,9 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use itertools::Itertools;
 use rg_ecs::{
-    archetype::build_archetype,
-    entity::{Entities, EntityId},
-    visitor::{Tuple1, Tuple2},
+    archetype::build_archetype, component::ComponentId, entity::{Entities, EntityId}, visitor::{visit_2, Tuple1, Tuple2}
 };
-use std::{hint::black_box, sync::atomic::AtomicI64};
+use std::{collections::HashSet, hint::black_box, sync::atomic::AtomicI64};
 
 #[derive(Default)]
 struct Location(f32, f32, f32);
@@ -19,7 +17,7 @@ fn ecs_benchmark(c: &mut Criterion) {
     let arch_id1 = entities.add_archetype(build_archetype! {i32, f64, String});
     let arch_id2 =
         entities.add_archetype(build_archetype! {Location, Velocity, Name, bool, char, i8, i16});
-
+/*
     c.bench_function("ecs add arch #1", |b| {
         b.iter(|| entities.add(Some(black_box(arch_id1))))
     });
@@ -53,11 +51,13 @@ fn ecs_benchmark(c: &mut Criterion) {
             criterion::BatchSize::SmallInput,
         )
     });
+    */
     c.bench_function("ecs visit 1000", |b| {
         b.iter_batched(
             || {
+                entities.clear();
                 (0..1000)
-                    .map(|i| entities.add(Some(arch_id1)).unwrap())
+                    .map(|_| entities.add(Some(arch_id1)).unwrap())
                     .collect::<Vec<_>>()
             },
             |_| {
@@ -66,6 +66,26 @@ fn ecs_benchmark(c: &mut Criterion) {
                     black_box(v2);
                 });
                 entities.visit(&tup2);
+            },
+            criterion::BatchSize::SmallInput,
+        )
+    });
+    c.bench_function("ecs visit_2 1000", |b| {
+        b.iter_batched(
+            || {
+                entities.clear();
+                (0..1000)
+                    .map(|_| entities.add(Some(arch_id1)).unwrap())
+                    .collect::<Vec<_>>()
+            },
+            |_| {
+                let columns =
+                    HashSet::from([ComponentId::new::<EntityId>(), ComponentId::new::<String>()]);
+                let v2 = visit_2::<EntityId, String, _>(move |(v1, v2)| {
+                    black_box(v1);
+                    black_box(v2);
+                });
+                entities.visit2(&columns, v2);
             },
             criterion::BatchSize::SmallInput,
         )
