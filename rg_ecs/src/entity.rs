@@ -282,7 +282,7 @@ mod test {
         build_archetype,
         component::ComponentId,
         entity::EntityId,
-        visitor::{visit_2},
+        visitor::visit_2,
     };
 
     use super::Entities;

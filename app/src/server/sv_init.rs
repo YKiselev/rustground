@@ -7,7 +7,9 @@ use std::thread;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-pub(crate) fn server_init(app: &Arc<App>) -> Result<(Arc<Mutex<Server>>, JoinHandle<()>), AppError> {
+pub(crate) fn server_init(
+    app: &Arc<App>,
+) -> Result<(Arc<Mutex<Server>>, JoinHandle<()>), AppError> {
     let server = Arc::new(Mutex::new(Server::new(app)));
     let sv_clone = server.clone();
     let app_clone = app.clone();

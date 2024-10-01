@@ -4,7 +4,7 @@ use rg_ecs::{
     archetype::build_archetype,
     component::ComponentId,
     entity::{Entities, EntityId},
-    visitor::{visit_2},
+    visitor::visit_2,
 };
 use std::{
     collections::HashSet,

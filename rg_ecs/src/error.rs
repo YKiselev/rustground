@@ -12,7 +12,7 @@ pub enum EntityError {
     #[snafu(display("No such archetype!"))]
     NotSuchArchetype,
     #[snafu(display("Lock is poisoned!"))]
-    LockPoisoned
+    LockPoisoned,
 }
 
 impl<T> From<PoisonError<T>> for EntityError {

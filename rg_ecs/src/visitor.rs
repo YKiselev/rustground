@@ -56,7 +56,7 @@ where
 mod test {
     use std::sync::atomic::{AtomicI64, Ordering};
 
-    use super::{visit_2};
+    use super::visit_2;
 
     #[test]
     fn visitor() {

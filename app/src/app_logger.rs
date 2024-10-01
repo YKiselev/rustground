@@ -111,14 +111,11 @@ impl AppLoggerBuffer {
 
 #[cfg(test)]
 mod test {
-    
 
     use log::Record;
     use log4rs::append::Append;
 
     use crate::app_logger::create_app_logger;
-
-    
 
     #[test]
     fn buffer_overflow() {

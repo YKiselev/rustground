@@ -122,7 +122,6 @@ impl<T: Default + 'static> TypedComponentStorage<T> {
     pub(crate) fn slice(&self) -> &[T] {
         &self.data
     }
-
 }
 
 impl<T: Any + Default + 'static> ComponentStorage for TypedComponentStorage<T> {

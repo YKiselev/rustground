@@ -233,9 +233,9 @@ impl CommandBuilder<'_> {
 #[cfg(test)]
 mod test {
     use std::sync::{
-            atomic::{AtomicUsize, Ordering},
-            Arc,
-        };
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
 
     use crate::{commands::CmdError, CommandRegistry};
 
