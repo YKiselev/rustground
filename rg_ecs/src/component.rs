@@ -109,16 +109,6 @@ impl<T: Default + 'static> TypedComponentStorage<T> {
     }
 
     #[inline(always)]
-    pub(crate) fn iter(&self) -> Iter<'_, T> {
-        self.data.iter()
-    }
-
-    #[inline(always)]
-    pub(crate) fn iter_mut(&mut self) -> IterMut<'_, T> {
-        self.data.iter_mut()
-    }
-
-    #[inline(always)]
     pub(crate) fn slice(&self) -> &[T] {
         &self.data
     }

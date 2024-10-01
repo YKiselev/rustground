@@ -7,7 +7,6 @@ use std::{
     },
 };
 
-
 use crate::{
     archetype::{Archetype, ArchetypeId, ArchetypeStorage, Chunk},
     build_archetype,
@@ -198,9 +197,9 @@ impl Entities {
     ///
     /// Creates new instance
     ///
-    pub fn new() -> Self {
+    pub fn new(chunk_size: usize) -> Self {
         Entities {
-            storage: RwLock::new(EntityStorage::new(1024)),
+            storage: RwLock::new(EntityStorage::new(chunk_size)),
         }
     }
 
@@ -276,18 +275,13 @@ mod test {
 
     use std::collections::HashSet;
 
-    use crate::{
-        build_archetype,
-        component::ComponentId,
-        entity::EntityId,
-        visitor::visit_2,
-    };
+    use crate::{build_archetype, component::ComponentId, entity::EntityId, visitor::visit_2};
 
     use super::Entities;
 
     #[test]
     fn test() {
-        let entities = Entities::new();
+        let entities = Entities::new(100);
 
         let arch_id1 = entities.add_archetype(build_archetype! {i32, f64, String});
 

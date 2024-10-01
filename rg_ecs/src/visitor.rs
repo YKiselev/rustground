@@ -59,6 +59,6 @@ mod test {
 
     #[test]
     fn visitor() {
-        let _ = visit_2::<i32, f64, _>(|ch| {});
+        let _ = visit_2::<i32, f64, _>(|_| {});
     }
 }
