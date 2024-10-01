@@ -1,5 +1,4 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use itertools::Itertools;
 use rg_ecs::{
     archetype::build_archetype,
     component::ComponentId,
@@ -9,7 +8,6 @@ use rg_ecs::{
 use std::{
     collections::HashSet,
     hint::black_box,
-    sync::atomic::{AtomicI64, AtomicUsize},
 };
 
 #[derive(Default)]

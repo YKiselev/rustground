@@ -7,10 +7,9 @@ use std::{
     },
 };
 
-use itertools::izip;
 
 use crate::{
-    archetype::{self, Archetype, ArchetypeBuilder, ArchetypeId, ArchetypeStorage, Chunk},
+    archetype::{Archetype, ArchetypeId, ArchetypeStorage, Chunk},
     build_archetype,
     component::{cast, cast_mut, ComponentId, ComponentStorage},
     error::EntityError,
@@ -275,10 +274,9 @@ impl Entities {
 #[cfg(test)]
 mod test {
 
-    use std::collections::{hash_set, HashSet};
+    use std::collections::HashSet;
 
     use crate::{
-        archetype::{self, ArchetypeBuilder},
         build_archetype,
         component::ComponentId,
         entity::EntityId,

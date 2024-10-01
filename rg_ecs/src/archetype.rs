@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     fmt::Display,
     hash::{DefaultHasher, Hash, Hasher},
     slice::Iter,
@@ -392,11 +392,11 @@ pub use build_archetype;
 ///
 #[cfg(test)]
 mod test {
-    use std::hash::{DefaultHasher, Hash, Hasher};
+    
 
     use crate::{
         archetype::ArchetypeStorage,
-        component::{ComponentId, ComponentStorage},
+        component::ComponentStorage,
         entity::EntityId,
     };
 

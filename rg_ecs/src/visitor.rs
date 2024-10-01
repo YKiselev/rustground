@@ -1,9 +1,8 @@
-use std::{cmp, fmt::Debug, marker::PhantomData};
+use std::cmp;
 
-use itertools::izip;
 
 use crate::{
-    archetype::{Archetype, Chunk},
+    archetype::Chunk,
     component::{cast_mut, ComponentId},
 };
 
@@ -54,7 +53,7 @@ where
 
 #[cfg(test)]
 mod test {
-    use std::sync::atomic::{AtomicI64, Ordering};
+    
 
     use super::visit_2;
 
