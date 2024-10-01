@@ -59,7 +59,7 @@ pub struct ArchetypeBuilder {
 impl ArchetypeBuilder {
     pub fn new() -> Self {
         ArchetypeBuilder {
-            factories: HashMap::new(),
+            factories: HashMap::with_capacity(4),
         }
         .add::<EntityId>()
     }
@@ -310,7 +310,7 @@ impl ArchetypeStorage {
         chunk.columns.get(&comp_id).map(|c| (c, local_index))
     }
 
-    #[inline]
+    #[inline(always)]
     fn to_local(&self, index: usize) -> (usize, usize) {
         (index / self.chunk_size, index % self.chunk_size)
     }

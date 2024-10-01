@@ -14,7 +14,6 @@ use crate::{
     build_archetype,
     component::{cast, cast_mut, ComponentId, ComponentStorage},
     error::EntityError,
-    visitor::{Tuple1, Tuple2, Visitor},
 };
 
 ///
@@ -57,7 +56,7 @@ impl EntityStorage {
             def_arch_id,
             chunk_size,
             entity_seq: AtomicUsize::new(0),
-            entities: HashMap::with_capacity(1000),
+            entities: HashMap::with_capacity(chunk_size),
             archetypes,
         }
     }
@@ -160,31 +159,25 @@ impl EntityStorage {
         Ok(())
     }
 
-    fn visit(&self, visitor: &impl Visitor) {
-        for (_, v) in self.archetypes.iter() {
-            let guard = v.read().unwrap();
-            if !visitor.accept(&guard.archetype) {
-                continue;
-            }
-            for chunk in guard.iter() {
-                visitor.visit(chunk);
-            }
-        }
-    }
-
-    fn visit2<H>(&self, columns: &HashSet<ComponentId>, handler: H)
+    fn visit<H>(&self, columns: &HashSet<ComponentId>, handler: H) -> (usize, usize, usize)
     where
-        H: Fn(&Chunk),
+        H: Fn(&Chunk) -> usize,
     {
+        let mut arch_count: usize = 0;
+        let mut chunk_count: usize = 0;
+        let mut row_count: usize = 0;
         for (_, v) in self.archetypes.iter() {
             let guard = v.read().unwrap();
             if !columns.iter().all(|c| guard.archetype.has_component(c)) {
                 continue;
             }
             for chunk in guard.iter() {
-                (handler)(chunk);
+                row_count += (handler)(chunk);
+                chunk_count += 1;
             }
+            arch_count += 1;
         }
+        (arch_count, chunk_count, row_count)
     }
 
     fn clear(&mut self) {
@@ -261,18 +254,11 @@ impl Entities {
         self.storage.write().unwrap().remove(entity)
     }
 
-    pub fn visit<V>(&self, visitor: &V)
+    pub fn visit<H>(&self, columns: &HashSet<ComponentId>, handler: H) -> (usize, usize, usize)
     where
-        V: Visitor,
+        H: Fn(&Chunk) -> usize,
     {
-        self.storage.read().unwrap().visit(visitor);
-    }
-
-    pub fn visit2<H>(&self, columns: &HashSet<ComponentId>, handler: H)
-    where
-        H: Fn(&Chunk),
-    {
-        self.storage.read().unwrap().visit2(columns, handler);
+        self.storage.read().unwrap().visit(columns, handler)
     }
 
     ///
@@ -296,7 +282,7 @@ mod test {
         build_archetype,
         component::ComponentId,
         entity::EntityId,
-        visitor::{visit_2, Tuple2},
+        visitor::{visit_2},
     };
 
     use super::Entities;
@@ -349,18 +335,9 @@ mod test {
                 .unwrap()
         );
 
-        let tup2 = Tuple2::<EntityId, String>::new(|(v1, v2)| {
-            dbg!(v1);
-            dbg!(v2);
-        });
-        entities.visit(&tup2);
-
         let columns = HashSet::from([ComponentId::new::<EntityId>(), ComponentId::new::<String>()]);
-        let v2 = visit_2::<EntityId, String, _>(move |(v1, v2)| {});
-        entities.visit2(&columns, v2);
-        // assert_eq!(
-        //     vec!["test", "yep yep yep"],
-        //     entities.query1::<String>().collect::<Vec<_>>()
-        // );
+        let v2 = visit_2::<EntityId, String, _>(move |(_, _)| {});
+        let (ac, cc, rc) = entities.visit(&columns, v2);
+        println!("archs={}, chunks={}, rows={}", ac, cc, rc);
     }
 }

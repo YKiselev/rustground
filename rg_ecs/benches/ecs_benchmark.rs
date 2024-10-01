@@ -1,9 +1,16 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use itertools::Itertools;
 use rg_ecs::{
-    archetype::build_archetype, component::ComponentId, entity::{Entities, EntityId}, visitor::{visit_2, Tuple1, Tuple2}
+    archetype::build_archetype,
+    component::ComponentId,
+    entity::{Entities, EntityId},
+    visitor::{visit_2},
 };
-use std::{collections::HashSet, hint::black_box, sync::atomic::AtomicI64};
+use std::{
+    collections::HashSet,
+    hint::black_box,
+    sync::atomic::{AtomicI64, AtomicUsize},
+};
 
 #[derive(Default)]
 struct Location(f32, f32, f32);
@@ -17,7 +24,7 @@ fn ecs_benchmark(c: &mut Criterion) {
     let arch_id1 = entities.add_archetype(build_archetype! {i32, f64, String});
     let arch_id2 =
         entities.add_archetype(build_archetype! {Location, Velocity, Name, bool, char, i8, i16});
-/*
+
     c.bench_function("ecs add arch #1", |b| {
         b.iter(|| entities.add(Some(black_box(arch_id1))))
     });
@@ -44,52 +51,49 @@ fn ecs_benchmark(c: &mut Criterion) {
         b.iter_batched(
             || {
                 (0..1000)
-                    .map(|i| entities.add(Some(arch_id1)).unwrap())
+                    .map(|_| entities.add(Some(arch_id1)).unwrap())
                     .collect::<Vec<_>>()
             },
             |batch| batch.iter().map(|ent_id| entities.remove(*ent_id)).count(),
             criterion::BatchSize::SmallInput,
         )
     });
-    */
-    c.bench_function("ecs visit 1000", |b| {
-        b.iter_batched(
-            || {
-                entities.clear();
-                (0..1000)
-                    .map(|_| entities.add(Some(arch_id1)).unwrap())
-                    .collect::<Vec<_>>()
-            },
-            |_| {
-                let tup2 = Tuple2::<EntityId, String>::new(|(v1, v2)| {
-                    black_box(v1);
-                    black_box(v2);
-                });
-                entities.visit(&tup2);
-            },
-            criterion::BatchSize::SmallInput,
-        )
-    });
-    c.bench_function("ecs visit_2 1000", |b| {
-        b.iter_batched(
-            || {
-                entities.clear();
-                (0..1000)
-                    .map(|_| entities.add(Some(arch_id1)).unwrap())
-                    .collect::<Vec<_>>()
-            },
-            |_| {
-                let columns =
-                    HashSet::from([ComponentId::new::<EntityId>(), ComponentId::new::<String>()]);
-                let v2 = visit_2::<EntityId, String, _>(move |(v1, v2)| {
-                    black_box(v1);
-                    black_box(v2);
-                });
-                entities.visit2(&columns, v2);
-            },
-            criterion::BatchSize::SmallInput,
-        )
-    });
+    entities.clear();
+    let c1 = (0..1000000)
+        .map(|_| entities.add(Some(arch_id1)).unwrap())
+        .count();
+    let c2 = (0..1000000)
+        .map(|_| entities.add(Some(arch_id2)).unwrap())
+        .count();
+    {
+        let columns = HashSet::from([ComponentId::new::<EntityId>(), ComponentId::new::<String>()]);
+        c.bench_function("ecs visit", |b| {
+            b.iter(|| {
+                entities.visit(
+                    &columns,
+                    visit_2(|(v1, v2): (&EntityId, &String)| {
+                        black_box(v1);
+                        black_box(v2);
+                    }),
+                )
+            });
+        });
+    }
+    {
+        let columns = HashSet::from([ComponentId::new::<Velocity>(), ComponentId::new::<Name>()]);
+        c.bench_function("ecs visit e2", |b| {
+            b.iter(|| {
+                entities.visit(
+                    &columns,
+                    visit_2(|(v1, v2): (&Velocity, &Name)| {
+                        black_box(v1);
+                        black_box(v2);
+                    }),
+                )
+            });
+        });
+    }
+    println!("Storage has {} e1 and {} e2 entities.", c1, c2);
 }
 
 fn criterion_benchmark(c: &mut Criterion) {

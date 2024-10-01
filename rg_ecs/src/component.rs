@@ -57,14 +57,14 @@ pub(crate) fn try_cast_mut<'a, T: Default + 'static>(
         .downcast_mut::<TypedComponentStorage<T>>()
 }
 
-#[inline]
+#[inline(always)]
 pub(crate) fn cast<'a, T: Default + 'static>(
     value: &'a dyn ComponentStorage,
 ) -> &'a TypedComponentStorage<T> {
     try_cast::<T>(value).unwrap()
 }
 
-#[inline]
+#[inline(always)]
 pub(crate) fn cast_mut<'a, T: Default + 'static>(
     value: &'a mut dyn ComponentStorage,
 ) -> &'a mut TypedComponentStorage<T> {
@@ -87,30 +87,42 @@ impl<T: Default + 'static> TypedComponentStorage<T> {
         }
     }
 
+    #[inline]
     pub(crate) fn push(&mut self, value: T) -> usize {
         self.data.push(value);
         self.data.len() - 1
     }
 
+    #[inline(always)]
     pub(crate) fn get(&self, index: usize) -> Option<&T> {
         self.data.get(index)
     }
 
+    #[inline(always)]
     pub(crate) fn get_mut(&mut self, index: usize) -> Option<&mut T> {
         self.data.get_mut(index)
     }
 
+    #[inline(always)]
     pub(crate) fn set(&mut self, index: usize, value: T) {
         self.data[index] = value;
     }
 
+    #[inline(always)]
     pub(crate) fn iter(&self) -> Iter<'_, T> {
         self.data.iter()
     }
 
+    #[inline(always)]
     pub(crate) fn iter_mut(&mut self) -> IterMut<'_, T> {
         self.data.iter_mut()
     }
+
+    #[inline(always)]
+    pub(crate) fn slice(&self) -> &[T] {
+        &self.data
+    }
+
 }
 
 impl<T: Any + Default + 'static> ComponentStorage for TypedComponentStorage<T> {
