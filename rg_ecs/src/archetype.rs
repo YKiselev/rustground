@@ -2,6 +2,7 @@ use std::{
     collections::HashMap,
     fmt::Display,
     hash::{DefaultHasher, Hash, Hasher},
+    marker::PhantomData,
     slice::Iter,
     sync::{
         atomic::{AtomicUsize, Ordering},
@@ -47,13 +48,38 @@ impl Display for ArchetypeId {
 ///
 /// ColumnFactory
 ///
-type ColumnFactory = dyn Fn(usize) -> Box<dyn ComponentStorage + 'static>;
+//type ColumnFactory = dyn Fn(usize) -> Box<dyn ComponentStorage + 'static>;
+trait ColumnFactory {
+    fn create(&self, capacity: usize) -> Box<dyn ComponentStorage + 'static>;
+    fn item_size(&self) -> usize;
+}
+
+#[derive(Default)]
+struct TypedColumnFactory<T>
+where
+    T: Default + 'static,
+{
+    _data: PhantomData<T>,
+}
+
+impl<T> ColumnFactory for TypedColumnFactory<T>
+where
+    T: Default + 'static,
+{
+    fn create(&self, capacity: usize) -> Box<dyn ComponentStorage + 'static> {
+        Box::new(TypedComponentStorage::<T>::with_capacity(capacity))
+    }
+
+    fn item_size(&self) -> usize {
+        size_of::<T>()
+    }
+}
 
 ///
 /// Archetype builder
 ///
 pub struct ArchetypeBuilder {
-    factories: HashMap<ComponentId, Arc<ColumnFactory>>,
+    factories: HashMap<ComponentId, Arc<dyn ColumnFactory>>,
 }
 
 impl ArchetypeBuilder {
@@ -66,10 +92,8 @@ impl ArchetypeBuilder {
 
     pub fn add<T: Default + 'static>(mut self) -> Self {
         let comp_id = ComponentId::new::<T>();
-        self.factories.insert(
-            comp_id,
-            Arc::new(|capacity| Box::new(TypedComponentStorage::<T>::new(capacity))),
-        );
+        self.factories
+            .insert(comp_id, Arc::new(TypedColumnFactory::<T>::default()));
         self
     }
 
@@ -91,7 +115,7 @@ impl ArchetypeBuilder {
 #[derive(Clone)]
 pub struct Archetype {
     pub id: ArchetypeId,
-    factories: HashMap<ComponentId, Arc<ColumnFactory>>,
+    factories: HashMap<ComponentId, Arc<dyn ColumnFactory>>,
 }
 
 impl Archetype {
@@ -99,7 +123,7 @@ impl Archetype {
         Chunk::new(
             self.factories
                 .iter()
-                .map(|(id, f)| (*id, RwLock::new((f)(capacity))))
+                .map(|(id, f)| (*id, RwLock::new(f.create(capacity))))
                 .collect(),
             capacity,
         )
@@ -117,6 +141,10 @@ impl Archetype {
 
     pub fn has_component(&self, comp_id: &ComponentId) -> bool {
         self.factories.contains_key(comp_id)
+    }
+
+    pub fn row_size(&self) -> usize {
+        self.factories.iter().map(|(_, f)| f.item_size()).sum()
     }
 }
 
@@ -173,13 +201,11 @@ impl Chunk {
     fn add(&self, ent_id: EntityId) -> usize {
         assert!(self.available() > 0);
         let mut index = 0;
-        for (id, column) in self.columns.iter() {
-            let mut guard = column.write().unwrap();
-            if *id == *COLUMN_ENTITY_ID {
-                index = cast_mut::<EntityId>(guard.as_mut()).push(ent_id);
-            } else {
-                index = guard.add();
-            }
+        for (_, column) in self.columns.iter() {
+            index = column.write().unwrap().add();
+        }
+        if let Some(column) = self.columns.get(&COLUMN_ENTITY_ID) {
+            cast_mut::<EntityId>(column.write().unwrap().as_mut())[index] = ent_id;
         }
         self.available_rows.fetch_sub(1, Ordering::Relaxed);
         index
@@ -324,8 +350,12 @@ impl ArchetypeStorage {
         let (ch_num, local_index) = self.to_local(index);
         let chunk = &self.chunks[ch_num];
         let swapped_ent_id = chunk.move_to(dest, local_index);
+        let mut guard = dest.get_by_type::<T>().unwrap().write().unwrap();
+        let typed_col = cast_mut::<T>(guard.as_mut());
+        let idx = typed_col.len();
+        typed_col.push(value);
         (
-            cast_mut::<T>(dest.get_by_type::<T>().unwrap().write().unwrap().as_mut()).push(value),
+            idx,
             swapped_ent_id,
         )
     }
@@ -392,13 +422,8 @@ pub use build_archetype;
 ///
 #[cfg(test)]
 mod test {
-    
 
-    use crate::{
-        archetype::ArchetypeStorage,
-        component::ComponentStorage,
-        entity::EntityId,
-    };
+    use crate::{archetype::ArchetypeStorage, component::ComponentStorage, entity::EntityId};
 
     #[test]
     fn archetype_to_builder() {
@@ -415,15 +440,15 @@ mod test {
     fn test() {
         let mut storage = ArchetypeStorage::new(build_archetype![i32, String, f64, bool], 3);
 
-        assert_eq!(0, storage.add(EntityId(1)));
-        assert_eq!(1, storage.add(EntityId(2)));
-        assert_eq!(2, storage.add(EntityId(3)));
+        assert_eq!(0, storage.add(EntityId::new(1)));
+        assert_eq!(1, storage.add(EntityId::new(2)));
+        assert_eq!(2, storage.add(EntityId::new(3)));
 
         storage.remove(0);
         storage.remove(1);
         storage.remove(0);
 
-        assert_eq!(0, storage.add(EntityId(4)));
+        assert_eq!(0, storage.add(EntityId::new(4)));
 
         storage.get_by_type::<i32>().unwrap();
         storage.get_by_type::<f64>().unwrap();

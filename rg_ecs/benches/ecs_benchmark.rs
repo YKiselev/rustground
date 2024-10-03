@@ -3,7 +3,7 @@ use rg_ecs::{
     archetype::{build_archetype, ArchetypeId},
     component::ComponentId,
     entity::{Entities, EntityId},
-    visitor::visit_2,
+    visitor::{visit_2, visit_2b, visit_3},
 };
 use std::{collections::HashSet, hint::black_box};
 
@@ -12,13 +12,15 @@ struct Location(f32, f32, f32);
 #[derive(Default)]
 struct Velocity(f32, f32, f32);
 #[derive(Default)]
+struct Direction(f32, f32, f32);
+#[derive(Default)]
 struct Name(String);
 
 fn init_storage(chunk_size: usize, count: Option<usize>) -> (Entities, ArchetypeId, ArchetypeId) {
     let entities = Entities::new(chunk_size);
     let arch_id1 = entities.add_archetype(build_archetype! {i32, f64, String});
-    let arch_id2 =
-        entities.add_archetype(build_archetype! {Location, Velocity, Name, bool, char, i8, i16});
+    let arch_id2 = entities
+        .add_archetype(build_archetype! {Location, Velocity, Direction, Name, bool, char, i8, i16});
     if let Some(count) = count {
         let c1 = (0..count)
             .map(|_| entities.add(Some(arch_id1)).unwrap())
@@ -33,7 +35,7 @@ fn init_storage(chunk_size: usize, count: Option<usize>) -> (Entities, Archetype
 }
 
 fn ecs_benchmark(c: &mut Criterion) {
-    let (entities, arch_id1, arch_id2) = init_storage(2048, None);
+    let (entities, arch_id1, arch_id2) = init_storage(16000, None);
 
     c.bench_function("ecs add arch #1", |b| {
         b.iter(|| entities.add(Some(black_box(arch_id1))))
@@ -69,8 +71,20 @@ fn ecs_benchmark(c: &mut Criterion) {
         )
     });
     let columns1 = HashSet::from([ComponentId::new::<EntityId>(), ComponentId::new::<String>()]);
-    let columns2 = HashSet::from([ComponentId::new::<Velocity>(), ComponentId::new::<Name>()]);
-    for chunk_size in [16 * 1024, 32 * 1024, 64 * 1024, 128 * 1024] {
+    let columns2 = HashSet::from([
+        ComponentId::new::<Location>(),
+        ComponentId::new::<Velocity>(),
+        ComponentId::new::<Direction>(),
+    ]);
+    let fn_lvd = |loc: &mut Location, vel: &mut Velocity, dir: &mut Direction| {
+        // black_box(loc);
+        // black_box(vel);
+        // black_box(dir);
+        loc.0 += dir.0 * vel.0;
+        loc.1 += dir.1 * vel.1;
+        loc.2 += dir.2 * vel.2;
+    };
+    for chunk_size in [8 * 1024, 16 * 1024, 32 * 1024, 64 * 1024] {
         let (entities, _, _) = init_storage(chunk_size, Some(1000000));
         let name = format!("ecs visit e1 (chunk_size={chunk_size})");
         c.bench_function(&name, |b| {
@@ -84,17 +98,9 @@ fn ecs_benchmark(c: &mut Criterion) {
                 )
             });
         });
-        let name = format!("ecs visit e2 (chunk_size={chunk_size})");
+        let name = format!("ecs visit LVD (chunk_size={chunk_size})");
         c.bench_function(&name, |b| {
-            b.iter(|| {
-                entities.visit(
-                    &columns2,
-                    visit_2(|(v1, v2): (&Velocity, &Name)| {
-                        black_box(v1);
-                        black_box(v2);
-                    }),
-                )
-            });
+            b.iter(|| entities.visit(&columns2, visit_3(fn_lvd)));
         });
     }
 }

@@ -9,6 +9,7 @@ use std::{
 /// ComponentId
 ///
 #[derive(PartialEq, Eq, Hash, PartialOrd, Ord, Clone, Copy, Debug)]
+#[repr(transparent)]
 pub struct ComponentId(TypeId);
 
 impl ComponentId {
@@ -21,8 +22,6 @@ impl ComponentId {
 /// CoponentStorage trait
 ///
 pub trait ComponentStorage {
-    fn id(&self) -> ComponentId;
-
     fn row_count(&self) -> usize;
 
     fn as_any(&self) -> &dyn Any;
@@ -74,45 +73,7 @@ pub(crate) fn cast_mut<'a, T: Default + 'static>(
 ///
 /// TypedComponentStorage
 ///
-pub(crate) struct TypedComponentStorage<T: Default> {
-    id: ComponentId,
-    data: Vec<T>,
-}
-
-impl<T: Default + 'static> TypedComponentStorage<T> {
-    pub(crate) fn new(capacity: usize) -> Self {
-        TypedComponentStorage {
-            id: ComponentId::new::<T>(),
-            data: Vec::with_capacity(capacity),
-        }
-    }
-
-    #[inline]
-    pub(crate) fn push(&mut self, value: T) -> usize {
-        self.data.push(value);
-        self.data.len() - 1
-    }
-
-    #[inline(always)]
-    pub(crate) fn get(&self, index: usize) -> Option<&T> {
-        self.data.get(index)
-    }
-
-    #[inline(always)]
-    pub(crate) fn get_mut(&mut self, index: usize) -> Option<&mut T> {
-        self.data.get_mut(index)
-    }
-
-    #[inline(always)]
-    pub(crate) fn set(&mut self, index: usize, value: T) {
-        self.data[index] = value;
-    }
-
-    #[inline(always)]
-    pub(crate) fn slice(&self) -> &[T] {
-        &self.data
-    }
-}
+pub(crate) type TypedComponentStorage<T> = Vec<T>;
 
 impl<T: Any + Default + 'static> ComponentStorage for TypedComponentStorage<T> {
     fn as_any(&self) -> &dyn Any {
@@ -124,23 +85,20 @@ impl<T: Any + Default + 'static> ComponentStorage for TypedComponentStorage<T> {
     }
 
     fn create_new(&self) -> Box<dyn ComponentStorage> {
-        Box::new(TypedComponentStorage::<T>::new(self.data.capacity()))
-    }
-
-    fn id(&self) -> ComponentId {
-        self.id
+        Box::new(TypedComponentStorage::<T>::with_capacity(self.capacity()))
     }
 
     fn add(&mut self) -> usize {
-        self.data.push(T::default());
-        self.data.len() - 1
+        let result = self.len();
+        self.push(T::default());
+        result
     }
 
     fn move_to(&mut self, index: usize, dest: &mut dyn ComponentStorage) {
-        let opt = if index + 1 < self.data.len() {
-            Some(self.data.swap_remove(index))
+        let opt = if index + 1 < self.len() {
+            Some(self.swap_remove(index))
         } else {
-            self.data.pop()
+            self.pop()
         };
         if let Some(value) = opt {
             cast_mut::<T>(dest).push(value);
@@ -148,15 +106,15 @@ impl<T: Any + Default + 'static> ComponentStorage for TypedComponentStorage<T> {
     }
 
     fn remove(&mut self, index: usize) {
-        if index + 1 < self.data.len() {
-            self.data.swap_remove(index);
-        } else if index < self.data.len() {
-            self.data.pop();
+        if index + 1 < self.len() {
+            self.swap_remove(index);
+        } else if index < self.len() {
+            self.pop();
         }
     }
 
     fn row_count(&self) -> usize {
-        self.data.len()
+        self.len()
     }
 }
 
@@ -185,8 +143,8 @@ mod test {
     #[test]
     fn test() {
         let mut columns: Vec<Box<dyn ComponentStorage>> = vec![
-            Box::new(TypedComponentStorage::<i32>::new(128)),
-            Box::new(TypedComponentStorage::<A>::new(128)),
+            Box::new(TypedComponentStorage::<i32>::with_capacity(128)),
+            Box::new(TypedComponentStorage::<A>::with_capacity(128)),
         ];
 
         let s1 = columns[0].as_mut();

@@ -18,7 +18,14 @@ use crate::{
 /// EntityId
 ///
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Debug)]
-pub struct EntityId(pub(crate) usize);
+#[repr(transparent)]
+pub struct EntityId(usize);
+
+impl EntityId {
+    pub fn new(id: usize) -> Self {
+        EntityId(id)
+    }
+}
 
 ///
 /// EntityRef
@@ -114,7 +121,7 @@ impl EntityStorage {
             .read()?;
         if let Some((column, local_index)) = base.get_at(comp_id, ent_ref.index) {
             let mut guard = column.write()?;
-            cast_mut::<T>(guard.as_mut()).set(local_index, value);
+            cast_mut::<T>(guard.as_mut())[local_index] = value;
         } else {
             let dest_arch = base.archetype.to_builder().add::<T>().build();
             let dest_arch_id = dest_arch.id;
