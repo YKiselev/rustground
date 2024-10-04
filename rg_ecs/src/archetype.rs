@@ -1,22 +1,22 @@
 use std::{
     collections::HashMap,
     fmt::Display,
-    hash::{DefaultHasher, Hash, Hasher},
+    hash::{Hash, Hasher},
     marker::PhantomData,
     slice::Iter,
     sync::{
-        atomic::{AtomicU32, AtomicUsize, Ordering},
+        atomic::{AtomicU32, Ordering},
         Arc, RwLock,
     },
 };
 
-use fxhash::{FxHasher, FxHasher32};
-use itertools::{max, Itertools};
+use fxhash::FxHasher32;
+use itertools::Itertools;
 use once_cell::sync::{self, Lazy};
 
 use crate::{
     component::{cast, cast_mut, ComponentId, ComponentStorage, TypedComponentStorage},
-    entity::{EntityId, EntityRef},
+    entity::EntityId,
     error::EntityError,
 };
 ///

@@ -2,7 +2,7 @@ use std::{
     collections::{HashMap, HashSet},
     fmt::Debug,
     sync::{
-        atomic::{AtomicU32, AtomicUsize, Ordering},
+        atomic::{AtomicU32, Ordering},
         RwLock,
     },
 };

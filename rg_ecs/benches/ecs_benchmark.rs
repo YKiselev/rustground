@@ -3,7 +3,7 @@ use rg_ecs::{
     archetype::{build_archetype, ArchetypeId},
     component::ComponentId,
     entity::{Entities, EntityId},
-    visitor::{visit_2, visit_2b, visit_3},
+    visitor::{visit_2, visit_3},
 };
 use std::{collections::HashSet, hint::black_box};
 
