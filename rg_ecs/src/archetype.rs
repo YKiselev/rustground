@@ -5,17 +5,19 @@ use std::{
     marker::PhantomData,
     slice::Iter,
     sync::{
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicU32, AtomicUsize, Ordering},
         Arc, RwLock,
     },
 };
 
-use itertools::Itertools;
+use fxhash::{FxHasher, FxHasher32};
+use itertools::{max, Itertools};
 use once_cell::sync::{self, Lazy};
 
 use crate::{
     component::{cast, cast_mut, ComponentId, ComponentStorage, TypedComponentStorage},
-    entity::EntityId,
+    entity::{EntityId, EntityRef},
+    error::EntityError,
 };
 ///
 /// Constants
@@ -27,21 +29,50 @@ pub(crate) static COLUMN_ENTITY_ID: Lazy<ComponentId> =
 /// ArchetypeId
 ///
 #[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
-pub struct ArchetypeId(u64);
+#[repr(transparent)]
+pub struct ArchetypeId(u32);
 
 impl ArchetypeId {
     pub fn new<'a>(components: impl Iterator<Item = &'a ComponentId>) -> Self {
-        let mut hasher = DefaultHasher::new();
+        let mut hasher = FxHasher32::default();
         for c in components {
             c.hash(&mut hasher);
         }
-        ArchetypeId(hasher.finish())
+        ArchetypeId(hasher.finish() as u32)
     }
 }
 
 impl Display for ArchetypeId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "ArchetypeId({})", self.0)
+    }
+}
+
+///
+/// Reference to the row in archetype storage
+///
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct ArchetypeRef {
+    chunk_index: u32,
+    local_index: u32,
+}
+
+impl ArchetypeRef {
+    pub(crate) fn new(chunk_index: usize, local_index: usize) -> Self {
+        Self {
+            chunk_index: chunk_index as u32,
+            local_index: local_index as u32,
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn chunk_index(&self) -> usize {
+        self.chunk_index as usize
+    }
+
+    #[inline(always)]
+    pub(crate) fn local_index(&self) -> usize {
+        self.local_index as usize
     }
 }
 
@@ -98,12 +129,12 @@ impl ArchetypeBuilder {
     }
 
     pub fn build(self) -> Archetype {
-        let mut hasher = DefaultHasher::new();
+        let mut hasher = FxHasher32::default();
         for id in self.factories.keys().sorted() {
             id.hash(&mut hasher);
         }
         Archetype {
-            id: ArchetypeId(hasher.finish()),
+            id: ArchetypeId(hasher.finish() as u32),
             factories: self.factories,
         }
     }
@@ -143,7 +174,7 @@ impl Archetype {
         self.factories.contains_key(comp_id)
     }
 
-    pub fn row_size(&self) -> usize {
+    pub fn row_bytes(&self) -> usize {
         self.factories.iter().map(|(_, f)| f.item_size()).sum()
     }
 }
@@ -180,18 +211,23 @@ type ColumnMap = HashMap<ComponentId, RwLock<Box<dyn ComponentStorage>>>;
 
 pub struct Chunk {
     columns: ColumnMap,
-    available_rows: AtomicUsize,
+    available_rows: AtomicU32,
 }
 
 impl Chunk {
-    fn new(columns: ColumnMap, size: usize) -> Self {
+    ///
+    /// Wraps supplied columns in this chunk.
+    /// # Arguments:
+    /// * `capacity` - the capacity of each supplied column
+    ///
+    fn new(columns: ColumnMap, capacity: usize) -> Self {
         Chunk {
             columns,
-            available_rows: AtomicUsize::new(size),
+            available_rows: AtomicU32::new(capacity as u32),
         }
     }
 
-    fn available(&self) -> usize {
+    fn available(&self) -> u32 {
         self.available_rows.load(Ordering::Acquire)
     }
 
@@ -205,6 +241,7 @@ impl Chunk {
             index = column.write().unwrap().add();
         }
         if let Some(column) = self.columns.get(&COLUMN_ENTITY_ID) {
+            // Cell already added in above loop, now set value
             cast_mut::<EntityId>(column.write().unwrap().as_mut())[index] = ent_id;
         }
         self.available_rows.fetch_sub(1, Ordering::Relaxed);
@@ -232,21 +269,42 @@ impl Chunk {
     ///
     /// Moves row from this chunk to another storage. Returns id of the entity which has taken place of the moved one.
     ///
-    fn move_to(&self, dest: &mut ArchetypeStorage, index: usize) -> Option<EntityId> {
+    fn move_to<T>(&self, index: usize, dest: &Chunk, value: T) -> (usize, Option<EntityId>)
+    where
+        T: Default + 'static,
+    {
         for (comp_id, column) in self.columns.iter() {
-            column
-                .write()
-                .unwrap()
-                .move_to(index, dest.get(*comp_id).unwrap().write().unwrap().as_mut());
+            let lock = dest.get_column(*comp_id).unwrap();
+            let mut guard = lock.write().unwrap();
+            column.write().unwrap().move_to(index, guard.as_mut());
         }
-        self.get_entity_id(index)
+        let lock = dest.get_column_for_type::<T>().unwrap();
+        let idx = {
+            let mut guard = lock.write().unwrap();
+            let typed_col = cast_mut::<T>(guard.as_mut());
+            let idx = typed_col.len();
+            typed_col.push(value);
+            idx
+        };
+        dest.available_rows.fetch_sub(1, Ordering::Relaxed);
+        self.available_rows.fetch_add(1, Ordering::Relaxed);
+        (idx, self.get_entity_id(index))
     }
 
+    #[inline(always)]
     pub(crate) fn get_column(
         &self,
         comp_id: ComponentId,
     ) -> Option<&RwLock<Box<dyn ComponentStorage>>> {
         self.columns.get(&comp_id)
+    }
+
+    #[inline(always)]
+    pub(crate) fn get_column_for_type<T>(&self) -> Option<&RwLock<Box<dyn ComponentStorage>>>
+    where
+        T: Default + 'static,
+    {
+        self.columns.get(&ComponentId::new::<T>())
     }
 
     fn row_count(&self) -> usize {
@@ -267,7 +325,8 @@ pub(crate) struct ArchetypeStorage {
 }
 
 impl ArchetypeStorage {
-    pub(crate) fn new(archetype: Archetype, chunk_size: usize) -> Self {
+    pub(crate) fn new(archetype: Archetype, chunk_size_in_bytes: usize) -> Self {
+        let chunk_size = std::cmp::max(1, chunk_size_in_bytes / archetype.row_bytes());
         ArchetypeStorage {
             archetype,
             chunk_size,
@@ -275,8 +334,9 @@ impl ArchetypeStorage {
         }
     }
 
+    // Returns (chunk_index, column)
     #[inline]
-    pub(crate) fn get_by_type<T>(&mut self) -> Option<&RwLock<Box<dyn ComponentStorage>>>
+    pub(crate) fn get_by_type<T>(&mut self) -> Option<(usize, &RwLock<Box<dyn ComponentStorage>>)>
     where
         T: Default + 'static,
     {
@@ -286,18 +346,18 @@ impl ArchetypeStorage {
     #[inline]
     pub(crate) fn get_by_type_at<T>(
         &self,
-        index: usize,
-    ) -> Option<(&RwLock<Box<dyn ComponentStorage>>, usize)>
+        chunk_index: usize,
+    ) -> Option<&RwLock<Box<dyn ComponentStorage>>>
     where
         T: Default + 'static,
     {
-        self.get_at(ComponentId::new::<T>(), index)
+        self.get_at(ComponentId::new::<T>(), chunk_index)
     }
 
     ///
     /// Returns chunk with at least 1 unused row for adding
     ///
-    fn index_of_available_chunk(&mut self) -> Option<usize> {
+    fn index_of_available_chunk(&mut self) -> usize {
         let mut index = None;
         for (i, chunk) in self.chunks.iter().enumerate() {
             if chunk.available() > 0 {
@@ -311,7 +371,7 @@ impl ArchetypeStorage {
             index = Some(self.chunks.len());
             self.chunks.push(chunk);
         }
-        index
+        index.unwrap()
     }
 
     ///
@@ -321,63 +381,57 @@ impl ArchetypeStorage {
     pub(crate) fn get(
         &mut self,
         comp_id: ComponentId,
-    ) -> Option<&RwLock<Box<dyn ComponentStorage>>> {
-        let chunk_index = self.index_of_available_chunk()?;
-        self.chunks[chunk_index].columns.get(&comp_id)
+    ) -> Option<(usize, &RwLock<Box<dyn ComponentStorage>>)> {
+        let chunk_index = self.index_of_available_chunk();
+        let lock = self.chunks[chunk_index].columns.get(&comp_id)?;
+        Some((chunk_index, lock))
     }
 
     pub(crate) fn get_at(
         &self,
         comp_id: ComponentId,
-        index: usize,
-    ) -> Option<(&RwLock<Box<dyn ComponentStorage>>, usize)> {
-        let (ch_num, local_index) = self.to_local(index);
-        let chunk = self.chunks.get(ch_num)?;
-        chunk.columns.get(&comp_id).map(|c| (c, local_index))
+        chunk_index: usize,
+    ) -> Option<&RwLock<Box<dyn ComponentStorage>>> {
+        let chunk = self.chunks.get(chunk_index)?;
+        chunk.columns.get(&comp_id)
     }
 
-    #[inline(always)]
-    fn to_local(&self, index: usize) -> (usize, usize) {
-        (index / self.chunk_size, index % self.chunk_size)
-    }
-
+    ///
+    /// Moves row from this storage to other with additional column's cell value.
+    /// Returns new reference to moved entity and and optional id of entity that was swapped with removed one in this storage
+    ///
     pub(crate) fn move_to<T: Default + 'static>(
         &self,
         dest: &mut ArchetypeStorage,
-        index: usize,
+        arch_ref: &ArchetypeRef,
         value: T,
-    ) -> (usize, Option<EntityId>) {
-        let (ch_num, local_index) = self.to_local(index);
-        let chunk = &self.chunks[ch_num];
-        let swapped_ent_id = chunk.move_to(dest, local_index);
-        let mut guard = dest.get_by_type::<T>().unwrap().write().unwrap();
-        let typed_col = cast_mut::<T>(guard.as_mut());
-        let idx = typed_col.len();
-        typed_col.push(value);
-        (
-            idx,
-            swapped_ent_id,
-        )
+    ) -> Result<(ArchetypeRef, Option<EntityId>), EntityError> {
+        let chunk = self
+            .chunks
+            .get(arch_ref.chunk_index())
+            .ok_or(EntityError::OutOfBounds)?;
+        let dest_ch_num = dest.index_of_available_chunk();
+        let dest_chunk = &dest.chunks[dest_ch_num];
+        let (new_index, swapped_ent_id) = chunk.move_to(arch_ref.local_index(), dest_chunk, value);
+        Ok((ArchetypeRef::new(dest_ch_num, new_index), swapped_ent_id))
     }
 
     ///
     /// Adds new row for passed entity to this storage
     ///
-    pub(crate) fn add(&mut self, ent_id: EntityId) -> usize {
-        let chunk_index = self.index_of_available_chunk().unwrap();
+    pub(crate) fn add(&mut self, ent_id: EntityId) -> ArchetypeRef {
+        let chunk_index = self.index_of_available_chunk();
         let local_index = self.chunks[chunk_index].add(ent_id);
-        chunk_index * self.chunk_size + local_index
+        ArchetypeRef::new(chunk_index, local_index)
     }
 
     ///
     /// Removes row from this storage. Returns id of moved enity (in case of swap remove)
     ///
-    pub(crate) fn remove(&self, index: usize) -> Option<EntityId> {
-        let (ch_num, local_index) = self.to_local(index);
-        if let Some(chunk) = self.chunks.get(ch_num) {
-            return chunk.remove(local_index);
-        }
-        None
+    pub(crate) fn remove(&self, arch_ref: &ArchetypeRef) -> Option<EntityId> {
+        self.chunks
+            .get(arch_ref.chunk_index())
+            .and_then(|ch| ch.remove(arch_ref.local_index()))
     }
 
     ///
@@ -423,7 +477,11 @@ pub use build_archetype;
 #[cfg(test)]
 mod test {
 
-    use crate::{archetype::ArchetypeStorage, component::ComponentStorage, entity::EntityId};
+    use crate::{
+        archetype::{ArchetypeRef, ArchetypeStorage},
+        component::ComponentStorage,
+        entity::EntityId,
+    };
 
     #[test]
     fn archetype_to_builder() {
@@ -437,18 +495,18 @@ mod test {
     }
 
     #[test]
-    fn test() {
-        let mut storage = ArchetypeStorage::new(build_archetype![i32, String, f64, bool], 3);
+    fn add_remove() {
+        let mut storage = ArchetypeStorage::new(build_archetype![i32, String, f64, bool], 256);
 
-        assert_eq!(0, storage.add(EntityId::new(1)));
-        assert_eq!(1, storage.add(EntityId::new(2)));
-        assert_eq!(2, storage.add(EntityId::new(3)));
+        assert_eq!(ArchetypeRef::new(0, 0), storage.add(EntityId::new(1)));
+        assert_eq!(ArchetypeRef::new(0, 1), storage.add(EntityId::new(2)));
+        assert_eq!(ArchetypeRef::new(0, 2), storage.add(EntityId::new(3)));
 
-        storage.remove(0);
-        storage.remove(1);
-        storage.remove(0);
+        storage.remove(&ArchetypeRef::new(0, 0));
+        storage.remove(&ArchetypeRef::new(0, 0));
+        storage.remove(&ArchetypeRef::new(0, 0));
 
-        assert_eq!(0, storage.add(EntityId::new(4)));
+        assert_eq!(ArchetypeRef::new(0, 0), storage.add(EntityId::new(4)));
 
         storage.get_by_type::<i32>().unwrap();
         storage.get_by_type::<f64>().unwrap();
@@ -461,5 +519,79 @@ mod test {
         assert!(storage.row_count() > 0);
         storage.clear();
         assert_eq!(0, storage.row_count());
+    }
+
+    #[test]
+    fn move_to() {
+        let e1 = EntityId::new(1);
+        let e2 = EntityId::new(2);
+        let e3 = EntityId::new(3);
+        let e4 = EntityId::new(4);
+
+        // Force many small chunks
+        let mut src = ArchetypeStorage::new(build_archetype![String, f64, bool], 1);
+        let mut dest = ArchetypeStorage::new(build_archetype![String, f64, bool, i32], 1);
+
+        assert_eq!(ArchetypeRef::new(0, 0), src.add(e1));
+        assert_eq!(ArchetypeRef::new(1, 0), src.add(e2));
+        assert_eq!(ArchetypeRef::new(2, 0), src.add(e3));
+        assert_eq!(ArchetypeRef::new(3, 0), src.add(e4));
+
+        assert_eq!(
+            (ArchetypeRef::new(0, 0), None),
+            src.move_to(&mut dest, &ArchetypeRef::new(0, 0), 1i32)
+                .unwrap()
+        );
+        assert_eq!(
+            (ArchetypeRef::new(1, 0), None),
+            src.move_to(&mut dest, &ArchetypeRef::new(1, 0), 2i32)
+                .unwrap()
+        );
+        assert_eq!(
+            (ArchetypeRef::new(2, 0), None),
+            src.move_to(&mut dest, &ArchetypeRef::new(2, 0), 3i32)
+                .unwrap()
+        );
+        assert_eq!(
+            (ArchetypeRef::new(3, 0), None),
+            src.move_to(&mut dest, &ArchetypeRef::new(3, 0), 4i32)
+                .unwrap()
+        );
+
+        assert_eq!(0, src.row_count());
+        assert_eq!(4, dest.row_count());
+
+        // Check big chunks
+        let mut src = ArchetypeStorage::new(build_archetype![String, f64, bool], 1000);
+        let mut dest = ArchetypeStorage::new(build_archetype![String, f64, bool, i32], 1000);
+
+        assert_eq!(ArchetypeRef::new(0, 0), src.add(e1));
+        assert_eq!(ArchetypeRef::new(0, 1), src.add(e2));
+        assert_eq!(ArchetypeRef::new(0, 2), src.add(e3));
+        assert_eq!(ArchetypeRef::new(0, 3), src.add(e4));
+
+        assert_eq!(
+            (ArchetypeRef::new(0, 0), Some(e4)),
+            src.move_to(&mut dest, &ArchetypeRef::new(0, 0), 1i32)
+                .unwrap()
+        );
+        assert_eq!(
+            (ArchetypeRef::new(0, 1), Some(e3)),
+            src.move_to(&mut dest, &ArchetypeRef::new(0, 1), 2i32)
+                .unwrap()
+        );
+        assert_eq!(
+            (ArchetypeRef::new(0, 2), None),
+            src.move_to(&mut dest, &ArchetypeRef::new(0, 1), 3i32)
+                .unwrap()
+        );
+        assert_eq!(
+            (ArchetypeRef::new(0, 3), None),
+            src.move_to(&mut dest, &ArchetypeRef::new(0, 0), 4i32)
+                .unwrap()
+        );
+
+        assert_eq!(0, src.row_count());
+        assert_eq!(4, dest.row_count());
     }
 }

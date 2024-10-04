@@ -10,9 +10,11 @@ pub enum EntityError {
     #[snafu(display("No such entity!"))]
     NotFound,
     #[snafu(display("No such archetype!"))]
-    NotSuchArchetype,
+    NoSuchArchetype,
     #[snafu(display("Lock is poisoned!"))]
     LockPoisoned,
+    #[snafu(display("Index is out of bounds!"))]
+    OutOfBounds
 }
 
 impl<T> From<PoisonError<T>> for EntityError {

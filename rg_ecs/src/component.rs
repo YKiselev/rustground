@@ -28,8 +28,6 @@ pub trait ComponentStorage {
 
     fn as_mut_any(&mut self) -> &mut dyn Any;
 
-    fn create_new(&self) -> Box<dyn ComponentStorage>;
-
     fn add(&mut self) -> usize;
 
     fn remove(&mut self, index: usize);
@@ -82,10 +80,6 @@ impl<T: Any + Default + 'static> ComponentStorage for TypedComponentStorage<T> {
 
     fn as_mut_any(&mut self) -> &mut dyn Any {
         self
-    }
-
-    fn create_new(&self) -> Box<dyn ComponentStorage> {
-        Box::new(TypedComponentStorage::<T>::with_capacity(self.capacity()))
     }
 
     fn add(&mut self) -> usize {
