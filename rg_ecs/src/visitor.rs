@@ -118,6 +118,6 @@ mod test {
     fn visitor() {
         let _ = visit_2::<i32, f64, _>(|_| {});
         let _ = visit_2b::<i32, f64, _>(|_| {});
-        let _ = visit_3::<i32, f64, i64, _>(|_,_,_| {});
+        let _ = visit_3::<i32, f64, i64, _>(|_, _, _| {});
     }
 }

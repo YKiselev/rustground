@@ -14,7 +14,7 @@ pub enum EntityError {
     #[snafu(display("Lock is poisoned!"))]
     LockPoisoned,
     #[snafu(display("Index is out of bounds!"))]
-    OutOfBounds
+    OutOfBounds,
 }
 
 impl<T> From<PoisonError<T>> for EntityError {
