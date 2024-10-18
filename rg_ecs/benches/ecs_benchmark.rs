@@ -35,7 +35,7 @@ fn init_storage(chunk_size: usize, count: Option<usize>) -> (Entities, Archetype
 }
 
 fn ecs_benchmark(c: &mut Criterion) {
-    let (entities, arch_id1, arch_id2) = init_storage(16000, None);
+    let (entities, arch_id1, arch_id2) = init_storage(128 * 1024, None);
 
     c.bench_function("ecs add arch #1", |b| {
         b.iter(|| entities.add(Some(black_box(arch_id1))))
@@ -84,7 +84,7 @@ fn ecs_benchmark(c: &mut Criterion) {
         loc.1 += dir.1 * vel.1;
         loc.2 += dir.2 * vel.2;
     };
-    for chunk_size in [8 * 1024, 16 * 1024, 32 * 1024, 64 * 1024] {
+    for chunk_size in [64 * 1024, 128 * 1024, 256 * 1024, 512 * 1024, 1024 * 1024] {
         let (entities, _, _) = init_storage(chunk_size, Some(1000000));
         let name = format!("ecs visit e1 (chunk_size={chunk_size})");
         c.bench_function(&name, |b| {

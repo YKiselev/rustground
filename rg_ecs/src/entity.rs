@@ -1,9 +1,9 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{hash_map::Values, HashMap, HashSet},
     fmt::Debug,
     sync::{
         atomic::{AtomicU32, Ordering},
-        RwLock,
+        RwLock, RwLockReadGuard,
     },
 };
 
@@ -52,7 +52,7 @@ impl EntityRef {
 type EntityRefMap = HashMap<EntityId, EntityRef>;
 type ArchetypeMap = HashMap<ArchetypeId, RwLock<ArchetypeStorage>>;
 
-struct EntityStorage {
+pub(crate) struct EntityStorage {
     def_arch_id: ArchetypeId,
     chunk_size_in_bytes: usize,
     entity_seq: AtomicU32,
@@ -210,6 +210,10 @@ impl EntityStorage {
             lock.write().unwrap().clear();
         }
     }
+
+    pub(crate) fn archetypes(&self) -> Values<'_, ArchetypeId, RwLock<ArchetypeStorage>> {
+        self.archetypes.values()
+    }
 }
 
 ///
@@ -290,6 +294,11 @@ impl Entities {
     ///
     pub fn clear(&self) {
         self.storage.write().unwrap().clear();
+    }
+
+    #[doc(hidden)]
+    pub(crate) fn read(&self) -> RwLockReadGuard<'_, EntityStorage> {
+        self.storage.read().unwrap()
     }
 }
 

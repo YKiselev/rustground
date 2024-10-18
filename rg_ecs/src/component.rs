@@ -12,7 +12,10 @@ use std::{
 pub struct ComponentId(TypeId);
 
 impl ComponentId {
-    pub fn new<T: Default + 'static>() -> Self {
+    pub fn new<T>() -> Self
+    where
+        T: 'static,
+    {
         ComponentId(TypeId::of::<T>())
     }
 }
@@ -38,14 +41,14 @@ pub trait ComponentStorage {
 /// Helper functions
 ///
 #[inline]
-pub(crate) fn try_cast<'a, T: Default + 'static>(
+pub(crate) fn try_cast<'a, T: 'static>(
     value: &'a dyn ComponentStorage,
 ) -> Option<&'a TypedComponentStorage<T>> {
     value.as_any().downcast_ref::<TypedComponentStorage<T>>()
 }
 
 #[inline]
-pub(crate) fn try_cast_mut<'a, T: Default + 'static>(
+pub(crate) fn try_cast_mut<'a, T: 'static>(
     value: &'a mut dyn ComponentStorage,
 ) -> Option<&'a mut TypedComponentStorage<T>> {
     value
@@ -54,14 +57,14 @@ pub(crate) fn try_cast_mut<'a, T: Default + 'static>(
 }
 
 #[inline(always)]
-pub(crate) fn cast<'a, T: Default + 'static>(
+pub(crate) fn cast<'a, T: 'static>(
     value: &'a dyn ComponentStorage,
 ) -> &'a TypedComponentStorage<T> {
     try_cast::<T>(value).unwrap()
 }
 
 #[inline(always)]
-pub(crate) fn cast_mut<'a, T: Default + 'static>(
+pub(crate) fn cast_mut<'a, T: 'static>(
     value: &'a mut dyn ComponentStorage,
 ) -> &'a mut TypedComponentStorage<T> {
     try_cast_mut(value).unwrap()
