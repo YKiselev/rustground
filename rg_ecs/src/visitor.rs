@@ -145,7 +145,7 @@ impl<T: 'static> CompRef for &mut T {
 trait Accessor {
     type Guard<'a>;
     type Slice<'a>;
-    //type SliceItemRef<'a>;
+    type SliceItemRef<'a>;
 
     fn lock(chunk: &Chunk) -> Self::Guard<'_>;
 
@@ -153,7 +153,7 @@ trait Accessor {
 
     fn len(slice: &Self::Slice<'_>) -> usize;
 
-    fn get_at<'a>(slice: &'a mut Self::Slice<'_>, index: usize) -> Self;//::SliceItemRef<'a>;
+    fn get_at<'a>(slice: &'a mut Self::Slice<'_>, index: usize) -> Self::SliceItemRef<'a>;
 }
 /*
 impl<T> Accessor for &T
@@ -191,7 +191,7 @@ where
 {
     type Guard<'a> = RwLockWriteGuard<'a, Box<dyn ComponentStorage>>;
     type Slice<'a> = &'a mut [T];
-    //type SliceItemRef<'a> = &'a mut T;
+    type SliceItemRef<'a> = &'a mut T;
 
     fn lock(chunk: &Chunk) -> Self::Guard<'_> {
         chunk
@@ -209,7 +209,7 @@ where
         slice.len()
     }
 
-    fn get_at<'a>(slice: &'a mut Self::Slice<'_>, index: usize) -> Self/*::SliceItemRef<'a>*/ {
+    fn get_at<'a>(slice: &'a mut Self::Slice<'_>, index: usize) -> Self::SliceItemRef<'a> {
         &mut slice[index]
     }
 }
@@ -217,7 +217,7 @@ where
 impl<A, H> Visitor1<A, H>
 where
     H: Fn(A),
-    for<'a> A: CompRef + Accessor//<SliceItemRef<'a> = A> + 'a,
+    for<'a> A: CompRef + Accessor<SliceItemRef<'a> = A> + 'a,
 {
     fn new(handler: H) -> Self {
         Visitor1 {
@@ -236,8 +236,8 @@ where
         let mut s1 = A::get_slice(&mut guard1);
         let len = A::len(&s1);
         for i in 0..len {
-            let v1:A = A::get_at(&mut s1, i);
-            //(self.handler)(v1);
+            let v1: A = A::get_at(&mut s1, i);
+            (self.handler)(v1);
         }
     }
 }
@@ -251,7 +251,7 @@ mod test {
         sync::{Arc, Mutex},
     };
 
-    use super::{visit_2, visit_2b, visit_3, Visitor1};
+    use super::{visit_2, visit_2b, visit_3, Accessor, Visitor1};
 
     fn sys1<'a>(a: &'a mut i32) {
         *a = 123;
@@ -259,6 +259,24 @@ mod test {
 
     fn sys2(a: &mut i32) {
         *a = 123;
+    }
+
+    fn access<'a, R>(slice: &'a mut R::Slice<'_>, index: usize) -> R
+    where
+        R: Accessor<SliceItemRef<'a> = R>,
+    {
+        R::get_at(slice, index)
+    }
+
+    #[test]
+    fn accessor() {
+        let mut v: Vec<i32> = vec![1, 2, 3];
+        let mut s = &mut v[..];
+        {
+            let m = access::<&mut i32>(&mut s, 0);
+            *m = 222;
+        }
+        assert_eq!(222, *access::<&mut i32>(&mut s, 0));
     }
 
     #[test]
@@ -272,7 +290,7 @@ mod test {
         };
         //let _ = Visitor1::new(clos1);
         //let _ = Visitor1::<&'_ mut i32, _>::new(|_: &mut i32| {});
-        let _ = Visitor1::new(sys2);
+        let _ = Visitor1::new(sys1);
         //let _ = Visitor1::<&mut i32, _>::new(|a|{});
     }
 }
