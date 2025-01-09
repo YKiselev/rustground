@@ -120,12 +120,6 @@ where
 ///
 ///
 ///
-struct Visitor1<A, H> {
-    components: Vec<ComponentId>,
-    handler: H,
-    _phantom: PhantomData<A>,
-}
-
 trait CompRef {
     fn component_id() -> ComponentId;
 }
@@ -145,7 +139,7 @@ impl<T: 'static> CompRef for &mut T {
 trait Accessor {
     type Guard<'a>;
     type Slice<'a>;
-    type SliceItemRef<'a>;
+    type ItemRef<'a>;
 
     fn lock(chunk: &Chunk) -> Self::Guard<'_>;
 
@@ -153,7 +147,7 @@ trait Accessor {
 
     fn len(slice: &Self::Slice<'_>) -> usize;
 
-    fn get_at<'a>(slice: &'a mut Self::Slice<'_>, index: usize) -> Self::SliceItemRef<'a>;
+    fn get_at<'a>(slice: &'a mut Self::Slice<'_>, index: usize) -> Self::ItemRef<'a>;
 }
 /*
 impl<T> Accessor for &T
@@ -162,7 +156,7 @@ where
 {
     type Guard<'a> = RwLockReadGuard<'a, Box<dyn ComponentStorage>>;
     type Slice<'a> = &'a [T];
-    //type SliceItemRef<'a> = Self;//&'a T;
+    type SliceItemRef<'a> = &'a T;
 
     fn lock(chunk: &Chunk) -> Self::Guard<'_> {
         chunk
@@ -180,7 +174,7 @@ where
         slice.len()
     }
 
-    fn get_at(slice: &mut Self::Slice<'_>, index: usize) -> Self /*::SliceItemRef<'a>*/ {
+    fn get_at<'a>(slice: &'a mut Self::Slice<'_>, index: usize) -> Self::SliceItemRef<'a> {
         &slice[index]
     }
 }
@@ -191,7 +185,7 @@ where
 {
     type Guard<'a> = RwLockWriteGuard<'a, Box<dyn ComponentStorage>>;
     type Slice<'a> = &'a mut [T];
-    type SliceItemRef<'a> = &'a mut T;
+    type ItemRef<'a> = &'a mut T;
 
     fn lock(chunk: &Chunk) -> Self::Guard<'_> {
         chunk
@@ -209,36 +203,43 @@ where
         slice.len()
     }
 
-    fn get_at<'a>(slice: &'a mut Self::Slice<'_>, index: usize) -> Self::SliceItemRef<'a> {
+    fn get_at<'a>(slice: &'a mut Self::Slice<'_>, index: usize) -> Self::ItemRef<'a> {
         &mut slice[index]
     }
 }
 
+struct Visitor1<A, H> {
+    component: ComponentId,
+    handler: H,
+    _phantom: PhantomData<A>,
+}
+
 impl<A, H> Visitor1<A, H>
 where
-    H: Fn(A),
-    for<'a> A: CompRef + Accessor<SliceItemRef<'a> = A> + 'a,
+     H: Fn(A),
+     for <'a> A: CompRef + Accessor<ItemRef<'a> = A> + 'a,
 {
     fn new(handler: H) -> Self {
         Visitor1 {
-            components: vec![A::component_id()],
+            component: A::component_id(),
             handler,
             _phantom: PhantomData::default(),
         }
     }
 
     fn accept(&self, columns: &HashSet<ComponentId>) -> bool {
-        self.components.iter().all(|c| columns.contains(c))
+        columns.contains(&self.component)
+        //self.components.iter().all(|c| columns.contains(c))
     }
 
     fn visit(&self, chunk: &Chunk) {
-        let mut guard1 = A::lock(chunk);
-        let mut s1 = A::get_slice(&mut guard1);
-        let len = A::len(&s1);
-        for i in 0..len {
-            let v1: A = A::get_at(&mut s1, i);
-            (self.handler)(v1);
-        }
+         let mut guard1 = A::lock(chunk);
+         let mut s1 = A::get_slice(&mut guard1);
+         let len = A::len(&s1);
+         for i in 0..len {
+             let v1 = A::get_at(&mut s1, i);
+             (self.handler)(v1);
+         }
     }
 }
 
@@ -247,50 +248,94 @@ mod test {
 
     use std::{
         any::Any,
+        marker::PhantomData,
         ops::{Deref, DerefMut},
         sync::{Arc, Mutex},
     };
 
-    use super::{visit_2, visit_2b, visit_3, Accessor, Visitor1};
-
-    fn sys1<'a>(a: &'a mut i32) {
-        *a = 123;
-    }
+    use super::{visit_2, visit_2b, visit_3, Accessor, CompRef, Visitor1};
 
     fn sys2(a: &mut i32) {
         *a = 123;
     }
 
-    fn access<'a, R>(slice: &'a mut R::Slice<'_>, index: usize) -> R
-    where
-        R: Accessor<SliceItemRef<'a> = R>,
-    {
-        R::get_at(slice, index)
-    }
+    fn sys3(a: &i32) {}
+
+    // #[inline(never)]
+    // fn access<'a, R>(mut slice: R::Slice<'a>, index: usize) -> R
+    // where
+    //     R: Accessor<SliceItemRef<'a> = R> + 'a,
+    // {
+    //     R::get_at(&mut slice, index)
+    // }
+
+    // fn access2<'a, R, H>(mut slice: R::Slice<'a>, index: usize, handler: H)
+    // where
+    //     R: Accessor<SliceItemRef<'a> = R> + 'a,
+    //     H: Fn(R),
+    // {
+    //     (handler)(R::get_at(&mut slice, index));
+    // }
+
+    // struct V<A, H> {
+    //     handler: H,
+    //     _phantom: PhantomData<A>,
+    // }
+
+    // impl<'a, A, H> V<A, H>
+    // where
+    //     H: Fn(A),
+    //     A: Accessor<SliceItemRef<'a> = A> + 'a,
+    // {
+    //     fn new(handler: H) -> Self {
+    //         Self {
+    //             handler,
+    //             _phantom: PhantomData::default(),
+    //         }
+    //     }
+
+    //     fn call_at(&self, mut slice: A::Slice<'a>, index: usize) {
+    //         (self.handler)(A::get_at(&mut slice, index));
+    //     }
+    // }
 
     #[test]
     fn accessor() {
         let mut v: Vec<i32> = vec![1, 2, 3];
-        let mut s = &mut v[..];
-        {
-            let m = access::<&mut i32>(&mut s, 0);
-            *m = 222;
-        }
-        assert_eq!(222, *access::<&mut i32>(&mut s, 0));
+        let s = &mut v[..];
+        // *access::<&mut i32>(s, 0) = 111;
+        // *access::<&mut i32>(s, 0) = 222;
+        // assert_eq!(222, *access::<&i32>(s, 0));
+        // assert_eq!(222, *access::<&i32>(s, 0));
+
+        // access2::<&mut i32, _>(s, 0, |v: &mut i32| *v = 222);
+        // access2::<&mut i32, _>(s, 0, |v: &mut i32| *v = 333);
+        // access2::<&mut i32, _>(s, 0, sys2);
+        // access2::<&mut i32, _>(s, 0, sys2);
+
+        // let vis = V::new(sys2);
+        // vis.call_at(s, 0);
+    }
+
+    #[test]
+    fn visit_N() {
+        let _ = visit_2::<i32, f64, _>(|_| {});
+        let _ = visit_2b::<i32, f64, _>(|_| {});
+        let _ = visit_3::<i32, f64, i64, _>(|_, _, _| {});
     }
 
     #[test]
     fn visitor() {
-        let _ = visit_2::<i32, f64, _>(|_| {});
-        let _ = visit_2b::<i32, f64, _>(|_| {});
-        let _ = visit_3::<i32, f64, i64, _>(|_, _, _| {});
-
-        let clos1 = |a: &i32| {
-            //*a = 321;
+        let clos1 = |a: &mut i32| {
+            *a = 321;
         };
-        //let _ = Visitor1::new(clos1);
-        //let _ = Visitor1::<&'_ mut i32, _>::new(|_: &mut i32| {});
-        let _ = Visitor1::new(sys1);
-        //let _ = Visitor1::<&mut i32, _>::new(|a|{});
+        // let _: Visitor1<&mut i32, _> = Visitor1::new(clos1);
+        // let _: Visitor1<&mut i32, _> = Visitor1::new(|_: &mut i32| {});
+        // let _: Visitor1<&mut i32, _> = Visitor1::new(sys2);
+
+        let clos1 = |a: &i32| {};
+        // let _ = Visitor1::new(clos1);
+        //let _ = Visitor1::new(|_: &i32| {});
+        // let _ = Visitor1::new(sys3);
     }
 }
