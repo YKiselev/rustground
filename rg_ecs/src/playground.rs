@@ -5,12 +5,14 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
+use crate::archetype::Chunk;
+
 trait Accessor {
     type ItemRef<'b>
     where
         Self: 'b;
 
-    fn len(self) -> usize;
+    fn len(&self) -> usize;
 
     fn get_at(&mut self, index: usize) -> Self::ItemRef<'_>;
 }
@@ -43,7 +45,7 @@ where
     where
         Self: 'b;
 
-    fn len(self) -> usize {
+    fn len(&self) -> usize {
         self.slice.len()
     }
 
@@ -80,7 +82,7 @@ where
     where
         Self: 'b;
 
-    fn len(self) -> usize {
+    fn len(&self) -> usize {
         self.slice.len()
     }
 
@@ -89,52 +91,32 @@ where
     }
 }
 
-// struct AccessBuilder {
-//     head: Option<Accessor>,
-//     tail: Option<AccessBuilder>,
+
+// struct Visitor1<A> {
+//     handler: H,
+//     _phantom: PhantomData<A>,
 // }
 
-// impl AccessBuilder {
-//     fn new() -> Self {
-//         Self {
-//             head: None,
-//             tail: None,
+// impl<A> Visitor1<A>
+// where
+//     H: Fn(A),
+//     for <'a> A: Accessor<ItemRef = A>
+// {
+//     fn new(handler: H) -> Self {
+//         Visitor1 {
+//             handler,
+//             //_phantom: PhantomData::default(),
 //         }
 //     }
 
-//     fn with_mut<T>() -> Self {
-//         Self{
-//             head: MutRef::new(slice)
+//     fn visit<'a>(&self, s1: <A as Accessor<_>>::Slice) {
+//         let len = A::len(s1);
+//         for i in 0..len {
+//             let v1 = A::get_at(s1, i);
+//             //(self.handler)(v1);
 //         }
 //     }
 // }
-
-/*
-struct Visitor1<A> {
-    //handler: H,
-    _phantom: PhantomData<A>,
-}
-
-impl<A> Visitor1<A>
-where
-    //H: Fn(A),
-    for <'a> A: Accessor<ItemRef = A>
-{
-    fn new() -> Self {
-        Visitor1 {
-            //handler,
-            _phantom: PhantomData::default(),
-        }
-    }
-
-    fn visit<'a>(&self, s1: <A as Accessor<_>>::Slice) {
-        let len = A::len(s1);
-        for i in 0..len {
-            let v1 = A::get_at(s1, i);
-            //(self.handler)(v1);
-        }
-    }
-}*/
 
 #[cfg(test)]
 mod test {

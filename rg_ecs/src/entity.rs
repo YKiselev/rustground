@@ -310,7 +310,7 @@ mod test {
 
     use std::collections::HashSet;
 
-    use crate::{build_archetype, component::ComponentId, entity::EntityId, visitor::visit_2};
+    use crate::{build_archetype, component::ComponentId, entity::EntityId};
 
     use super::Entities;
 
@@ -363,8 +363,8 @@ mod test {
         );
 
         let columns = HashSet::from([ComponentId::new::<EntityId>(), ComponentId::new::<String>()]);
-        let v2 = visit_2::<EntityId, String, _>(move |(_, _)| {});
-        let (ac, cc, rc) = entities.visit(&columns, v2);
-        println!("archs={}, chunks={}, rows={}", ac, cc, rc);
+        // let v2 = visit_2::<EntityId, String, _>(move |(_, _)| {});
+        // let (ac, cc, rc) = entities.visit(&columns, v2);
+        // println!("archs={}, chunks={}, rows={}", ac, cc, rc);
     }
 }
