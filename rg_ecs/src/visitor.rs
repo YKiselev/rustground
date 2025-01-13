@@ -1,4 +1,5 @@
 use std::{
+    any::Any,
     borrow::{Borrow, BorrowMut},
     collections::HashSet,
     marker::PhantomData,
@@ -13,8 +14,7 @@ use crate::{
 };
 
 ///
-///
-///
+/// Component reference
 ///
 trait CompRef {
     fn component_id() -> ComponentId;
@@ -32,24 +32,31 @@ impl<T: 'static> CompRef for &mut T {
     }
 }
 
-/**
- * Locker
- */
+///
+/// Locker
+///
 trait Locker {
-    type Guard<'a>;
-    type Slice<'a>;
+    type Ty: 'static;
+    type Guard<'g>;
+    type Iter<'i>: Iterator;
 
     fn lock(chunk: &Chunk) -> Self::Guard<'_>;
 
-    fn get_slice<'a>(guard: &'a mut Self::Guard<'_>) -> Self::Slice<'a>;
+    fn iter<'a>(guard: &'a mut Self::Guard<'_>) -> Self::Iter<'a>;
 }
 
-impl<T> Locker for &mut T
+struct MutRef<T> {
+    _phantom: PhantomData<T>,
+}
+
+impl<T> Locker for MutRef<T>
 where
     T: 'static,
 {
-    type Guard<'a> = RwLockWriteGuard<'a, Box<dyn ComponentStorage>>;
-    type Slice<'a> = MutRef<'a, T>;
+    type Ty = T;
+    type Guard<'g> = RwLockWriteGuard<'g, Box<dyn ComponentStorage>>;
+
+    type Iter<'i> = core::slice::IterMut<'i, T>;
 
     fn lock(chunk: &Chunk) -> Self::Guard<'_> {
         chunk
@@ -59,179 +66,20 @@ where
             .unwrap()
     }
 
-    fn get_slice<'a>(guard: &'a mut Self::Guard<'_>) -> Self::Slice<'a> {
-        MutRef::new(cast_mut::<T>(guard.as_mut()))
+    fn iter<'a>(guard: &'a mut Self::Guard<'_>) -> Self::Iter<'a> {
+        cast_mut::<T>(guard.as_mut()).iter_mut()
     }
 }
 
-impl<T> Locker for &T
-where
-    T: 'static,
-{
-    type Guard<'a> = RwLockReadGuard<'a, Box<dyn ComponentStorage>>;
-    type Slice<'a> = SharedRef<'a, T>;
-
-    fn lock(chunk: &Chunk) -> Self::Guard<'_> {
-        chunk
-            .get_column(ComponentId::new::<T>())
-            .unwrap()
-            .read()
-            .unwrap()
-    }
-
-    fn get_slice<'a>(guard: &'a mut Self::Guard<'_>) -> Self::Slice<'a> {
-        SharedRef::new(cast::<T>(guard.as_ref()))
+impl<T: 'static> CompRef for MutRef<T> {
+    fn component_id() -> ComponentId {
+        ComponentId::new::<T>()
     }
 }
 
-/**
- * Accessor trait
- */
-trait Accessor {
-    type ItemRef<'b>;
-    // where
-    //     Self: 'b;
-
-    fn len(&self) -> usize;
-
-    fn get_at(&mut self, index: usize) -> Self::ItemRef<'_>;
-}
-
-/**
- * Mutable reference
- */
-struct MutRef<'a, T>
-where
-    T: 'static,
-{
-    slice: &'a mut [T],
-}
-
-impl<'a, T> MutRef<'a, T>
-where
-    T: 'static,
-{
-    fn new(slice: &'a mut [T]) -> Self {
-        MutRef { slice }
-    }
-}
-
-impl<'a, T> Accessor for MutRef<'a, T>
-where
-    T: 'static,
-{
-    type ItemRef<'b>
-        = &'b mut T;
-    // where
-    //     Self: 'b;
-
-    fn len(&self) -> usize {
-        self.slice.len()
-    }
-
-    fn get_at(&mut self, index: usize) -> Self::ItemRef<'_> {
-        &mut self.slice[index]
-    }
-}
-
-/**
- * Shared reference
- */
-struct SharedRef<'a, T>
-where
-    T: 'static,
-{
-    slice: &'a [T],
-}
-
-impl<'a, T> SharedRef<'a, T>
-where
-    T: 'static,
-{
-    fn new(slice: &'a [T]) -> Self {
-        SharedRef { slice }
-    }
-}
-
-impl<'a, T> Accessor for SharedRef<'a, T>
-where
-    T: 'static,
-{
-    type ItemRef<'b>
-        = &'b T;
-    // where
-    //     Self: 'b;
-
-    fn len(&self) -> usize {
-        self.slice.len()
-    }
-
-    fn get_at(&mut self, index: usize) -> Self::ItemRef<'_> {
-        &self.slice[index]
-    }
-}
-/*
-impl<T> Accessor for &T
-where
-    T: 'static,
-{
-    //type Guard<'a> = RwLockReadGuard<'a, Box<dyn ComponentStorage>>;
-    //type Slice<'a> = &'a [T];
-    type ItemRef<'a> = &'a T;
-
-    // fn lock(chunk: &Chunk) -> Self::Guard<'_> {
-    //     chunk
-    //         .get_column(ComponentId::new::<T>())
-    //         .unwrap()
-    //         .read()
-    //         .unwrap()
-    // }
-
-    // fn get_slice<'a>(guard: &'a mut Self::Guard<'_>) -> Self::Slice<'a> {
-    //     cast::<T>(guard.as_ref())
-    // }
-
-    fn len(slice: &Self::Slice<'_>) -> usize {
-        slice.len()
-    }
-
-    fn get_at<'a>(&mut self, index: usize) -> Self::ItemRef<'a> {
-        &self.slice[index]
-    }
-}
-
-impl<T> Accessor for &mut T
-where
-    T: 'static,
-{
-    //type Guard<'a> = RwLockWriteGuard<'a, Box<dyn ComponentStorage>>;
-    //type Slice<'a> = &'a mut [T];
-    type ItemRef<'a>
-        = &'a mut T
-    where
-        Self: 'a;
-
-    // fn lock(chunk: &Chunk) -> Self::Guard<'_> {
-    //     chunk
-    //         .get_column(ComponentId::new::<T>())
-    //         .unwrap()
-    //         .write()
-    //         .unwrap()
-    // }
-
-    // fn get_slice<'a>(guard: &'a mut Self::Guard<'_>) -> Self::Slice<'a> {
-    //     cast_mut::<T>(guard.as_mut())
-    // }
-
-    fn len(&self) -> usize {
-        slice.len()
-    }
-
-    fn get_at<'a>(slice: &'a mut Self::Slice<'_>, index: usize) -> Self::ItemRef<'a> {
-        &mut slice[index]
-    }
-}
-*/
+///
+/// Visitor1
+///
 struct Visitor1<A, H> {
     component: ComponentId,
     handler: H,
@@ -240,13 +88,12 @@ struct Visitor1<A, H> {
 
 impl<A, H> Visitor1<A, H>
 where
-    H: Fn(A),
-    for<'a> A: CompRef + Locker,
-    for<'a, 'b> <A as Locker>::Slice<'b>: Accessor<ItemRef<'a> = A>,
+    H: Fn(A::Iter<'_>),
+    A: Locker,
 {
     fn new(handler: H) -> Self {
         Visitor1 {
-            component: A::component_id(),
+            component: ComponentId::new::<A::Ty>(),
             handler,
             _phantom: PhantomData::default(),
         }
@@ -259,12 +106,8 @@ where
 
     fn visit(&self, chunk: &Chunk) {
         let mut guard1 = A::lock(chunk);
-        let mut s1 = A::get_slice(&mut guard1);
-        let len = s1.len();
-        for i in 0..len {
-            let v1 = s1.get_at(i);
-            (self.handler)(v1);
-        }
+        let mut it1 = A::iter(&mut guard1);
+        (self.handler)(it1);
     }
 }
 
@@ -272,17 +115,31 @@ where
 mod test {
 
     use std::{
+        alloc::Layout,
         any::Any,
         marker::PhantomData,
         ops::{Deref, DerefMut},
         sync::{Arc, Mutex},
     };
 
-    use super::{Accessor, CompRef, Visitor1};
+    use crate::{archetype::ArchetypeStorage, build_archetype, entity::EntityId};
+
+    use super::{CompRef, MutRef, Visitor1};
 
     #[test]
     fn visitor() {
-        let _ = Visitor1::new(|_: &i32| {});
-        // let _ = Visitor1::new(sys3);
+        let vis = Visitor1::<MutRef<i32>, _>::new(|mut it1| {
+            while let Some(v1) = it1.next() {
+                dbg!(v1);
+            }
+        });
+
+        let mut storage = ArchetypeStorage::new(build_archetype![String, f64, bool, i32], 1000);
+        for i in 0..1000 {
+            storage.add(EntityId::new(i));
+        }
+        for chunk in storage.iter() {
+            vis.visit(chunk);
+        }
     }
 }

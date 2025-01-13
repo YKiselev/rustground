@@ -190,7 +190,7 @@ impl EntityStorage {
         let mut arch_count: usize = 0;
         let mut chunk_count: usize = 0;
         let mut row_count: usize = 0;
-        for (_, v) in self.archetypes.iter() {
+        for v in self.archetypes.values() {
             let guard = v.read().unwrap();
             if !columns.iter().all(|c| guard.archetype.has_component(c)) {
                 continue;
