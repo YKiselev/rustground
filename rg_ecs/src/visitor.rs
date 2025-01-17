@@ -14,25 +14,6 @@ use crate::{
 };
 
 ///
-/// Component reference
-///
-trait CompRef {
-    fn component_id() -> ComponentId;
-}
-
-impl<T: 'static> CompRef for &T {
-    fn component_id() -> ComponentId {
-        ComponentId::new::<T>()
-    }
-}
-
-impl<T: 'static> CompRef for &mut T {
-    fn component_id() -> ComponentId {
-        ComponentId::new::<T>()
-    }
-}
-
-///
 /// Locker
 ///
 trait Locker {
@@ -90,72 +71,6 @@ where
     }
 }
 
-/*
-struct MutRef<T> {
-    _phantom: PhantomData<T>,
-}
-
-impl<T> Locker for MutRef<T>
-where
-    T: 'static,
-{
-    type Ty = T;
-    type Guard<'g> = RwLockWriteGuard<'g, Box<dyn ComponentStorage>>;
-    type Item<'r> = &'r mut T;
-    type Iter<'i> = core::slice::IterMut<'i, T>;
-
-    fn lock(chunk: &Chunk) -> Self::Guard<'_> {
-        chunk
-            .get_column(ComponentId::new::<T>())
-            .unwrap()
-            .write()
-            .unwrap()
-    }
-
-    fn iter<'a>(guard: &'a mut Self::Guard<'_>) -> Self::Iter<'a> {
-        cast_mut::<T>(guard.as_mut()).iter_mut()
-    }
-}
-
-impl<T: 'static> CompRef for MutRef<T> {
-    fn component_id() -> ComponentId {
-        ComponentId::new::<T>()
-    }
-}
-
-struct Ref<T> {
-    _phantom: PhantomData<T>,
-}
-
-impl<T> Locker for Ref<T>
-where
-    T: 'static,
-{
-    type Ty = T;
-    type Guard<'g> = RwLockReadGuard<'g, Box<dyn ComponentStorage>>;
-    type Item<'r> = &'r T;
-    type Iter<'i> = core::slice::Iter<'i, T>;
-
-    fn lock(chunk: &Chunk) -> Self::Guard<'_> {
-        chunk
-            .get_column(ComponentId::new::<T>())
-            .unwrap()
-            .read()
-            .unwrap()
-    }
-
-    fn iter<'a>(guard: &'a mut Self::Guard<'_>) -> Self::Iter<'a> {
-        cast::<T>(guard.as_ref()).iter()
-    }
-}
-
-impl<T: 'static> CompRef for Ref<T> {
-    fn component_id() -> ComponentId {
-        ComponentId::new::<T>()
-    }
-}
-*/
-
 fn comp_id<L: Locker>() -> ComponentId {
     ComponentId::new::<L::Ty>()
 }
@@ -184,7 +99,6 @@ where
 
     fn accept(&self, columns: &HashSet<ComponentId>) -> bool {
         columns.contains(&self.component)
-        //self.components.iter().all(|c| columns.contains(c))
     }
 
     fn visit(&self, chunk: &Chunk) {
