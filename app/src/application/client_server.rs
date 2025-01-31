@@ -10,10 +10,9 @@ pub(crate) fn run_client_server(args: Arguments) -> Result<(), AppError> {
     info!("Begin initialization...");
 
     let app = Arc::new(App::new(args));
-    //let mut state: Box<dyn AppState> = Box::new(InitialState::default());
     info!("Entering main loop...");
     let mut client = Client::new(&app);
-    let (_, sv_handle) = server_init(&app).expect("Server initialization failed!");
+    let (server, sv_handle) = server_init(&app).expect("Server initialization failed!");
     while !app.exit_flag() {
         client.frame_start();
 

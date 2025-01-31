@@ -33,7 +33,7 @@ pub(crate) fn server_init(
                     m += 1;
                 }
                 if m == 0 {
-                    thread::sleep(Duration::from_millis((MILLIS_PER_UPDATE - lag) as u64));
+                    thread::sleep(Duration::from_millis((MILLIS_PER_UPDATE - lag) as _));
                 }
             }
             info!("Server loop ended.");

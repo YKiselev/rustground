@@ -15,3 +15,7 @@ rand = "0.8.5"
 serde = "1.0.204"
 toml = "0.8.19"
 bitcode = { version = "0.6.0", features = ["serde"] }
+snafu = "0.8.4"
+argh = "0.1.13"
+mio = { version="1.0.3",features = ["os-poll", "net"]}
+musli-zerocopy = "0.0.126"

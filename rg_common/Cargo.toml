@@ -9,3 +9,4 @@ dirs = "5.0.1"
 toml = "0.8.19"
 serde = {  version = "1.0.204", features = ["derive"] }
 rg_macros = { path = "../rg_macros" }
+argh = "0.1.13"

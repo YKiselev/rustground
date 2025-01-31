@@ -1,5 +1,6 @@
 extern crate core;
 
+use argh::FromArgs;
 use error::AppError;
 
 use rg_common::Arguments;
@@ -13,7 +14,7 @@ mod net;
 mod server;
 
 fn main() -> Result<(), AppError> {
-    let args = Arguments::parse();
+    let args: Arguments = argh::from_env();
     if args.dedicated() {
         todo!("Not implemented!");
     } else {

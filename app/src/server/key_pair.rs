@@ -1,6 +1,7 @@
 use std::{error::Error, fmt::Display};
 
 use rsa::{Pkcs1v15Encrypt, RsaPrivateKey, RsaPublicKey};
+use snafu::Snafu;
 
 use crate::error::AppError;
 
@@ -10,16 +11,17 @@ pub(crate) struct KeyPair {
     public_key: RsaPublicKey,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Snafu)]
+#[snafu(display("Key pair error: {message}"))]
 pub(crate) struct KeyPairError {
     pub message: String,
 }
 
-impl Error for KeyPairError {}
-
-impl Display for KeyPairError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.message)
+impl KeyPairError {
+    pub(crate) fn new<S: AsRef<str>>(message: S) -> Self {
+        Self {
+            message: message.as_ref().to_owned(),
+        }
     }
 }
 

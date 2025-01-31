@@ -87,7 +87,7 @@ impl Server {
                 .and_then(|v| {
                     from_utf8(&v)
                         .map(|p| password.eq(p))
-                        .map_err(|e| KeyPairError::default())
+                        .map_err(|e| KeyPairError::new("aaaaaa!"))
                 })
                 .unwrap_or(false);
         }

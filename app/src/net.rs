@@ -41,6 +41,7 @@ pub(crate) trait ServerEndpoint: Endpoint {
     ) -> io::Result<Box<dyn Endpoint + Sync + Send>>;
 }
 
+//#[derive(Copy)]
 pub struct NetEndpoint {
     socket: UdpSocket,
     send_buf: Vec<u8>,
@@ -220,4 +221,89 @@ fn encode_inline_never<T: Encode + ?Sized>(encoder: &mut T::Encoder, t: &T) {
 #[inline(never)]
 pub(crate) fn decode_inline_never<'a, T: Decode<'a>>(decoder: &mut T::Decoder) -> T {
     decoder.decode()
+}
+
+
+#[cfg(test)]
+mod tests {
+    use musli_zerocopy::{OwnedBuf, Ref, ZeroCopy};
+
+    #[derive(ZeroCopy, Debug)]
+    #[repr(u8)]
+    enum Packet {
+        Ack(u32),
+        ServerInfo(ServerInfo)
+    }
+
+    #[derive(ZeroCopy, Debug)]
+    #[repr(C)]
+    struct ServerInfo {
+        name: Ref<str>,
+        map: Ref<str>,
+        public_key: Ref<[u8]>,
+        is_public: bool,
+        max_players: u16
+    }
+
+    #[test]
+    fn musli_sv_info() {
+        let mut buf = OwnedBuf::new();
+
+        //buf.align_in_place::<ServerInfo>();
+        let name = buf.store_unsized("Best Server");
+        let map = buf.store_unsized("e1m1");
+        let public_key = buf.store_slice(&[1,2,3,4,5,6,7,8]);
+        let res = buf.store(&ServerInfo{
+            name,
+            map,
+            public_key,
+            is_public: false,
+            max_players: 18u16.to_le()
+        });
+        dbg!(res);
+
+        let bytes = &buf[..];
+        dbg!(bytes);
+
+        let mut buf1 = OwnedBuf::new();
+        buf1.extend_from_slice(bytes);
+
+        //let info = buf1.load(res).unwrap();
+        let info: &ServerInfo = buf1.load_at(bytes.len() - size_of::<ServerInfo>()).unwrap();
+
+        dbg!(info);
+
+        let name = buf1.load(info.name).unwrap();
+        dbg!(name);
+        let map = buf1.load(info.map).unwrap();
+        dbg!(map);
+        let key = buf1.load(info.public_key).unwrap();
+        dbg!(key);
+    }
+
+    #[test]
+    fn sv_packet() {
+        let mut buf = OwnedBuf::new();
+
+        let name = buf.store_unsized("Best Server");
+        let map = buf.store_unsized("e1m1");
+        let public_key = buf.store_slice(&[1,2,3,4,5,6,7,8]);
+        // let sv_info = buf.store(&ServerInfo{
+        //     name,
+        //     map,
+        //     public_key,
+        //     is_public: false,
+        //     max_players: 18u16.to_le()
+        // });
+        
+        let pack = buf.store(&Packet::ServerInfo(ServerInfo{
+            name,
+            map,
+            public_key,
+            is_public: false,
+            max_players: 18u16.to_le()
+        }));
+        let s = buf.as_slice();
+        dbg!(s);
+    }
 }
