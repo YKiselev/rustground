@@ -1,16 +1,17 @@
 use crate::app::App;
-use crate::error::AppError;
 use crate::server::Server;
-use log::{info, warn};
+use log::{error, info, warn};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+use super::sv_error::ServerError;
+
 pub(crate) fn server_init(
     app: &Arc<App>,
-) -> Result<(Arc<Mutex<Server>>, JoinHandle<()>), AppError> {
-    let server = Arc::new(Mutex::new(Server::new(app)));
+) -> Result<(Arc<Mutex<Server>>, JoinHandle<()>), ServerError> {
+    let server = Arc::new(Mutex::new(Server::new(app)?));
     let sv_clone = server.clone();
     let app_clone = app.clone();
     let handle = thread::Builder::new()
@@ -20,20 +21,27 @@ pub(crate) fn server_init(
             let mut lag = 0;
             const MILLIS_PER_UPDATE: u128 = 10;
             info!("Entering server loop...");
-            while !app_clone.exit_flag() {
+            while !app_clone.is_exit() {
                 let delta = time.elapsed();
                 time = Instant::now();
                 lag += delta.as_millis();
                 let mut m = 0;
                 while lag >= MILLIS_PER_UPDATE {
-                    if let Err(e) = sv_clone.lock().unwrap().update() {
-                        warn!("Server update failed: {:?}", e);
+                    match sv_clone.lock() {
+                        Ok(mut srv) => {
+                            if let Err(e) = srv.update() {
+                                warn!("Server update failed: {:?}", e);
+                            }
+                            lag -= MILLIS_PER_UPDATE;
+                            m += 1;
+                        }
+                        Err(e) => {
+                            error!("Failed to update server: {e:?}");
+                        }
                     }
-                    lag -= MILLIS_PER_UPDATE;
-                    m += 1;
-                }
-                if m == 0 {
-                    thread::sleep(Duration::from_millis((MILLIS_PER_UPDATE - lag) as _));
+                    if m == 0 {
+                        thread::sleep(Duration::from_millis((MILLIS_PER_UPDATE - lag) as _));
+                    }
                 }
             }
             info!("Server loop ended.");

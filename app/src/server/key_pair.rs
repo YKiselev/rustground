@@ -1,9 +1,7 @@
-use std::{error::Error, fmt::Display};
+use std::{fmt::Display};
 
 use rsa::{Pkcs1v15Encrypt, RsaPrivateKey, RsaPublicKey};
 use snafu::Snafu;
-
-use crate::error::AppError;
 
 #[derive(Debug)]
 pub(crate) struct KeyPair {
@@ -12,31 +10,20 @@ pub(crate) struct KeyPair {
 }
 
 #[derive(Debug, Snafu)]
-#[snafu(display("Key pair error: {message}"))]
-pub(crate) struct KeyPairError {
-    pub message: String,
-}
-
-impl KeyPairError {
-    pub(crate) fn new<S: AsRef<str>>(message: S) -> Self {
-        Self {
-            message: message.as_ref().to_owned(),
-        }
-    }
+pub(crate) enum KeyPairError {
+    #[snafu(display("Key pair error: {error}"))]
+    RsaError { error: rsa::Error },
 }
 
 impl From<rsa::Error> for KeyPairError {
     fn from(value: rsa::Error) -> Self {
-        KeyPairError {
-            message: value.to_string(),
-        }
+        Self::RsaError { error: value }
     }
 }
 
 impl KeyPair {
-    pub(crate) fn new(bits: usize) -> Result<Self, AppError> {
-        let private_key = RsaPrivateKey::new(&mut rand::thread_rng(), bits)
-            .map_err(|e| AppError::from("Unable to generate key!"))?;
+    pub(crate) fn new(bits: usize) -> Result<Self, KeyPairError> {
+        let private_key = RsaPrivateKey::new(&mut rand::thread_rng(), bits)?;
         let public_key = RsaPublicKey::from(&private_key);
         Ok(KeyPair {
             private_key,

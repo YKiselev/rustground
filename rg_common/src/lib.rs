@@ -14,6 +14,7 @@ pub mod cmd_parser;
 pub mod commands;
 pub mod config;
 pub mod files;
+pub mod pool;
 mod v_from;
 mod v_from_str;
 mod vars;

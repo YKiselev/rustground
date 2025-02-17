@@ -9,9 +9,17 @@ use rg_common::{AppFiles, VarRegistry};
 
 use rg_common::config::Config;
 
+pub(crate) struct ExitFlag(Arc<AtomicBool>);
+
+impl ExitFlag {
+    pub fn load(&self) -> bool {
+        self.0.load(Ordering::Relaxed)
+    }
+}
+
 pub(crate) struct App {
     arguments: Arguments,
-    exit_flag: AtomicBool,
+    exit_flag: Arc<AtomicBool>,
     started_at: Instant,
     config: Arc<Mutex<Config>>,
     files: Arc<Mutex<AppFiles>>,
@@ -25,7 +33,7 @@ impl App {
         info!("Loaded config: {:?}", cfg.lock().unwrap());
         App {
             arguments: args,
-            exit_flag: AtomicBool::new(false),
+            exit_flag: Arc::new(AtomicBool::new(false)),
             started_at: Instant::now(),
             config: cfg.clone(),
             files: Arc::new(Mutex::new(files)),
@@ -41,8 +49,12 @@ impl App {
         &self.config
     }
 
-    pub(crate) fn exit_flag(&self) -> bool {
+    pub(crate) fn is_exit(&self) -> bool {
         self.exit_flag.load(Ordering::Relaxed)
+    }
+
+    pub(crate) fn exit_flag(&self) -> ExitFlag {
+        ExitFlag(Arc::clone(&self.exit_flag))
     }
 
     pub(crate) fn elapsed(&self) -> Duration {

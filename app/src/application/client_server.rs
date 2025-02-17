@@ -13,7 +13,7 @@ pub(crate) fn run_client_server(args: Arguments) -> Result<(), AppError> {
     info!("Entering main loop...");
     let mut client = Client::new(&app);
     let (server, sv_handle) = server_init(&app).expect("Server initialization failed!");
-    while !app.exit_flag() {
+    while !app.is_exit() {
         client.frame_start();
 
         client.update(&app);

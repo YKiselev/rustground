@@ -8,58 +8,54 @@ use std::num::NonZeroUsize;
 
 use bitcode::__private::{Buffer, Decoder, Encoder, View};
 use bitcode::{Decode, Encode};
+use musli_zerocopy::{Ref, ZeroCopy};
 
-pub const MAX_DATAGRAM_SIZE: usize = 65507;
+//pub const MAX_DATAGRAM_SIZE: usize = 65507;
 
-#[derive(Debug, Clone, Encode, Decode)]
-pub enum Message<'a> {
-    Ack,
-    Connect { name: &'a str, password: Vec<u8> },
-    Accepted,
+#[derive(ZeroCopy, Debug)]
+#[repr(u8)]
+pub enum PacketId {
     Hello,
-    ServerInfo { key: Vec<u8> },
-    Ping { time: f64 },
-    Pong { time: f64 },
+    ServerInfo,
+    Connect,
+    Accepted,
+    Rejected,
+    Ping,
+    Pong
 }
 
-pub(crate) trait Endpoint: Debug {
-    fn connect(&self, addr: SocketAddr) -> io::Result<()>;
-    fn local_addr(&self) -> io::Result<SocketAddr>;
-    fn peer_addr(&self) -> io::Result<SocketAddr>;
-    fn clear_buffers(&mut self);
-    fn take_error(&self) -> io::Result<Option<Error>>;
-    fn flush(&mut self) -> io::Result<usize>;
-    fn send_to(&mut self, msg: &Message, addr: &SocketAddr) -> io::Result<usize>;
-    fn send(&mut self, msg: &Message) -> io::Result<usize>;
-    fn receive_data<'a>(&mut self, buf: &'a mut Vec<u8>) -> io::Result<Option<ReceivedData<'a>>>;
+#[derive(ZeroCopy, Debug)]
+#[repr(C)]
+pub struct PacketHeader {
+    pub seq: u16,
+    pub ack: u16,
+    pub kind: PacketId,
 }
 
-pub(crate) trait ServerEndpoint: Endpoint {
-    fn try_clone_and_connect(
-        &self,
-        addr: &SocketAddr,
-    ) -> io::Result<Box<dyn Endpoint + Sync + Send>>;
+pub struct Hello {
+    pub version: u32,
 }
 
-//#[derive(Copy)]
-pub struct NetEndpoint {
-    socket: UdpSocket,
-    send_buf: Vec<u8>,
-    scratch: Vec<u8>,
-    encoder: <Message<'static> as bitcode::Encode>::Encoder,
-    decoder: <Message<'static> as bitcode::Decode<'static>>::Decoder,
+#[derive(ZeroCopy, Debug)]
+#[repr(C)]
+pub struct ServerInfo {
+    pub key: Ref<[u8]>
 }
 
-impl Debug for NetEndpoint {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Endpoint")
-            .field("socket", &self.socket)
-            .field("send_buf", &self.send_buf)
-            .field("scratch", &self.scratch)
-            .finish_non_exhaustive()
-    }
+#[derive(ZeroCopy, Debug)]
+#[repr(C)]
+pub struct Connect {
+    pub name: Ref<str>,
+    pub password: Ref<[u8]>
 }
 
+#[derive(ZeroCopy, Debug)]
+#[repr(C)]
+pub struct Ping {
+    pub time: f64
+}
+
+/*
 impl NetEndpoint {
     fn from_socket(socket: UdpSocket) -> Self {
         NetEndpoint {
@@ -221,18 +217,26 @@ fn encode_inline_never<T: Encode + ?Sized>(encoder: &mut T::Encoder, t: &T) {
 #[inline(never)]
 pub(crate) fn decode_inline_never<'a, T: Decode<'a>>(decoder: &mut T::Decoder) -> T {
     decoder.decode()
-}
-
+}*/
 
 #[cfg(test)]
 mod tests {
-    use musli_zerocopy::{OwnedBuf, Ref, ZeroCopy};
+    use musli_zerocopy::{Buf, Error, OwnedBuf, Ref, ZeroCopy};
 
     #[derive(ZeroCopy, Debug)]
     #[repr(u8)]
     enum Packet {
         Ack(u32),
-        ServerInfo(ServerInfo)
+        ServerInfo(ServerInfo),
+        Blob([u8; 128]),
+    }
+
+    #[derive(ZeroCopy, Debug)]
+    #[repr(u8)]
+    enum Packet2 {
+        Ack,
+        ServerInfo,
+        Blob,
     }
 
     #[derive(ZeroCopy, Debug)]
@@ -242,7 +246,22 @@ mod tests {
         map: Ref<str>,
         public_key: Ref<[u8]>,
         is_public: bool,
-        max_players: u16
+        max_players: u16,
+    }
+
+    fn load_sv_info(data: &[u8]) -> Result<(), Error> {
+        let mut buf = OwnedBuf::new();
+        buf.extend_from_slice(data);
+        let info: &ServerInfo = buf.load_at(data.len() - size_of::<ServerInfo>())?;
+
+        dbg!(info);
+        let name = buf.load(info.name)?;
+        dbg!(name);
+        let map = buf.load(info.map)?;
+        dbg!(map);
+        let key = buf.load(info.public_key)?;
+        dbg!(key);
+        Ok(())
     }
 
     #[test]
@@ -252,33 +271,21 @@ mod tests {
         //buf.align_in_place::<ServerInfo>();
         let name = buf.store_unsized("Best Server");
         let map = buf.store_unsized("e1m1");
-        let public_key = buf.store_slice(&[1,2,3,4,5,6,7,8]);
-        let res = buf.store(&ServerInfo{
+        let public_key = buf.store_slice(&[1, 2, 3, 4, 5, 6, 7, 8]);
+        let res = buf.store(&ServerInfo {
             name,
             map,
             public_key,
             is_public: false,
-            max_players: 18u16.to_le()
+            max_players: 18u16.to_le(),
         });
         dbg!(res);
 
         let bytes = &buf[..];
         dbg!(bytes);
+        println!("Serialized to {} bytes", bytes.len());
 
-        let mut buf1 = OwnedBuf::new();
-        buf1.extend_from_slice(bytes);
-
-        //let info = buf1.load(res).unwrap();
-        let info: &ServerInfo = buf1.load_at(bytes.len() - size_of::<ServerInfo>()).unwrap();
-
-        dbg!(info);
-
-        let name = buf1.load(info.name).unwrap();
-        dbg!(name);
-        let map = buf1.load(info.map).unwrap();
-        dbg!(map);
-        let key = buf1.load(info.public_key).unwrap();
-        dbg!(key);
+        load_sv_info(bytes);
     }
 
     #[test]
@@ -287,23 +294,56 @@ mod tests {
 
         let name = buf.store_unsized("Best Server");
         let map = buf.store_unsized("e1m1");
-        let public_key = buf.store_slice(&[1,2,3,4,5,6,7,8]);
-        // let sv_info = buf.store(&ServerInfo{
-        //     name,
-        //     map,
-        //     public_key,
-        //     is_public: false,
-        //     max_players: 18u16.to_le()
-        // });
-        
-        let pack = buf.store(&Packet::ServerInfo(ServerInfo{
+        let public_key = buf.store_slice(&[1, 2, 3, 4, 5, 6, 7, 8]);
+        let pack = buf.store(&Packet::ServerInfo(ServerInfo {
             name,
             map,
             public_key,
             is_public: false,
-            max_players: 18u16.to_le()
+            max_players: 18u16.to_le(),
         }));
         let s = buf.as_slice();
         dbg!(s);
+        println!("Serialized to {} bytes", s.len());
+
+        let mut buf2 = OwnedBuf::new();
+        buf2.extend_from_slice(s);
+
+        let x = buf2
+            .load_at::<Packet>(s.len() - size_of::<Packet>())
+            .unwrap();
+        dbg!(x);
+    }
+
+    #[test]
+    fn sv_packet2() {
+        let mut buf = OwnedBuf::new();
+
+        let p2 = buf.store(&Packet2::ServerInfo);
+
+        let name = buf.store_unsized("Best Server");
+        let map = buf.store_unsized("e1m1");
+        let public_key = buf.store_slice(&[1, 2, 3, 4, 5, 6, 7, 8]);
+        let pack = buf.store(&ServerInfo {
+            name,
+            map,
+            public_key,
+            is_public: false,
+            max_players: 18u16.to_le(),
+        });
+        let s = buf.as_slice();
+        dbg!(s);
+        println!("Serialized to {} bytes", s.len());
+
+        let mut buf2 = OwnedBuf::new();
+        buf2.extend_from_slice(s);
+        let p2 = buf2.load_at::<Packet2>(0).unwrap();
+        match p2 {
+            Packet2::Ack => todo!(),
+            Packet2::ServerInfo => {
+                load_sv_info(s).unwrap();
+            }
+            Packet2::Blob => todo!(),
+        }
     }
 }

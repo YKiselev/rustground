@@ -4,6 +4,7 @@ mod sv_client;
 mod sv_init;
 mod sv_error;
 mod sv_poll;
+mod sv_net;
 
 pub(crate) use server::Server;
 pub(crate) use sv_init::server_init;
