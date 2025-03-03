@@ -19,3 +19,5 @@ snafu = "0.8.4"
 argh = "0.1.13"
 mio = { version="1.0.3",features = ["os-poll", "net"]}
 musli-zerocopy = "0.0.126"
+paste = "1.0.15"
+byteorder = "1.5.0"

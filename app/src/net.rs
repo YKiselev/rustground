@@ -221,6 +221,7 @@ pub(crate) fn decode_inline_never<'a, T: Decode<'a>>(decoder: &mut T::Decoder) -
 
 #[cfg(test)]
 mod tests {
+    use log::info;
     use musli_zerocopy::{Buf, Error, OwnedBuf, Ref, ZeroCopy};
 
     #[derive(ZeroCopy, Debug)]
@@ -285,7 +286,7 @@ mod tests {
         dbg!(bytes);
         println!("Serialized to {} bytes", bytes.len());
 
-        load_sv_info(bytes);
+        load_sv_info(bytes).expect("Should just load");
     }
 
     #[test]
@@ -345,5 +346,44 @@ mod tests {
             }
             Packet2::Blob => todo!(),
         }
+    }
+    
+    #[test]
+    fn alignment() {
+        struct A {
+            a: u8,
+            b: u32,
+            c: u64,
+            d: f32,
+            e: f64,
+            f: u128
+        }
+        #[repr(C)]
+        struct B {
+            a: u8,
+            b: u32,
+            c: u64,
+            d: f32,
+            e: f64,
+            f: u128
+        }
+        #[repr(C, packed)]
+        struct C {
+            a: u8,
+            b: u32,
+            c: u64,
+            d: f32,
+            e: f64
+        }
+        fn show<T>(name: &str) {
+            println!("{}: size={} byte(s), alignment={} byte(s)", name, std::mem::size_of::<T>(), std::mem::align_of::<T>());
+        }
+        show::<A>("A");
+        show::<B>("B");
+        show::<C>("C");
+        let a = [0u8,4];
+        println!("Array alignment={}", std::mem::align_of_val(&a));
+        let a = [0u64,4];
+        println!("Array alignment={}", std::mem::align_of_val(&a));
     }
 }
