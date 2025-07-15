@@ -1,189 +1,27 @@
 use snafu::Snafu;
 
-#[derive(Debug, Snafu)]
-enum Net2Error {
-    #[snafu(display("Buffer underflow"))]
-    BufferUnderflow,
-    #[snafu(display("Buffer overflow"))]
-    BufferOverflow,
-}
-
-struct HeaderAdapter<'a> {
-    buf: &'a [u8],
-}
-
-impl HeaderAdapter<'_> {
-    fn new<'a>(buf: &'a [u8]) -> Self {
-        unimplemented!()
-    }
-}
-
-macro_rules! define_write {
-    ($t:ty) => {
-        ::paste::paste! {
-            #[inline]
-            pub(super) fn [<write_ $t>] (buf: &mut [u8], offset: usize, value: $t) -> Result<usize, Net2Error> {
-                let size = std::mem::size_of::<$t>();
-                let new_offset = offset + size;
-                if new_offset > buf.len() {
-                    Err(Net2Error::BufferOverflow)
-                } else {
-                    let mut pos = offset;
-                    let mut shift = (size - 1) * 8;
-                    while pos < new_offset {
-                        buf[pos] = (value >> shift) as u8;
-                        pos += 1;
-                        shift = shift.saturating_sub(8);
-                    }
-                    Ok(new_offset)
-                }
-            }
-        }
-    };
-}
-
-macro_rules! define_read {
-    ($t:ty) => {
-        ::paste::paste! {
-            #[inline]
-            pub(super) fn [<read_ $t>](buf: &[u8], offset: usize) -> Result<$t, Net2Error> {
-                let size = std::mem::size_of::<$t>();
-                if offset + size > buf.len() {
-                    Err(Net2Error::BufferUnderflow)
-                } else {
-                    let mut result = 0;
-                    let mut shift = (size - 1) * 8;
-                    for i in 0..size {
-                        result += (buf[offset + i] as $t) << shift;
-                        shift = shift.saturating_sub(8);
-                    }
-                    Ok(result)
-                }
-            }
-        }
-    };
-}
-
-macro_rules! define_zz {
-    ($t:ty, $r:ty) => {
-        ::paste::paste! {
-            #[inline]
-            pub(crate) fn [<zz_encode_ $t>] (value: $t) -> $t {
-                (value >> ($t::BITS - 1)) ^ (value << 1)
-            }
-
-            #[inline]
-            pub(crate) fn [<zz_decode_ $t>] (value: $t) -> $t {
-                (value >> 1) ^ -(value & 1)
-            }
-        }
-    };
-}
-
 //#[allow(dead_code)]
 mod _private {
-    use super::Net2Error;
-
-    define_write!(u8);
-    define_write!(u16);
-    define_write!(u32);
-    define_write!(u64);
-    define_write!(i8);
-    define_write!(i16);
-    define_write!(i32);
-    define_write!(i64);
-
-    define_read!(u8);
-    define_read!(u16);
-    define_read!(u32);
-    define_read!(u64);
-    define_read!(i8);
-    define_read!(i16);
-    define_read!(i32);
-    define_read!(i64);
-
-    define_zz!(i8, u8);
-    define_zz!(i16, u16);
-    define_zz!(i32, u32);
-    define_zz!(i64, u64);
+    
 }
 
 #[cfg(test)]
 mod tests {
 
     use std::{
-        i32, io::{BufRead, Cursor, Read, Seek, Write}, ops::Deref, str::FromStr, u32
+        array::TryFromSliceError,
+        i32,
+        io::{BufRead, Cursor, Error, Read, Seek, Write},
+        ops::Deref,
+        str::FromStr,
+        u32,
     };
 
     use byteorder::{BigEndian, ByteOrder, ReadBytesExt};
-    use rsa::rand_core::le;
-
-    use crate::net2::_private::*;
-
-    use super::Net2Error;
-
-    #[test]
-    fn test_u16() {
-        let buf = &mut [0u8; 8];
-
-        let offset = write_u16(buf, 0, 0xaabb).unwrap();
-        assert_eq!(2, offset);
-        assert_eq!(&buf[..2], &[0xaau8, 0xbbu8]);
-
-        assert_eq!(0xaabb, read_u16(buf, 0).unwrap());
-    }
-
-    #[test]
-    fn test_i16() {
-        let buf = &mut [0u8; 8];
-
-        write_i16(buf, 0, i16::MAX).unwrap();
-        write_i16(buf, 2, i16::MIN).unwrap();
-
-        assert_eq!(i16::MAX, read_i16(buf, 0).unwrap());
-        assert_eq!(i16::MIN, read_i16(buf, 2).unwrap());
-    }
-
-    #[test]
-    fn test_u32() {
-        #[cfg(target_endian = "big")]
-        {}
-        #[cfg(not(target_endian = "big"))]
-        {}
-
-        let buf = &mut [0u8; 8];
-
-        let offset = write_u32(buf, 0, 0xaabbccdd).unwrap();
-        assert_eq!(4, offset);
-        assert_eq!(&buf[..4], &[0xaau8, 0xbbu8, 0xccu8, 0xddu8]);
-
-        assert_eq!(0xaabbccdd, read_u32(buf, 0).unwrap());
-    }
-
-    #[test]
-    fn test_i32() {
-        let buf = &mut [0u8; 8];
-
-        write_i32(buf, 0, i32::MAX).unwrap();
-        write_i32(buf, 4, i32::MIN).unwrap();
-
-        assert_eq!(i32::MAX, read_i32(buf, 0).unwrap());
-        assert_eq!(i32::MIN, read_i32(buf, 4).unwrap());
-    }
-
-    #[test]
-    fn test_u64() {
-        let buf = &mut [0u8; 8];
-
-        let offset = write_u64(buf, 0, 0xaabbccddabacadaf).unwrap();
-        assert_eq!(8, offset);
-        assert_eq!(
-            &buf[..8],
-            &[0xaau8, 0xbbu8, 0xccu8, 0xddu8, 0xab, 0xac, 0xad, 0xaf]
-        );
-
-        assert_eq!(0xaabbccddabacadaf, read_u64(buf, 0).unwrap());
-    }
+    use cookie_factory::GenError;
+    use musli_zerocopy::buf;
+    use nom::{bytes::take, error::ErrorKind, number::be_u32, Err, Parser};
+    use snafu::Snafu;
 
     pub trait WriteString: std::io::Write {
         fn write_unsized<S: AsRef<str>>(&mut self, value: S) -> std::io::Result<usize> {
@@ -210,34 +48,112 @@ mod tests {
 
     impl<R: std::io::Read + ?Sized> ReadString for R {}
 
-    #[test]
-    fn should_zz_encode_decode() {
-        assert_eq!(0, zz_decode_i8(dbg!(zz_encode_i8(0))));
-        assert_eq!(1, zz_decode_i8(dbg!(zz_encode_i8(1))));
-        assert_eq!(-1, zz_decode_i8(dbg!(zz_encode_i8(-1))));
-        assert_eq!(63, zz_decode_i8(dbg!(zz_encode_i8(63))));
-        assert_eq!(-63, zz_decode_i8(dbg!(zz_encode_i8(-63))));
-        assert_eq!(
-            i32::MAX / 2,
-            zz_decode_i32(dbg!(zz_encode_i32(i32::MAX / 2)))
-        );
-        assert_eq!(
-            i32::MIN / 2,
-            zz_decode_i32(dbg!(zz_encode_i32(i32::MIN / 2)))
-        );
-        // assert_eq!(i32::MAX, zz_decode_i32(dbg!(zz_encode_i32(dbg!(i32::MAX)))));
-        // assert_eq!(i32::MIN, zz_decode_i32(dbg!(zz_encode_i32(dbg!(i32::MIN)))));
-        // assert_eq!(i32::MAX, zz_decode_i32(dbg!(zz_encode_i32(dbg!(i32::MAX)))));
-        // assert_eq!(i32::MIN, zz_decode_i32(dbg!(zz_encode_i32(dbg!(i32::MIN)))));
-    }
-
-    fn read_unsized<T : AsRef<[u8]>>(c: &mut Cursor<T>) -> std::io::Result<std::borrow::Cow<'_,str>> {
+    fn read_unsized<T: AsRef<[u8]>>(
+        c: &mut Cursor<T>,
+    ) -> std::io::Result<std::borrow::Cow<'_, str>> {
         let mut buf = [0; 2];
         c.read_exact(&mut buf)?;
         let length = dbg!(u16::from_be_bytes(buf));
         let pos = c.position() as usize;
         c.seek_relative(length as i64)?;
-        Ok(String::from_utf8_lossy(&c.get_ref().as_ref()[pos..pos + length as usize]))
+        Ok(String::from_utf8_lossy(
+            &c.get_ref().as_ref()[pos..pos + length as usize],
+        ))
+    }
+
+    #[derive(Debug, Snafu)]
+    enum SliceError {
+        #[snafu(display("Buffer overflow"))]
+        BufferOverflow,
+        #[snafu(display("Buffer underflow"))]
+        BufferUnderflow,
+    }
+
+    struct Slice<T> {
+        pub data: T,
+    }
+
+    impl<T> Slice<T> {
+        pub fn new(data: T) -> Self {
+            Self { data }
+        }
+    }
+
+    impl<T> Slice<T>
+    where
+        T: AsRef<[u8]>,
+    {
+        fn buf<const N: usize>(self: &Self, offset: usize) -> Result<[u8; N], SliceError> {
+            let buf = self.data.as_ref();
+            if buf.len() >= offset + N {
+                buf[offset..offset + N]
+                    .try_into()
+                    .map_err(|_| SliceError::BufferUnderflow)
+            } else {
+                Err(SliceError::BufferUnderflow)
+            }
+        }
+
+        pub fn read_u8(self: &Self, offset: usize) -> Result<u8, SliceError> {
+            self.buf::<1>(offset).map(|buf| buf[0])
+        }
+
+        pub fn read_u16(self: &Self, offset: usize) -> Result<u16, SliceError> {
+            self.buf::<2>(offset).map(|buf| u16::from_be_bytes(buf))
+        }
+
+        pub fn read_u32(self: &Self, offset: usize) -> Result<u32, SliceError> {
+            self.buf::<4>(offset).map(|buf| u32::from_be_bytes(buf))
+        }
+
+        pub fn read_u64(self: &Self, offset: usize) -> Result<u64, SliceError> {
+            self.buf::<8>(offset).map(|buf| u64::from_be_bytes(buf))
+        }
+    }
+
+    impl<T> Slice<T>
+    where
+        T: AsMut<[u8]>,
+    {
+        fn mut_buf<const N: usize>(
+            self: &mut Self,
+            offset: usize,
+        ) -> Result<&mut [u8; N], SliceError> {
+            let buf = self.data.as_mut();
+            if buf.len() >= offset + N {
+                buf[offset..offset + N]
+                    .as_mut()
+                    .try_into()
+                    .map_err(|_| SliceError::BufferOverflow)
+            } else {
+                Err(SliceError::BufferOverflow)
+            }
+        }
+
+        pub fn write_u8(self: &mut Self, offset: usize, value: u8) -> Result<(), SliceError> {
+            self.mut_buf::<1>(offset).map(|buf| buf[0] = value)
+        }
+
+        pub fn write_u16(self: &mut Self, offset: usize, value: u16) -> Result<(), SliceError> {
+            self.mut_buf::<2>(offset)
+                .map(|buf| buf.copy_from_slice(&value.to_be_bytes()))
+        }
+    }
+
+    #[test]
+    fn test_slice() {
+        use WriteString;
+
+        let mut buf = [0u8; 64];
+        let s = buf.as_mut_slice();
+        dbg!(s.len());
+        let mut w = Slice::new(s);
+
+        w.write_u16(0, 1).unwrap();
+        w.write_u16(2, 123).unwrap();
+        w.write_u16(4, 2).unwrap();
+
+        assert_eq!(123, w.read_u16(2).unwrap());
     }
 
     #[test]
@@ -246,6 +162,7 @@ mod tests {
         use WriteString;
 
         let mut buf = [0u8; 64];
+
         let mut w = Cursor::new(buf.as_mut_slice());
 
         w.write_u8(123).unwrap();
@@ -263,5 +180,47 @@ mod tests {
         assert_eq!(123456789u32, c.read_u32::<BigEndian>().unwrap());
         assert_eq!("ABCD", c.read_unsized().unwrap());
         assert_eq!("12345", read_unsized(&mut c).unwrap());
+    }
+
+    #[test]
+    fn test_nom_and_cookie_factory() {
+        fn write_data(dest: &mut [u8]) -> Result<(), GenError>{
+            use cookie_factory::{
+                bytes::be_u32, combinator::string, gen, SerializeFn, WriteContext,
+            };
+        
+            let s = "Hello, World!";
+            let (rest, pos) = gen(be_u32(s.len() as u32), dest)?;
+            let (rest, pos) = gen(string(s), rest)?;
+            Ok(())
+        }
+
+        fn read_packet(src:&[u8]) -> Result<(), SliceError>{
+            let (src, len) = be_u32::<_,(_,ErrorKind)>().parse(src)?;
+            let (_, str) = take::<_, _, (_, ErrorKind)>(len).parse(src)?;
+            let mut iter = str.utf8_chunks();
+            let s = if let Some(v) = iter.next() {
+                if v.invalid().is_empty() {
+                    v.valid()
+                } else {
+                    ""
+                }
+            } else {
+                ""
+            };
+            if s == "Hello, World!" {
+            Ok(())
+            } else {
+                Err(SliceError::BufferUnderflow)
+            }
+        }
+
+        let mut buf = [9u8; 200];
+        {
+            write_data(&mut buf).unwrap();
+        }
+        {
+            read_packet(&buf).unwrap();
+        }
     }
 }
