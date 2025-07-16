@@ -10,7 +10,9 @@ use log4rs::config::{Appender, Logger, Root};
 use log4rs::encode::pattern::PatternEncoder;
 use log4rs::{Config, Handle};
 
-use crate::error::AppError;
+use crate::error::{to_app_error, AppError};
+
+const PATTERN: &str = "{d(%Y-%m-%d %H:%M:%S)} - {m}{n}";
 
 #[derive(Debug)]
 pub(crate) struct AppLogger {
@@ -37,10 +39,13 @@ fn create_app_logger(max_size: usize) -> (AppLogger, AppLoggerBuffer) {
 }
 
 pub(crate) fn init() -> Result<(Handle, AppLoggerBuffer), AppError> {
-    let stdout = ConsoleAppender::builder().build();
+    let stdout = ConsoleAppender::builder()
+        .encoder(Box::new(PatternEncoder::new(PATTERN)))
+        .build();
     let file = FileAppender::builder()
-        .encoder(Box::new(PatternEncoder::new("{d} - {m}{n}")))
-        .build("app.log")?;
+        .encoder(Box::new(PatternEncoder::new(PATTERN)))
+        .build("app.log")
+        .map_err(to_app_error)?;
     let (logger, buf) = create_app_logger(400);
     let config = Config::builder()
         .appender(Appender::builder().build("stdout", Box::new(stdout)))
@@ -53,17 +58,19 @@ pub(crate) fn init() -> Result<(Handle, AppLoggerBuffer), AppError> {
                 .appender("app")
                 .appender("file")
                 .build(LevelFilter::Info),
-        )?;
+        )
+        .map_err(to_app_error)?;
 
-    let handle = log4rs::init_config(config)?;
+    let handle = log4rs::init_config(config).map_err(to_app_error)?;
     Ok((handle, buf))
 }
 
 pub(crate) fn build_dedicated_config() -> Result<Config, AppError> {
     let stdout = ConsoleAppender::builder().build();
     let file = FileAppender::builder()
-        .encoder(Box::new(PatternEncoder::new("{d} - {m}{n}")))
-        .build("app.log")?;
+        .encoder(Box::new(PatternEncoder::new(PATTERN)))
+        .build("app.log")
+        .map_err(to_app_error)?;
     let config = Config::builder()
         .appender(Appender::builder().build("stdout", Box::new(stdout)))
         .appender(Appender::builder().build("file", Box::new(file)))
@@ -72,7 +79,8 @@ pub(crate) fn build_dedicated_config() -> Result<Config, AppError> {
                 .appender("stdout")
                 .appender("file")
                 .build(LevelFilter::Info),
-        )?;
+        )
+        .map_err(to_app_error)?;
 
     Ok(config)
 }

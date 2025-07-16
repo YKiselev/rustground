@@ -10,50 +10,50 @@ use bitcode::__private::{Buffer, Decoder, Encoder, View};
 use bitcode::{Decode, Encode};
 use musli_zerocopy::{Ref, ZeroCopy};
 
-//pub const MAX_DATAGRAM_SIZE: usize = 65507;
+//pub const NET_BUF_SIZE: usize = 65536;//65507;
 
-#[derive(ZeroCopy, Debug)]
-#[repr(u8)]
-pub enum PacketId {
-    Hello,
-    ServerInfo,
-    Connect,
-    Accepted,
-    Rejected,
-    Ping,
-    Pong
-}
+// #[derive(ZeroCopy, Debug)]
+// #[repr(u8)]
+// pub enum PacketId {
+//     Hello,
+//     ServerInfo,
+//     Connect,
+//     Accepted,
+//     Rejected,
+//     Ping,
+//     Pong
+// }
 
-#[derive(ZeroCopy, Debug)]
-#[repr(C)]
-pub struct PacketHeader {
-    pub seq: u16,
-    pub ack: u16,
-    pub kind: PacketId,
-}
+// #[derive(ZeroCopy, Debug)]
+// #[repr(C)]
+// pub struct PacketHeader {
+//     pub seq: u16,
+//     pub ack: u16,
+//     pub kind: PacketId,
+// }
 
-pub struct Hello {
-    pub version: u32,
-}
+// pub struct Hello {
+//     pub version: u32,
+// }
 
-#[derive(ZeroCopy, Debug)]
-#[repr(C)]
-pub struct ServerInfo {
-    pub key: Ref<[u8]>
-}
+// #[derive(ZeroCopy, Debug)]
+// #[repr(C)]
+// pub struct ServerInfo {
+//     pub key: Ref<[u8]>
+// }
 
-#[derive(ZeroCopy, Debug)]
-#[repr(C)]
-pub struct Connect {
-    pub name: Ref<str>,
-    pub password: Ref<[u8]>
-}
+// #[derive(ZeroCopy, Debug)]
+// #[repr(C)]
+// pub struct Connect {
+//     pub name: Ref<str>,
+//     pub password: Ref<[u8]>
+// }
 
-#[derive(ZeroCopy, Debug)]
-#[repr(C)]
-pub struct Ping {
-    pub time: f64
-}
+// #[derive(ZeroCopy, Debug)]
+// #[repr(C)]
+// pub struct Ping {
+//     pub time: f64
+// }
 
 /*
 impl NetEndpoint {

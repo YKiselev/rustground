@@ -1,49 +1,19 @@
-use std::{fmt::Display, io};
 
-use log::SetLoggerError;
-use log4rs::config::runtime::ConfigErrors;
+use std::io::ErrorKind;
 
-#[derive(Debug)]
-pub struct AppError {
-    pub message: String,
+use snafu::Snafu;
+
+#[derive(Debug, Snafu)]
+pub enum AppError {
+    #[snafu(display("Error: {message}"))]
+    GenericError{ message: String }
 }
 
-impl std::error::Error for AppError {}
-
-impl Display for AppError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.message)
-    }
-}
-
-impl From<&str> for AppError {
-    fn from(value: &str) -> Self {
-        AppError {
-            message: value.to_owned(),
-        }
-    }
-}
-
-impl From<io::Error> for AppError {
-    fn from(value: io::Error) -> Self {
-        AppError {
-            message: value.to_string(),
-        }
-    }
-}
-
-impl From<ConfigErrors> for AppError {
-    fn from(value: ConfigErrors) -> Self {
-        AppError {
-            message: value.to_string(),
-        }
-    }
-}
-
-impl From<SetLoggerError> for AppError {
-    fn from(value: SetLoggerError) -> Self {
-        AppError {
-            message: value.to_string(),
-        }
+pub(crate) fn to_app_error<E>(e: E) -> AppError
+where
+    E: ToString,
+{
+    AppError::GenericError {
+        message: e.to_string(),
     }
 }

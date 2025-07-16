@@ -1,7 +1,12 @@
 use std::{array::TryFromSliceError, fmt::Debug};
 
-use musli_zerocopy::{endian, Endian, Ref, ZeroCopy};
+use num_enum::{FromPrimitive, IntoPrimitive, TryFromPrimitive};
 use snafu::Snafu;
+
+pub const MAX_DATAGRAM_SIZE: usize = 65507;
+pub const NET_BUF_SIZE: usize = 65536;
+pub const MIN_HEADER_SIZE: usize = 3;
+pub const PROTOCOL_VERSION: Version = Version(1, 0);
 
 #[derive(Debug, Snafu)]
 pub enum ProtocolError {
@@ -13,6 +18,8 @@ pub enum ProtocolError {
     ValueTooBig,
     #[snafu(display("Bad string"))]
     BadString,
+    #[snafu(display("Bad enum tag"))]
+    BadEnumTag,
 }
 
 impl From<TryFromSliceError> for ProtocolError {
@@ -24,8 +31,7 @@ impl From<TryFromSliceError> for ProtocolError {
 ///
 /// Packet kinds
 ///
-
-#[derive(Debug, ZeroCopy, PartialEq)]
+#[derive(Debug, PartialEq, IntoPrimitive, TryFromPrimitive)]
 #[repr(u8)]
 pub enum PacketKind {
     Hello,
@@ -38,34 +44,24 @@ pub enum PacketKind {
 }
 
 ///
-/// 
-/// 
-type be_u16 = Endian<u16, endian::Big>;
-type be_u32 = Endian<u32, endian::Big>;
-
-
-///
-/// Header
-/// 
-#[derive(ZeroCopy, Debug)]
-#[repr(C)]
-pub struct Header {
-    pub size: be_u16,
-    pub kind: PacketKind
-}
-
-///
 /// Protocol version
 /// 
-#[derive(Debug, ZeroCopy, PartialEq)]
-#[repr(C)]
-pub struct Version(u8, u8, u8);
+#[derive(Debug, PartialEq)]
+pub struct Version(pub u8, pub u8);
+
+///
+/// 
+/// 
+#[derive(Debug, PartialEq)]
+pub struct Header {
+    pub kind: PacketKind,
+    pub size: u16
+}
 
 ///
 /// Hello packet
 /// 
-#[derive(Debug, ZeroCopy, PartialEq)]
-#[repr(C)]
+#[derive(Debug, PartialEq)]
 pub struct Hello {
     pub version: Version,
 }
@@ -73,30 +69,33 @@ pub struct Hello {
 ///
 /// ServerInfo packet. Sent by server in response to Hello packet from client
 /// 
-#[derive(Debug, ZeroCopy, PartialEq)]
-#[repr(C)]
-pub struct ServerInfo {
+#[derive(Debug, PartialEq)]
+pub struct ServerInfo<'a> {
     pub version: Version,
-    pub key: Ref<[u8]>
+    pub key: &'a[u8]
 }
 
 ///
 /// Connect packet. Sent by client
 /// 
-#[derive(Debug, ZeroCopy, PartialEq)]
-#[repr(C)]
-pub struct Connect {
-    pub name: Ref<str>,
-    pub password: Ref<str>
+#[derive(Debug, PartialEq)]
+pub struct Connect<'a> {
+    pub name: &'a str,
+    pub password: &'a str
 }
 
 ///
 /// Ping packet
 /// 
-#[derive(Debug, ZeroCopy, PartialEq)]
-#[repr(C)]
+#[derive(Debug, PartialEq)]
 pub struct Ping {
     pub time: f64
 }
 
-pub const PROTOCOL_VERSION: Version = Version(1, 0, 0);
+///
+/// Pong packet
+/// 
+#[derive(Debug, PartialEq)]
+pub struct Pong {
+    pub time: f64
+}

@@ -1,7 +1,6 @@
-use byteorder::{ByteOrder, LittleEndian};
-use musli_zerocopy::{Endian, OwnedBuf, ZeroCopy};
+use num_enum::TryFromPrimitive;
 
-use crate::protocol::{Header, PacketKind, ProtocolError};
+use crate::protocol::ProtocolError;
 
 ///
 /// align is expected to be power of two
@@ -20,6 +19,7 @@ pub trait WithPosition {
 pub trait NetWriter: WithPosition {
     fn write_u8(&mut self, value: u8) -> Result<(), ProtocolError>;
     fn write_u16(&mut self, value: u16) -> Result<(), ProtocolError>;
+    fn write_u16_at(&mut self, offset: usize, value: u16) -> Result<(), ProtocolError>;
     ///
     /// Bytes layout is 2 bytes prefix (data length) (u16) and then data itself
     /// Of course you can't write more than u16::MAX bytes.
@@ -28,21 +28,39 @@ pub trait NetWriter: WithPosition {
     ///
     /// String length is limited to u16::MAX
     ///
-    fn write_str(&mut self, value: &str) -> Result<(), ProtocolError>;
+    fn write_str(&mut self, value: &str) -> Result<(), ProtocolError> {
+        self.write_bytes(value.as_bytes())
+    }
 }
 
-pub trait NetReader: WithPosition {
+pub trait NetReader<'a>: WithPosition {
+    fn available(&self) -> usize;
+    fn skip(&mut self, amount: usize) -> Result<usize, ProtocolError> {
+        let p = self.pos();
+        self.set_pos(p + amount)
+    }
     fn read_u8(&mut self) -> Result<u8, ProtocolError>;
     fn read_u16(&mut self) -> Result<u16, ProtocolError>;
     ///
     /// Bytes layout is 2 bytes prefix (data length) (u16) and then data itself
     /// Of course you can't write more than u16::MAX bytes.
     ///
-    fn read_bytes(&mut self) -> Result<&[u8], ProtocolError>;
+    fn read_bytes(&mut self) -> Result<&'a [u8], ProtocolError>;
     ///
     /// String length is limited to u16::MAX
     ///
-    fn read_str(&mut self) -> Result<&str, ProtocolError>;
+    fn read_str(&mut self) -> Result<&'a str, ProtocolError> {
+        self.read_bytes()
+            .and_then(|bytes| std::str::from_utf8(bytes).map_err(|_| ProtocolError::BadString))
+    }
+
+    fn read_u8_enum<E>(&mut self) -> Result<E, ProtocolError>
+    where
+        E: TryFromPrimitive<Primitive = u8>,
+    {
+        self.read_u8()
+            .and_then(|v| E::try_from_primitive(v).map_err(|_| ProtocolError::BadEnumTag))
+    }
 }
 
 pub struct NetBufWriter<'a> {
@@ -51,14 +69,14 @@ pub struct NetBufWriter<'a> {
 }
 
 impl<'a> NetBufWriter<'a> {
-    fn new(buf: &'a mut [u8]) -> Self {
+    pub fn new(buf: &'a mut [u8]) -> Self {
         Self {
             buf: buf,
             offset: 0,
         }
     }
 
-    fn buf(&mut self) -> &mut [u8] {
+    pub fn buf(&mut self) -> &mut [u8] {
         self.buf
     }
 }
@@ -105,8 +123,8 @@ impl NetWriter for NetBufWriter<'_> {
         Ok(())
     }
 
-    fn write_str(&mut self, value: &str) -> Result<(), ProtocolError> {
-        self.write_bytes(value.as_bytes())
+    fn write_u16_at(&mut self, offset: usize, value: u16) -> Result<(), ProtocolError> {
+        write_u16(self.buf, offset, value)
     }
 }
 
@@ -116,14 +134,14 @@ pub struct NetBufReader<'a> {
 }
 
 impl<'a> NetBufReader<'a> {
-    fn new(buf: &'a [u8]) -> Self {
+    pub fn new(buf: &'a [u8]) -> Self {
         Self {
             buf: buf,
             offset: 0,
         }
     }
 
-    fn buf(&self) -> &[u8] {
+    pub fn buf(&self) -> &[u8] {
         &self.buf
     }
 }
@@ -142,7 +160,7 @@ impl WithPosition for NetBufReader<'_> {
     }
 }
 
-impl NetReader for NetBufReader<'_> {
+impl<'a> NetReader<'a> for NetBufReader<'a> {
     fn read_u8(&mut self) -> Result<u8, ProtocolError> {
         let result = read_u8(self.buf, self.offset)?;
         self.offset += 1;
@@ -155,17 +173,19 @@ impl NetReader for NetBufReader<'_> {
         Ok(result)
     }
 
-    fn read_bytes(&mut self) -> Result<&[u8], ProtocolError> {
+    fn read_bytes(&mut self) -> Result<&'a [u8], ProtocolError> {
         let len = self.read_u16()? as usize;
         let offset = self.offset;
+        if offset + len > self.buf.len() {
+            return Err(ProtocolError::BufferUnderflow);
+        }
         let result = &self.buf[offset..offset + len];
         self.offset += len;
         Ok(result)
     }
 
-    fn read_str(&mut self) -> Result<&str, ProtocolError> {
-        self.read_bytes()
-            .and_then(|bytes| std::str::from_utf8(bytes).map_err(|_| ProtocolError::BadString))
+    fn available(&self) -> usize {
+        self.buf.len().saturating_sub(self.offset)
     }
 }
 
@@ -205,88 +225,7 @@ pub fn read_u16(buf: &[u8], offset: usize) -> Result<u16, ProtocolError> {
 
 #[cfg(test)]
 mod tests {
-    use musli_zerocopy::{buf, endian, Endian, OwnedBuf, Ref, ZeroCopy};
-
-    use crate::{
-        net_rw::{padding, WithPosition},
-        protocol::{Header, PacketKind},
-    };
-
-    use super::{NetBufReader, NetBufWriter, NetReader, NetWriter};
-
-    #[derive(ZeroCopy, Debug)]
-    #[repr(C)]
-    struct MusliPacket {
-        name: Ref<str, endian::Big>,
-        map: Ref<str, endian::Big>,
-        players: Endian<u32, endian::Big>,
-        max_players: Endian<u32, endian::Big>,
-        time: Endian<u64, endian::Big>,
-        version: u8,
-    }
-
-    #[test]
-    fn test_musli() {
-        let mut buf = OwnedBuf::new().with_byte_order::<endian::Big>();
-        let version = 123;
-        let name = "Super-Duper-Server";
-        let map = "rabid-frog";
-        let players = 400;
-        let max_players = 300000;
-        let time = 12345678901234567890u64;
-        let alignment = dbg!(std::mem::align_of::<MusliPacket>());
-        for i in 1..=3 {
-            //buf.clear();
-            {
-                let header_ref = buf.store_uninit::<Header>();
-                let packet_ref = buf.store_uninit::<MusliPacket>();
-                println!(
-                    "header at {}, packet at {}",
-                    header_ref.offset(),
-                    packet_ref.offset()
-                );
-                let packet = MusliPacket {
-                    version: version,
-                    name: buf.store_unsized(&name),
-                    map: buf.store_unsized(&map),
-                    players: Endian::new(players),
-                    max_players: Endian::new(max_players),
-                    time: Endian::new(time),
-                };
-                buf.load_uninit_mut(packet_ref).write(&packet);
-                let size = buf.len() - packet_ref.offset();
-                let header = Header {
-                    size: Endian::new(size as u16),
-                    kind: PacketKind::ServerInfo,
-                };
-                buf.load_uninit_mut(header_ref).write(&header);
-                println!("Written {} bytes, buf.len()={}", size, buf.len());
-            }
-            if true {
-                let slice = buf.as_slice();
-                println!("Slice lenght is {}", slice.len());
-                let buf = buf::aligned_buf::<Header>(slice);
-                let mut offset = 0usize;
-                while offset + 4 < slice.len() {
-                    let header = buf.load_at::<Header>(offset).unwrap();
-                    assert_eq!(PacketKind::ServerInfo, header.kind);
-                    offset += 4;
-                    let padding = padding(offset, alignment);
-                    offset += padding;
-                    let size = header.size.to_ne() as usize;
-                    println!("offset={}, padding={}, size={}", offset, padding, size);
-                    let decoded = MusliPacket::from_bytes(&slice[offset..offset + size]).unwrap();
-                    assert_eq!(version, decoded.version);
-                    assert_eq!(name, buf.load(decoded.name).unwrap());
-                    assert_eq!(map, buf.load(decoded.map).unwrap());
-                    assert_eq!(players, decoded.players.to_ne());
-                    assert_eq!(max_players, decoded.max_players.to_ne());
-                    assert_eq!(time, decoded.time.to_ne());
-                    offset += size;
-                }
-            }
-        }
-    }
+    use crate::net_rw::{NetBufReader, NetBufWriter, NetReader, NetWriter, WithPosition};
 
     #[test]
     fn test_net_writer() {
