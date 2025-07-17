@@ -143,7 +143,7 @@ impl Client {
                     while reader.available() >= MIN_HEADER_SIZE {
                         match read_header(&mut reader) {
                             Ok(header) => {
-                                info!("Got packet {:?} from {}", header.kind, addr);
+                                info!("Got packet {:?} from {}", header, addr);
                                 let amount = header.size as usize;
 
                                 match header.kind {
@@ -237,7 +237,7 @@ impl Client {
                         self.send_hello()
                             .inspect_err(|e| error!("Failed to send: {:?}", e));
                     } else {
-                        //self.send_connect_message();
+                        self.send_connect_message();
                     };
                 }
                 ClientState::Accepted => {

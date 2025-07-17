@@ -7,8 +7,9 @@ use std::{
 use log::{error, warn};
 use mio::net::UdpSocket;
 use rg_net::{
+    header::write_with_header,
     net_rw::{try_write, NetBufWriter, NetWriter},
-    protocol::{ProtocolError, MAX_DATAGRAM_SIZE},
+    protocol::{PacketKind, ProtocolError, MAX_DATAGRAM_SIZE},
     server_info::write_server_info,
 };
 
@@ -25,8 +26,10 @@ impl Guest {
         }
     }
 
-    pub fn send_nello(&mut self, key: &[u8]) {
-        self.try_send(|w| write_server_info(w, key));
+    pub fn send_server_info(&mut self, key: &[u8]) {
+        let _ = self.try_send(|w| {
+            write_with_header(w, PacketKind::ServerInfo, |w| write_server_info(w, key))
+        });
     }
 
     pub fn send_rejected(&mut self) {}
