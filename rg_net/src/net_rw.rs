@@ -1,6 +1,6 @@
 use num_enum::TryFromPrimitive;
 
-use crate::protocol::ProtocolError;
+use crate::protocol::{check_bounds, ProtocolError, NET_BUF_SIZE};
 
 ///
 /// align is expected to be power of two
@@ -176,9 +176,7 @@ impl<'a> NetReader<'a> for NetBufReader<'a> {
     fn read_bytes(&mut self) -> Result<&'a [u8], ProtocolError> {
         let len = self.read_u16()? as usize;
         let offset = self.offset;
-        if offset + len > self.buf.len() {
-            return Err(ProtocolError::BufferUnderflow);
-        }
+        check_bounds(offset + len, self.buf.len())?;
         let result = &self.buf[offset..offset + len];
         self.offset += len;
         Ok(result)
@@ -209,18 +207,44 @@ pub fn write_u16(buf: &mut [u8], offset: usize, value: u16) -> Result<(), Protoc
 
 #[inline(always)]
 pub fn read_u8(buf: &[u8], offset: usize) -> Result<u8, ProtocolError> {
-    if buf.len() < offset + 1 {
-        return Err(ProtocolError::BufferUnderflow);
-    }
+    check_bounds(offset + 1, buf.len())?;
     Ok(u8::from_be_bytes(buf[offset..offset + 1].try_into()?))
 }
 
 #[inline(always)]
 pub fn read_u16(buf: &[u8], offset: usize) -> Result<u16, ProtocolError> {
-    if buf.len() < offset + 2 {
-        return Err(ProtocolError::BufferUnderflow);
-    }
+    check_bounds(offset + 2, buf.len())?;
     Ok(u16::from_be_bytes(buf[offset..offset + 2].try_into()?))
+}
+
+///
+/// Tries to append data to provided [buf]. 
+/// In case of overflow rolls back to initial vector length and returns [Ok(false)]
+///
+pub fn try_write<H>(buf: &mut Vec<u8>, mut handler: H) -> Result<bool, ProtocolError>
+where
+    H: FnMut(&mut NetBufWriter) -> Result<(), ProtocolError>,
+{
+    let mark = buf.len();
+    buf.resize(NET_BUF_SIZE, 0);
+    let mut writer = NetBufWriter::new(buf.as_mut_slice());
+    writer.set_pos(mark).expect("Unable to set mark!");
+    let r = handler(&mut writer);
+    let size = writer.pos();
+    match r {
+        Ok(_) => {
+            buf.truncate(size);
+            return Ok(true);
+        }
+        Err(e) => {
+            buf.truncate(mark);
+            if e == ProtocolError::BufferOverflow {
+                Ok(false)
+            } else {
+                Err(e)
+            }
+        }
+    }
 }
 
 #[cfg(test)]

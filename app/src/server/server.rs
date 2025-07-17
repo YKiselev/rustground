@@ -6,23 +6,28 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use log::{error, info, warn};
+use rg_net::header::read_header;
+use rg_net::hello::read_hello;
+use rg_net::net_rw::{NetBufReader, NetReader, WithPosition};
+use rg_net::protocol::{Header, Hello, PacketKind, MIN_HEADER_SIZE};
 
 use crate::app::App;
 use crate::error::AppError;
 use crate::server::key_pair::KeyPair;
 use crate::server::sv_client::Client;
+use crate::server::sv_guests::Guests;
 use crate::server::sv_poll::ServerPollThread;
 
 use super::key_pair::KeyPairError;
+use super::messages::sv_hello::on_hello;
+use super::sv_clients::{ClientId, Clients};
 use super::sv_error::ServerError;
 use super::sv_poll::Packet;
 
-#[derive(Debug, Eq, PartialEq, Hash)]
-pub(crate) struct ClientId(SocketAddr);
-
 pub(crate) struct Server {
     poll_thread: ServerPollThread,
-    clients: HashMap<ClientId, Client>,
+    clients: Clients,
+    guests: Guests,
     keys: KeyPair,
     password: Option<String>,
 }
@@ -41,19 +46,44 @@ impl Server {
         cfg.bound_to = Some(server_address.to_string());
         Ok(Server {
             poll_thread,
-            clients: HashMap::new(),
+            clients: Clients::new(),
+            guests: Guests::new(),
             keys,
             password,
         })
     }
 
     pub(crate) fn update(&mut self) -> Result<(), AppError> {
-        for p in self.poll_thread.rx.iter() {
+        let rx = &mut self.poll_thread.rx;
+        let clients = &mut self.clients;
+        let guests = &mut self.guests;
 
+        for p in rx.try_iter() {
+            let _ = process_packet(&p, |client_id, header, reader| {
+                match header.kind {
+                    PacketKind::Hello => {
+                        if clients.exists(&client_id) {
+                            false
+                        } else {
+                            if let Ok(ref hello) = read_hello(reader) {
+                                on_hello(&client_id, hello, guests, self.keys.public_key_bytes());
+                                true
+                            } else {
+                                false
+                            }
+                        }
+                    }
+
+                    PacketKind::Connect => {
+                        //
+                        true
+                    }
+                    _ => false,
+                }
+            });
         }
 
-        self.poll_thread.update();
-        //let mut buf = self.recv_buf.take().unwrap_or_else(|| Vec::new());
+        guests.flush(self.poll_thread.socket.as_ref());
 
         // for (_, c) in self.clients.iter_mut() {
         //     c.update(&mut buf)?;
@@ -113,17 +143,33 @@ impl Server {
     //         Ok(())
     //     }
     // }
+}
 
-    // fn process_packet(&mut self, packet: &Packet) -> Result<(), AppError> {
-    //     let key = ClientId(packet.address);
-    //     match msg {
-    //         Message::Connect { name, password } => self.on_connect(key, name, password, addr),
-    //         Message::Hello => {
-    //             let key = bitcode::serialize(self.keys.public_key()).unwrap();
-    //             self.endpoint.send_to(&Message::ServerInfo { key }, addr)?;
-    //             Ok(())
-    //         }
-    //         other => self.pass_to_client(key, other),
-    //     }
-    // }
+
+fn process_packet<H>(packet: &Packet, mut handler: H) -> Result<(), AppError>
+where
+    H: FnMut(ClientId, &Header, &mut NetBufReader) -> bool,
+{
+    let key = ClientId::new(packet.address);
+    let mut reader = NetBufReader::new(packet.bytes.as_slice());
+
+    while reader.available() > MIN_HEADER_SIZE {
+        match read_header(&mut reader) {
+            Ok(header) => {
+                let amount = header.size as usize;
+                info!("Got packet {:?} from {}", header.kind, packet.address);
+                let mark = reader.pos();
+                if !handler(key, &header, &mut reader) {
+                    if let Err(e) = reader.set_pos(mark + amount) {
+                        error!("Failed to skip packet: {e:?}");
+                    }
+                }
+            }
+            Err(e) => {
+                error!("Failed to read client packet: {e:?}");
+                break;
+            }
+        }
+    }
+    Ok(())
 }

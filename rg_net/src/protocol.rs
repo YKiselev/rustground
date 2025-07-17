@@ -8,10 +8,10 @@ pub const NET_BUF_SIZE: usize = 65536;
 pub const MIN_HEADER_SIZE: usize = 3;
 pub const PROTOCOL_VERSION: Version = Version(1, 0);
 
-#[derive(Debug, Snafu)]
+#[derive(Debug, Snafu, PartialEq)]
 pub enum ProtocolError {
-    #[snafu(display("Buffer underflow"))]
-    BufferUnderflow,
+    #[snafu(display("Index {index} is out of range 0..{size}"))]
+    BufferUnderflow { index: usize, size: usize },
     #[snafu(display("Buffer overflow"))]
     BufferOverflow,
     #[snafu(display("Value is too big"))]
@@ -22,9 +22,14 @@ pub enum ProtocolError {
     BadEnumTag,
 }
 
+impl ProtocolError {
+    pub fn underflow(index: usize, size: usize) -> ProtocolError {
+        ProtocolError::BufferUnderflow { index, size }
+    }
+}
 impl From<TryFromSliceError> for ProtocolError {
     fn from(_: TryFromSliceError) -> Self {
-        ProtocolError::BufferUnderflow
+        ProtocolError::underflow(0, 0)
     }
 }
 
@@ -45,22 +50,22 @@ pub enum PacketKind {
 
 ///
 /// Protocol version
-/// 
+///
 #[derive(Debug, PartialEq)]
 pub struct Version(pub u8, pub u8);
 
 ///
-/// 
-/// 
+///
+///
 #[derive(Debug, PartialEq)]
 pub struct Header {
     pub kind: PacketKind,
-    pub size: u16
+    pub size: u16,
 }
 
 ///
 /// Hello packet
-/// 
+///
 #[derive(Debug, PartialEq)]
 pub struct Hello {
     pub version: Version,
@@ -68,34 +73,53 @@ pub struct Hello {
 
 ///
 /// ServerInfo packet. Sent by server in response to Hello packet from client
-/// 
+///
 #[derive(Debug, PartialEq)]
 pub struct ServerInfo<'a> {
     pub version: Version,
-    pub key: &'a[u8]
+    pub key: &'a [u8],
 }
 
 ///
 /// Connect packet. Sent by client
-/// 
+///
 #[derive(Debug, PartialEq)]
 pub struct Connect<'a> {
     pub name: &'a str,
-    pub password: &'a str
+    pub password: &'a str,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct Accepted {
+
+}
+
+#[derive(Debug, PartialEq)]
+pub struct Rejected<'a> {
+    pub reason: &'a str
 }
 
 ///
 /// Ping packet
-/// 
+///
 #[derive(Debug, PartialEq)]
 pub struct Ping {
-    pub time: f64
+    pub time: f64,
 }
 
 ///
 /// Pong packet
-/// 
+///
 #[derive(Debug, PartialEq)]
 pub struct Pong {
-    pub time: f64
+    pub time: f64,
+}
+
+#[inline(always)]
+pub fn check_bounds(offset: usize, size: usize) -> Result<(), ProtocolError> {
+    if offset > size {
+        Err(ProtocolError::underflow(offset, size))
+    } else {
+        Ok(())
+    }
 }

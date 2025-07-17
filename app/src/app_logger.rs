@@ -12,6 +12,7 @@ use log4rs::{Config, Handle};
 
 use crate::error::{to_app_error, AppError};
 
+const CONSOLE_PATTERN: &str = "{d(%H:%M:%S)} - {m}{n}";
 const PATTERN: &str = "{d(%Y-%m-%d %H:%M:%S)} - {m}{n}";
 
 #[derive(Debug)]
@@ -40,7 +41,7 @@ fn create_app_logger(max_size: usize) -> (AppLogger, AppLoggerBuffer) {
 
 pub(crate) fn init() -> Result<(Handle, AppLoggerBuffer), AppError> {
     let stdout = ConsoleAppender::builder()
-        .encoder(Box::new(PatternEncoder::new(PATTERN)))
+        .encoder(Box::new(PatternEncoder::new(CONSOLE_PATTERN)))
         .build();
     let file = FileAppender::builder()
         .encoder(Box::new(PatternEncoder::new(PATTERN)))

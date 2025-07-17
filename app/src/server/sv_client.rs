@@ -5,7 +5,7 @@ use log::{error, info, warn};
 
 use crate::error::AppError;
 
-use super::server::ClientId;
+use super::sv_clients::ClientId;
 
 #[derive(Debug)]
 pub struct Client {

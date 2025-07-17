@@ -12,7 +12,6 @@ mod client;
 mod error;
 mod net;
 mod server;
-mod net2;
 
 fn main() -> Result<(), AppError> {
     let args: Arguments = argh::from_env();

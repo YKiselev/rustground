@@ -12,8 +12,9 @@ use std::{
     time::Duration,
 };
 
-use log::{error, warn};
+use log::{error, info, warn};
 use mio::{event::Event, net::UdpSocket, Events, Interest, Poll, Token};
+use rg_net::protocol::NET_BUF_SIZE;
 
 use crate::app::ExitFlag;
 
@@ -21,15 +22,16 @@ use super::sv_error::ServerError;
 
 const MAX_PENDING_PACKETS: usize = 64;
 
+#[derive(Debug)]
 pub(crate) struct Packet {
     pub address: SocketAddr,
     pub bytes: Vec<u8>,
 }
 
 pub(crate) struct ServerPollThread {
-    socket: Arc<UdpSocket>,
+    pub(crate) socket: Arc<UdpSocket>,
     pub(crate) rx: Receiver<Packet>,
-    send_buf: VecDeque<Packet>,
+    pub(crate) send_buf: VecDeque<Packet>,
     handle: Option<JoinHandle<()>>,
 }
 
@@ -47,7 +49,7 @@ impl ServerPollThread {
         let socket = Arc::new(socket);
         let poll_socket = Arc::clone(&socket);
         let handle = thread::spawn(move || {
-            let mut buf = [0u8; 2048];
+            let mut buf = Vec::new();
             while !exit_flag.load() {
                 match poll.poll(&mut events, timeout) {
                     Ok(_) => {
@@ -55,15 +57,17 @@ impl ServerPollThread {
                             if e.token() == Self::SERVER {
                                 if e.is_readable() {
                                     loop {
-                                        match poll_socket.recv_from(&mut buf) {
+                                        buf.resize(NET_BUF_SIZE, 0);
+                                        match poll_socket.recv_from(buf.as_mut_slice()) {
                                             Ok((available, remote_addr)) => {
                                                 if available > 0 {
-                                                    let mut bytes = Vec::from(buf);
-                                                    bytes.truncate(available);
-                                                    out_tx.send(Packet {
+                                                    buf.truncate(available);
+                                                    if let Err(e) = out_tx.send(Packet {
                                                         address: remote_addr,
-                                                        bytes,
-                                                    });
+                                                        bytes: buf.clone(), // todo - make buf recyclable
+                                                    }) {
+                                                        error!("Unable to send: {:?}", e);
+                                                    }
                                                 }
                                             }
                                             Err(e) => {
@@ -93,18 +97,23 @@ impl ServerPollThread {
         })
     }
 
-    pub(crate) fn send(&mut self, packet: Packet) {
+    pub(crate) fn send(&mut self, packet: Packet) -> Option<Packet> {
         match self.socket.send_to(&packet.bytes, packet.address) {
             Ok(written) => {
                 if written < packet.bytes.len() {
                     self.send_buf.push_back(packet);
+                    None
+                } else {
+                    Some(packet)
                 }
             }
             Err(e) => {
                 if e.kind() == ErrorKind::WouldBlock {
                     self.send_buf.push_back(packet);
+                    None
                 } else {
                     error!("Send failed: {e:?}");
+                    Some(packet)
                 }
             }
         }
@@ -124,7 +133,14 @@ impl ServerPollThread {
         }
     }
 
-    pub(crate) fn update(&mut self) {
+    pub(crate) fn update<F>(&mut self, mut processor: F)
+    where
+        F: FnMut(&Packet),
+    {
+        for p in self.rx.try_iter() {
+            processor(&p);
+        }
+
         // Try to send all pending packets
         while let Some(p) = self.send_buf.pop_front() {
             if !self.send_to(&p.bytes, p.address) {
@@ -134,8 +150,10 @@ impl ServerPollThread {
         }
         // Take errors
         match self.socket.take_error() {
-            Ok(e) => {
-                warn!("Got error: {e:?}");
+            Ok(op) => {
+                if let Some(e) = op {
+                    warn!("Got error: {e:?}");
+                }
             }
             Err(e) => {
                 error!("Failed to take socket error: {e:?}");
