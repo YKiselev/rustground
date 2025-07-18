@@ -1,24 +1,20 @@
 use std::{
-    collections::{hash_map::Entry, HashMap, VecDeque},
+    collections::VecDeque,
     io::ErrorKind,
-    iter::Map,
     net::SocketAddr,
     sync::{
-        atomic::{AtomicBool, Ordering},
-        mpsc::{self, Receiver, Sender},
+        mpsc::{self, Receiver},
         Arc,
     },
-    thread::{self, scope, JoinHandle},
+    thread::{self, JoinHandle},
     time::Duration,
 };
 
-use log::{error, info, warn};
-use mio::{event::Event, net::UdpSocket, Events, Interest, Poll, Token};
+use log::{error, warn};
+use mio::{net::UdpSocket, Events, Interest, Poll, Token};
 use rg_net::protocol::NET_BUF_SIZE;
 
-use crate::app::ExitFlag;
-
-use super::sv_error::ServerError;
+use crate::{app::ExitFlag, error::AppError};
 
 const MAX_PENDING_PACKETS: usize = 64;
 
@@ -38,7 +34,7 @@ pub(crate) struct ServerPollThread {
 impl ServerPollThread {
     const SERVER: Token = Token(1);
 
-    pub(crate) fn new(addr: SocketAddr, exit_flag: ExitFlag) -> Result<Self, ServerError> {
+    pub(crate) fn new(addr: SocketAddr, exit_flag: ExitFlag) -> Result<Self, AppError> {
         let (out_tx, out_rx) = mpsc::channel();
         let mut socket = UdpSocket::bind(addr)?;
         let mut poll = Poll::new()?;
@@ -161,8 +157,8 @@ impl ServerPollThread {
         }
     }
 
-    pub(crate) fn local_addr(&self) -> Result<SocketAddr, ServerError> {
-        self.socket.local_addr().map_err(|e| ServerError::from(e))
+    pub(crate) fn local_addr(&self) -> Result<SocketAddr, AppError> {
+        Ok(self.socket.local_addr()?)
     }
 }
 

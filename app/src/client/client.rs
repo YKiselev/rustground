@@ -7,11 +7,16 @@ use std::usize::MAX;
 
 use log::{error, info, warn};
 use mio::net::UdpSocket;
+use nom::Err;
+use rg_net::connect::write_connect;
 use rg_net::header::{read_header, write_with_header};
 use rg_net::hello::write_hello;
 use rg_net::net_rw::{try_write, NetBufReader, NetBufWriter, NetReader, NetWriter, WithPosition};
-use rg_net::protocol::{Header, PacketKind, ProtocolError, MAX_DATAGRAM_SIZE, MIN_HEADER_SIZE, NET_BUF_SIZE};
+use rg_net::protocol::{
+    Header, PacketKind, ProtocolError, MAX_DATAGRAM_SIZE, MIN_HEADER_SIZE, NET_BUF_SIZE,
+};
 use rg_net::server_info::read_server_info;
+use rg_net::{process_buf, read_accepted, read_rejected};
 use rsa::RsaPublicKey;
 
 use crate::app::App;
@@ -28,11 +33,17 @@ enum ClientState {
     Accepted,
 }
 
+#[derive(Debug, Default)]
+struct ServerProps {
+    addr: Option<SocketAddr>,
+    key: Option<PublicKey>,
+    password: Option<String>,
+}
+
 pub(crate) struct Client {
     socket: UdpSocket,
     send_bufs: VecDeque<Vec<u8>>,
-    server_addr: Option<SocketAddr>,
-    server_key: Option<PublicKey>,
+    server_props: ServerProps,
     state: ClientState,
     last_seen: Option<Instant>,
     last_send: Option<Instant>,
@@ -42,22 +53,22 @@ impl Client {
     const MAX_LAST_SEEN: Duration = Duration::from_secs(3);
     const CONN_RETRY_INTERVAL: Duration = Duration::from_secs(3);
 
-    pub(crate) fn new(app: &Arc<App>) -> Self {
+    pub(crate) fn new(app: &Arc<App>) -> Result<Self, AppError> {
         info!("Starting client...");
         let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0).into())
             .expect("Unable to create client socket!");
-        Client {
+        //let _ = app.config().lock()?;
+        Ok(Client {
             socket,
             send_bufs: VecDeque::new(),
-            server_addr: None,
-            server_key: None,
+            server_props: ServerProps::default(),
             state: ClientState::Disconnected,
             last_seen: None,
             last_send: None,
-        }
+        })
     }
 
-    fn try_write<H>(&mut self, mut handler: H) -> Result<(), ProtocolError>
+    fn write_to_send_buf<H>(&mut self, mut handler: H) -> Result<(), ProtocolError>
     where
         H: FnMut(&mut NetBufWriter) -> Result<(), ProtocolError>,
     {
@@ -78,31 +89,55 @@ impl Client {
     }
 
     fn send_hello(&mut self) -> Result<(), ProtocolError> {
-        self.try_write(|w| write_with_header(w, PacketKind::Hello, |w| write_hello(w)))
+        self.write_to_send_buf(|w| write_with_header(w, PacketKind::Hello, |w| write_hello(w)))
     }
 
-    fn on_server_info<'a, R>(&mut self, header: &Header, reader: &mut R) -> Result<(), AppError>
+    fn send_connect(&mut self) -> Result<(), AppError> {
+        if let Some(key) = self.server_props.key.as_ref() {
+            let encoded = key.encode_str("123456")?;
+            Ok(self.write_to_send_buf(|w| {
+                write_with_header(w, PacketKind::Connect, |w| {
+                    write_connect(w, "user1", encoded.as_slice())
+                })
+            })?)
+        } else {
+            Err(AppError::IllegalState {
+                message: "No server key to encode data!".to_owned(),
+            })
+        }
+    }
+
+    fn on_server_info<'a, R>(&mut self, reader: &mut R) -> Result<(), AppError>
     where
         R: NetReader<'a>,
     {
-        let info = read_server_info(reader).map_err(|e| AppError::GenericError {
-            message: e.to_string(),
-        })?;
-        self.server_key = PublicKey::from_der(info.key).ok();
+        let info = read_server_info(reader)?;
+        self.server_props.key = PublicKey::from_der(info.key)
+            .inspect_err(|e| warn!("Unable to build public key: {e:?}"))
+            .ok();
         Ok(())
     }
 
-    // fn send(&mut self, msg: &Message) {
-    //     match self.endpoint.send(msg) {
-    //         Ok(n) => {
-    //             self.last_send = Some(Instant::now());
-    //             info!("Sent {n} bytes to server!");
-    //         }
-    //         Err(ref e) => {
-    //             error!("Failed to send data to the server: {e:?}");
-    //         }
-    //     }
-    // }
+    fn on_accepted<'a, R>(&mut self, reader: &mut R) -> Result<(), AppError>
+    where
+        R: NetReader<'a>,
+    {
+        let _ = read_accepted(reader)?;
+        self.state = ClientState::Accepted;
+        Ok(())
+    }
+
+    fn on_rejected<'a, R>(&mut self, reader: &mut R) -> Result<(), AppError>
+    where
+        R: NetReader<'a>,
+    {
+        let rejected = read_rejected(reader)?;
+        error!("Server rejected connection: {:?}", rejected.reason);
+        self.state = ClientState::Disconnected;
+        //let info = read_server_info(reader)?;
+        //self.server_props.key = PublicKey::from_der(info.key).ok();
+        Ok(())
+    }
 
     // fn process_message(&mut self, msg: &Message) -> Result<(), AppError> {
     //     match msg {
@@ -140,35 +175,21 @@ impl Client {
                 Ok(Some((_, addr))) => {
                     self.last_seen = Some(Instant::now());
                     let mut reader = NetBufReader::new(buf.as_slice());
-                    while reader.available() >= MIN_HEADER_SIZE {
-                        match read_header(&mut reader) {
-                            Ok(header) => {
-                                info!("Got packet {:?} from {}", header, addr);
-                                let amount = header.size as usize;
+                    let _ = process_buf(&mut reader, |header, reader| {
+                        info!("Got packet {:?} from {}", header, addr);
 
-                                match header.kind {
-                                    PacketKind::ServerInfo => {
-                                        let _ = self.on_server_info(&header, &mut reader)
-                                            .inspect_err(|e| error!("Failed to process: {:?}", e));
-                                    }
-                                    //PacketKind::Connect => reader.skip(header.size)?,
-                                    //PacketKind::Accepted => reader.skip(header.size)?,
-                                    //PacketKind::Rejected => reader.skip(header.size),
-                                    //PacketKind::Ping => reader.skip(header.size),
-                                    //PacketKind::Pong => reader.skip(header.size),
-                                    _ => {
-                                        if let Err(e) = reader.skip(amount) {
-                                            error!("Failed to skip packet: {e:?}");
-                                        }
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                error!("Failed to read server packet: {e:?}");
-                                break;
-                            }
+                        match header.kind {
+                            PacketKind::ServerInfo => self.on_server_info(reader),
+                            PacketKind::Accepted => self.on_accepted(reader),
+                            PacketKind::Rejected => self.on_rejected(reader),
+                            //PacketKind::Ping => reader.skip(header.size),
+                            //PacketKind::Pong => reader.skip(header.size),
+                            _ => Ok(()),
                         }
-                    }
+                        .inspect_err(|e| error!("Failed to process: {:?}", e))
+                        .is_ok()
+                    })
+                    .inspect_err(|e| error!("Failed to process: {:?}", e));
                 }
 
                 Ok(None) => {
@@ -181,15 +202,6 @@ impl Client {
             }
         }
     }
-
-    // fn send_connect_message(&mut self) {
-    //     let key = self.server_key.as_ref().unwrap();
-    //     let encoded = key.encode_str("123456").unwrap();
-    //     self.send(&Message::Connect {
-    //         name: "Test",
-    //         password: encoded,
-    //     })
-    // }
 
     fn is_time_to_resend(&self) -> bool {
         Self::CONN_RETRY_INTERVAL
@@ -211,18 +223,26 @@ impl Client {
         if self.is_time_to_resend() {
             match self.state {
                 ClientState::Disconnected => {
-                    if let Some(addr) = app.config().lock().unwrap().server.bound_to.as_ref() {
-                        let addr: SocketAddr =
-                            addr.parse().expect("Unable to parse server address!");
-                        match self.socket.connect(addr) {
-                            Ok(()) => {
-                                info!("Client socket connected to {}", addr);
-                                self.state = ClientState::Connected;
-                                self.server_addr = Some(addr)
+                    if let Ok(cfg_guard) = app.config().lock() {
+                        if let Some(addr) = cfg_guard.server.bound_to.as_ref() {
+                            if let Ok(addr) = addr.parse::<SocketAddr>() {
+                                match self.socket.connect(addr) {
+                                    Ok(()) => {
+                                        info!("Client socket connected to {}", addr);
+                                        self.state = ClientState::Connected;
+                                        self.server_props.addr = Some(addr);
+                                        self.server_props.password =
+                                            cfg_guard.server.password.clone();
+                                    }
+                                    Err(e) => {
+                                        error!("Unable to connect socket: {}", e);
+                                    }
+                                }
+                            } else {
+                                warn!("Unable to parse socket address: {}", addr);
                             }
-                            Err(e) => {
-                                error!("Unable to connect socket: {}", e);
-                            }
+                        } else {
+                            warn!("Server not bound yet?");
                         }
                     }
                 }
@@ -233,14 +253,17 @@ impl Client {
                     self.state = ClientState::AwaitingAcceptance;
                 }
                 ClientState::AwaitingAcceptance => {
-                    if !self.server_key.is_some() {
+                    if !self.server_props.key.is_some() {
+                        info!("No key, sending hello...");
                         self.send_hello()
                             .inspect_err(|e| error!("Failed to send: {:?}", e));
                     } else {
-                        self.send_connect_message();
+                        info!("Got key, sending connect...");
+                        self.send_connect();
                     };
                 }
                 ClientState::Accepted => {
+                    info!("Server accepted connection!");
                     // for i in 0..10 {
                     //     self.send(&Ping {
                     //         time: Instant::now().elapsed().as_secs_f64(),

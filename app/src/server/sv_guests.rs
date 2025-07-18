@@ -1,38 +1,55 @@
-use core::error;
 use std::{
     collections::{HashMap, VecDeque},
     net::SocketAddr,
+    time::{Duration, Instant},
 };
 
 use log::{error, warn};
 use mio::net::UdpSocket;
 use rg_net::{
-    header::write_with_header,
-    net_rw::{try_write, NetBufWriter, NetWriter},
-    protocol::{PacketKind, ProtocolError, MAX_DATAGRAM_SIZE},
-    server_info::write_server_info,
+    try_write, write_accepted, write_rejected, write_server_info, write_with_header, NetBufWriter, PacketKind, ProtocolError, RejectionReason, MAX_DATAGRAM_SIZE
 };
 
 use super::sv_clients::ClientId;
 
+const OBSOLETE_AFTER: Duration = Duration::from_secs(2 * 60);
+
 pub(super) struct Guest {
     send_buf: VecDeque<Vec<u8>>,
+    received_at: Option<Instant>,
 }
 
 impl Guest {
     pub fn new() -> Self {
         Self {
             send_buf: VecDeque::new(),
+            received_at: None,
         }
     }
 
     pub fn send_server_info(&mut self, key: &[u8]) {
-        let _ = self.try_send(|w| {
-            write_with_header(w, PacketKind::ServerInfo, |w| write_server_info(w, key))
-        });
+        let _ = self
+            .write_to_send_buf(|w| {
+                write_with_header(w, PacketKind::ServerInfo, |w| write_server_info(w, key))
+            })
+            .inspect_err(|e| warn!("Failed to write server info: {:?}", e));
     }
 
-    pub fn send_rejected(&mut self) {}
+    pub fn send_rejected(&mut self, reason: RejectionReason) {
+        let _ = self
+            .write_to_send_buf(|w| {
+                write_with_header(w, PacketKind::Accepted, |w| write_rejected(w, reason))
+            })
+            .inspect_err(|e| warn!("Failed to write server info: {:?}", e));
+    }
+
+    pub fn send_accepted(&mut self) {
+        let _ = self
+            .write_to_send_buf(|w| {
+                write_with_header(w, PacketKind::Accepted, |w| write_accepted(w))
+            })
+            .inspect_err(|e| warn!("Failed to write server info: {:?}", e));
+    }
 
     pub fn flush(&mut self, addr: SocketAddr, socket: &UdpSocket) {
         while let Some(buf) = self.send_buf.pop_front() {
@@ -50,13 +67,20 @@ impl Guest {
         }
     }
 
+    pub fn is_obsolete(&self) -> bool {
+        self.received_at
+            .map(|v| v.elapsed() >= OBSOLETE_AFTER)
+            .unwrap_or(false)
+    }
+
     ///
-    /// Calls [handler] for last send buffer (and if that fails adds new buffer and retries).
+    /// Calls [handler] for last send buffer (and if that fails due to overflow - adds new buffer and retries).
     ///
-    fn try_send<H>(&mut self, mut handler: H) -> Result<(), ProtocolError>
+    fn write_to_send_buf<H>(&mut self, mut handler: H) -> Result<(), ProtocolError>
     where
         H: FnMut(&mut NetBufWriter) -> Result<(), ProtocolError>,
     {
+        self.received_at = Some(Instant::now());
         for _ in 0..2 {
             if let Some(buf) = self.send_buf.back_mut() {
                 match try_write(buf, &mut handler) {
@@ -94,5 +118,10 @@ impl Guests {
         for (client_id, guest) in self.guests.iter_mut() {
             guest.flush(client_id.0, socket);
         }
+        self.cleanup();
+    }
+
+    fn cleanup(&mut self) {
+        self.guests.retain(|_, v| !v.is_obsolete());
     }
 }

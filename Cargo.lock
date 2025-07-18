@@ -1212,6 +1212,7 @@ name = "rg_net"
 version = "0.1.0"
 dependencies = [
  "byteorder",
+ "log",
  "musli-zerocopy 0.0.131",
  "num_enum",
  "rg_macros",

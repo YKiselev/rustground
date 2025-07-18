@@ -1,10 +1,8 @@
-
 use rsa::{
-    pkcs1::EncodeRsaPublicKey,
-    pkcs8::Document,
-    Pkcs1v15Encrypt, RsaPrivateKey, RsaPublicKey,
+    pkcs1::EncodeRsaPublicKey, pkcs8::Document, Pkcs1v15Encrypt, RsaPrivateKey, RsaPublicKey,
 };
-use snafu::Snafu;
+
+use crate::error::AppError;
 
 #[derive(Debug)]
 pub(crate) struct KeyPair {
@@ -13,27 +11,11 @@ pub(crate) struct KeyPair {
     pk_der: Document,
 }
 
-#[derive(Debug, Snafu)]
-pub(crate) enum KeyPairError {
-    #[snafu(display("RSA error: {error}"))]
-    RsaError { error: rsa::Error },
-    #[snafu(display("Error: {message}"))]
-    Other { message: String },
-}
-
-impl From<rsa::Error> for KeyPairError {
-    fn from(value: rsa::Error) -> Self {
-        Self::RsaError { error: value }
-    }
-}
-
 impl KeyPair {
-    pub(crate) fn new(bits: usize) -> Result<Self, KeyPairError> {
+    pub(crate) fn new(bits: usize) -> Result<Self, AppError> {
         let private_key = RsaPrivateKey::new(&mut rand::thread_rng(), bits)?;
         let public_key = RsaPublicKey::from(&private_key);
-        let pk_der = public_key.to_pkcs1_der().map_err(|e| KeyPairError::Other {
-            message: e.to_string(),
-        })?;
+        let pk_der = public_key.to_pkcs1_der()?;
         Ok(KeyPair {
             private_key,
             public_key,
@@ -45,13 +27,13 @@ impl KeyPair {
         &self.public_key
     }
 
-    pub(crate) fn encode(&self, data: &[u8]) -> Result<Vec<u8>, KeyPairError> {
+    pub(crate) fn encode(&self, data: &[u8]) -> Result<Vec<u8>, AppError> {
         Ok(self
             .public_key
             .encrypt(&mut rand::thread_rng(), Pkcs1v15Encrypt, data)?)
     }
 
-    pub(crate) fn decode(&self, data: &[u8]) -> Result<Vec<u8>, KeyPairError> {
+    pub(crate) fn decode(&self, data: &[u8]) -> Result<Vec<u8>, AppError> {
         Ok(self.private_key.decrypt(Pkcs1v15Encrypt, data)?)
     }
 
@@ -62,6 +44,8 @@ impl KeyPair {
 
 #[cfg(test)]
 mod test {
+    use rsa::{pkcs1::{DecodeRsaPublicKey, EncodeRsaPublicKey}, RsaPublicKey};
+
     use crate::server::key_pair::KeyPair;
 
     #[test]
@@ -74,5 +58,13 @@ mod test {
 
         let decoded = keys.decode(&encoded).expect("Unable to decode!");
         assert_eq!(&data[..], &decoded[..]);
+    }
+
+    #[test]
+    fn pub_key_to_der_and_back() {
+        let keys = KeyPair::new(512).unwrap();
+        let bytes = keys.public_key_bytes();
+        let copy = RsaPublicKey::from_pkcs1_der(bytes).unwrap();
+        assert_eq!(keys.public_key, copy);
     }
 }

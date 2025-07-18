@@ -21,7 +21,7 @@ pub(crate) fn receive_data(socket: &UdpSocket, buf: &mut Vec<u8>) -> Result<Opti
             return if e.kind() == ErrorKind::WouldBlock {
                 Ok(None) // no data yet
             } else {
-                Err(AppError::GenericError { message: e.to_string() })
+                Err(AppError::IoError { kind: e.kind() })
             };
         }
     }

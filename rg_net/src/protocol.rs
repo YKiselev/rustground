@@ -86,7 +86,7 @@ pub struct ServerInfo<'a> {
 #[derive(Debug, PartialEq)]
 pub struct Connect<'a> {
     pub name: &'a str,
-    pub password: &'a str,
+    pub password: &'a [u8],
 }
 
 #[derive(Debug, PartialEq)]
@@ -95,8 +95,15 @@ pub struct Accepted {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct Rejected<'a> {
-    pub reason: &'a str
+pub struct Rejected {
+    pub reason: RejectionReason
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, IntoPrimitive, TryFromPrimitive)]
+#[repr(u8)]
+pub enum RejectionReason {
+    Unauthorized,
+    UnsupportedVersion
 }
 
 ///

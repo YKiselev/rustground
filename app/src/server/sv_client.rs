@@ -9,15 +9,15 @@ use super::sv_clients::ClientId;
 
 #[derive(Debug)]
 pub struct Client {
-    id: ClientId,
+    //id: ClientId,
     name: String,
     last_seen: Instant
 }
 
 impl Client {
-    pub fn new(id: ClientId, name: &str) -> Self {
+    pub fn new(name: &str) -> Self {
         Client {
-            id,
+            //id,
             name: name.to_string(),
             last_seen: Instant::now()
         }

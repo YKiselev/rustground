@@ -1,6 +1,10 @@
+use log::error;
 use num_enum::TryFromPrimitive;
 
-use crate::protocol::{check_bounds, ProtocolError, NET_BUF_SIZE};
+use crate::{
+    protocol::{check_bounds, ProtocolError, NET_BUF_SIZE},
+    read_header, Header, MIN_HEADER_SIZE,
+};
 
 ///
 /// align is expected to be power of two
@@ -218,7 +222,7 @@ pub fn read_u16(buf: &[u8], offset: usize) -> Result<u16, ProtocolError> {
 }
 
 ///
-/// Tries to append data to provided [buf]. 
+/// Tries to append data to provided [buf].
 /// In case of overflow rolls back to initial vector length and returns [Ok(false)]
 ///
 pub fn try_write<H>(buf: &mut Vec<u8>, mut handler: H) -> Result<bool, ProtocolError>
@@ -245,6 +249,31 @@ where
             }
         }
     }
+}
+
+pub fn process_buf<'a, H, R>(reader: &mut R, mut handler: H) -> Result<(), ProtocolError>
+where
+    R: NetReader<'a>,
+    H: FnMut(&Header, &mut R) -> bool,
+{
+    while reader.available() > MIN_HEADER_SIZE {
+        match read_header(reader) {
+            Ok(header) => {
+                let amount = header.size as usize;
+                let mark = reader.pos();
+                if !handler(&header, reader) {
+                    if let Err(e) = reader.set_pos(mark + amount) {
+                        error!("Failed to skip packet: {e:?}");
+                    }
+                }
+            }
+            Err(e) => {
+                error!("Failed to read packet: {e:?}");
+                break;
+            }
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

@@ -1,6 +1,5 @@
 extern crate core;
 
-use argh::FromArgs;
 use error::AppError;
 
 use rg_common::Arguments;

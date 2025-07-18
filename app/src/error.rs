@@ -1,19 +1,67 @@
+use std::{net::AddrParseError, sync::PoisonError};
 
-use std::io::ErrorKind;
-
+use log::SetLoggerError;
+use rg_net::protocol::ProtocolError;
 use snafu::Snafu;
 
 #[derive(Debug, Snafu)]
 pub enum AppError {
-    #[snafu(display("Error: {message}"))]
-    GenericError{ message: String }
+    #[snafu(display("{e}"))]
+    ProtocolError { e: ProtocolError },
+    #[snafu(display("Lock poisoned"))]
+    PoisonError,
+    #[snafu(display("RSA error: {cause:?}"))]
+    RsaError { cause: rsa::Error },
+    #[snafu(display("RSA PKSC1 error: {cause:?}"))]
+    RsaPksc1Error { cause: rsa::pkcs1::Error },
+    #[snafu(display("I/O error {kind}"))]
+    IoError { kind: std::io::ErrorKind },
+    #[snafu(display("Address parsing error"))]
+    AddrParseError,
+    #[snafu(display("Illegal state: {message}"))]
+    IllegalState { message: String },
 }
 
-pub(crate) fn to_app_error<E>(e: E) -> AppError
-where
-    E: ToString,
-{
-    AppError::GenericError {
-        message: e.to_string(),
+impl From<ProtocolError> for AppError {
+    fn from(value: ProtocolError) -> Self {
+        Self::ProtocolError { e: value }
+    }
+}
+
+impl<T> From<PoisonError<T>> for AppError {
+    fn from(_: PoisonError<T>) -> Self {
+        Self::PoisonError
+    }
+}
+
+impl From<rsa::Error> for AppError {
+    fn from(value: rsa::Error) -> Self {
+        Self::RsaError { cause: value }
+    }
+}
+
+impl From<rsa::pkcs1::Error> for AppError {
+    fn from(value: rsa::pkcs1::Error) -> Self {
+        Self::RsaPksc1Error { cause: value }
+    }
+}
+
+impl From<std::io::Error> for AppError {
+    fn from(e: std::io::Error) -> Self {
+        Self::IoError { kind: e.kind() }
+    }
+}
+
+impl From<AddrParseError> for AppError {
+    fn from(_: AddrParseError) -> Self {
+        Self::AddrParseError
+    }
+}
+
+impl From<SetLoggerError> for AppError {
+    fn from(value: SetLoggerError) -> Self {
+        Self::IllegalState {
+            message: value.to_string(),
+        }
     }
 }

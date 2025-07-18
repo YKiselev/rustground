@@ -1,46 +1,65 @@
-use std::collections::hash_map::Entry;
-use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::str::from_utf8;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use log::{error, info, warn};
-use rg_net::header::read_header;
+use log::info;
+use rg_net::connect::read_connect;
 use rg_net::hello::read_hello;
-use rg_net::net_rw::{NetBufReader, NetReader, WithPosition};
-use rg_net::protocol::{Header, Hello, PacketKind, MIN_HEADER_SIZE};
+use rg_net::net_rw::NetBufReader;
+use rg_net::process_buf;
+use rg_net::protocol::PacketKind;
 
 use crate::app::App;
 use crate::error::AppError;
 use crate::server::key_pair::KeyPair;
-use crate::server::sv_client::Client;
 use crate::server::sv_guests::Guests;
 use crate::server::sv_poll::ServerPollThread;
 
-use super::key_pair::KeyPairError;
+use super::messages::sv_connect::on_connect;
 use super::messages::sv_hello::on_hello;
 use super::sv_clients::{ClientId, Clients};
-use super::sv_error::ServerError;
-use super::sv_poll::Packet;
+
+pub(super) struct ServerSecurity {
+    keys: KeyPair,
+    password: Option<String>,
+}
+
+impl ServerSecurity {
+    fn new(key_bits: usize, pwd: &Option<String>) -> Result<Self, AppError> {
+        let keys = KeyPair::new(key_bits)?;
+        Ok(Self {
+            keys,
+            password: pwd.to_owned(),
+        })
+    }
+
+    pub fn decode(&self, value: &[u8]) -> Result<Vec<u8>, AppError> {
+        self.keys.decode(value)
+    }
+
+    pub fn is_password_ok(&self, pwd: &[u8]) -> bool {
+        if let Some(p) = self.password.as_ref() {
+            p.as_bytes().eq(pwd)
+        } else {
+            pwd.is_empty()
+        }
+    }
+}
 
 pub(crate) struct Server {
     poll_thread: ServerPollThread,
     clients: Clients,
     guests: Guests,
-    keys: KeyPair,
-    password: Option<String>,
+    security: ServerSecurity,
 }
 
 impl Server {
-    pub fn new(app: &Arc<App>) -> Result<Self, ServerError> {
+    pub fn new(app: &Arc<App>) -> Result<Self, AppError> {
         info!("Starting server...");
         let mut cfg_guard = app.config().lock()?;
         let cfg = &mut cfg_guard.server;
         let addr: SocketAddr = cfg.address.parse()?;
         let poll_thread = ServerPollThread::new(addr, app.exit_flag())?;
-        let keys = KeyPair::new(cfg.key_bits)?;
-        let password = cfg.password.to_owned();
+        let security = ServerSecurity::new(cfg.key_bits, &cfg.password)?;
         let server_address = poll_thread.local_addr()?;
         info!("Server bound to {:?}", server_address);
         cfg.bound_to = Some(server_address.to_string());
@@ -48,8 +67,7 @@ impl Server {
             poll_thread,
             clients: Clients::new(),
             guests: Guests::new(),
-            keys,
-            password,
+            security,
         })
     }
 
@@ -57,26 +75,34 @@ impl Server {
         let rx = &mut self.poll_thread.rx;
         let clients = &mut self.clients;
         let guests = &mut self.guests;
+        let security = &self.security;
 
         for p in rx.try_iter() {
-            let _ = process_packet(&p, |client_id, header, reader| {
+            let client_id = ClientId::new(p.address);
+            let mut reader = NetBufReader::new(p.bytes.as_slice());
+            let _ = process_buf(&mut reader, |header, reader| {
+                info!("Got {:?} from {}", header, p.address);
                 match header.kind {
                     PacketKind::Hello => {
                         if clients.exists(&client_id) {
                             false
+                        } else if let Ok(ref hello) = read_hello(reader) {
+                            on_hello(&client_id, hello, guests, security.keys.public_key_bytes());
+                            true
                         } else {
-                            if let Ok(ref hello) = read_hello(reader) {
-                                on_hello(&client_id, hello, guests, self.keys.public_key_bytes());
-                                true
-                            } else {
-                                false
-                            }
+                            false
                         }
                     }
 
                     PacketKind::Connect => {
-                        //
-                        true
+                        if clients.exists(&client_id) {
+                            false
+                        } else if let Ok(ref connect) = read_connect(reader) {
+                            on_connect(&client_id, connect, guests, clients, security);
+                            true
+                        } else {
+                            false
+                        }
                     }
                     _ => false,
                 }
@@ -101,41 +127,6 @@ impl Server {
         Ok(())
     }
 
-    fn check_password(&self, encoded: &[u8]) -> bool {
-        if let Some(password) = &self.password {
-            return self.keys.decode(encoded).map_or_else(
-                |_| false,
-                |v| from_utf8(&v).map_or_else(|_| false, |p| password.eq(p)),
-            );
-        }
-        true
-    }
-
-    // fn on_connect(
-    //     &mut self,
-    //     key: ClientId,
-    //     name: &str,
-    //     password: &[u8],
-    //     addr: &SocketAddr,
-    // ) -> Result<(), AppError> {
-    //     if !self.check_password(password) {
-    //         info!("Wrong password from {:?}!", addr);
-    //         return Ok(());
-    //     }
-    //     match self.clients.entry(key) {
-    //         Entry::Vacant(v) => {
-    //             let endpoint = self.endpoint.try_clone_and_connect(addr)?;
-    //             let client = v.insert(Client::new(name, endpoint));
-    //             client.send(&Message::Accepted).map(|_| ())?;
-    //             Ok(())
-    //         }
-    //         Entry::Occupied(ref mut o) => {
-    //             o.get_mut().touch();
-    //             Ok(())
-    //         }
-    //     }
-    // }
-
     // fn pass_to_client(&mut self, key: ClientId, msg: &Message) -> Result<(), AppError> {
     //     if let Entry::Occupied(ref mut o) = self.clients.entry(key) {
     //         o.get_mut().process_message(msg)
@@ -143,33 +134,4 @@ impl Server {
     //         Ok(())
     //     }
     // }
-}
-
-
-fn process_packet<H>(packet: &Packet, mut handler: H) -> Result<(), AppError>
-where
-    H: FnMut(ClientId, &Header, &mut NetBufReader) -> bool,
-{
-    let key = ClientId::new(packet.address);
-    let mut reader = NetBufReader::new(packet.bytes.as_slice());
-
-    while reader.available() > MIN_HEADER_SIZE {
-        match read_header(&mut reader) {
-            Ok(header) => {
-                let amount = header.size as usize;
-                info!("Got packet {:?} from {}", header.kind, packet.address);
-                let mark = reader.pos();
-                if !handler(key, &header, &mut reader) {
-                    if let Err(e) = reader.set_pos(mark + amount) {
-                        error!("Failed to skip packet: {e:?}");
-                    }
-                }
-            }
-            Err(e) => {
-                error!("Failed to read client packet: {e:?}");
-                break;
-            }
-        }
-    }
-    Ok(())
 }

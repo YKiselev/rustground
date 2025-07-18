@@ -1,8 +1,8 @@
 
-use rsa::pkcs8::DecodePublicKey;
+use rsa::pkcs1::DecodeRsaPublicKey;
 use rsa::{Pkcs1v15Encrypt, RsaPublicKey};
 
-use crate::error::{to_app_error, AppError};
+use crate::error::AppError;
 
 #[derive(Debug)]
 pub(crate) struct PublicKey {
@@ -10,24 +10,15 @@ pub(crate) struct PublicKey {
 }
 
 impl PublicKey {
-    pub(crate) fn from_pem(data: &str) -> Result<Self, AppError> {
-        Ok(PublicKey {
-            key: RsaPublicKey::from_public_key_pem(data).map_err(to_app_error)?,
-        })
-    }
-
     pub(crate) fn from_der(bytes: &[u8]) -> Result<Self, AppError> {
         Ok(PublicKey {
-            key: RsaPublicKey::from_public_key_der(bytes).map_err(to_app_error)?,
+            key: RsaPublicKey::from_pkcs1_der(bytes)?,
         })
     }
 
     pub(crate) fn encode(&self, data: &[u8]) -> Result<Vec<u8>, AppError> {
-        self.key
-            .encrypt(&mut rand::thread_rng(), Pkcs1v15Encrypt, data)
-            .map_err(|e| AppError::GenericError {
-                message: e.to_string(),
-            })
+        Ok(self.key
+            .encrypt(&mut rand::thread_rng(), Pkcs1v15Encrypt, data)?)
     }
 
     pub(crate) fn encode_str(&self, data: &str) -> Result<Vec<u8>, AppError> {

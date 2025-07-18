@@ -1,4 +1,4 @@
-use std::{collections::HashMap, net::SocketAddr};
+use std::{collections::{hash_map::Entry, HashMap}, net::SocketAddr};
 
 use log::{error, info};
 use rg_net::{
@@ -35,7 +35,16 @@ impl Clients {
         false
     }
 
-    pub fn update(&mut self) {
+    pub fn update(&mut self) {}
 
+    pub fn add(&mut self, client_id: ClientId, name: &str) {
+        match self.clients.entry(client_id) {
+            Entry::Vacant(v) => {
+                let client = v.insert(Client::new(name));
+            }
+            Entry::Occupied(ref mut o) => {
+                o.get_mut().touch();
+            }
+        }
     }
 }

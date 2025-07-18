@@ -10,7 +10,7 @@ use log4rs::config::{Appender, Logger, Root};
 use log4rs::encode::pattern::PatternEncoder;
 use log4rs::{Config, Handle};
 
-use crate::error::{to_app_error, AppError};
+use crate::error::AppError;
 
 const CONSOLE_PATTERN: &str = "{d(%H:%M:%S)} - {m}{n}";
 const PATTERN: &str = "{d(%Y-%m-%d %H:%M:%S)} - {m}{n}";
@@ -45,8 +45,7 @@ pub(crate) fn init() -> Result<(Handle, AppLoggerBuffer), AppError> {
         .build();
     let file = FileAppender::builder()
         .encoder(Box::new(PatternEncoder::new(PATTERN)))
-        .build("app.log")
-        .map_err(to_app_error)?;
+        .build("app.log")?;
     let (logger, buf) = create_app_logger(400);
     let config = Config::builder()
         .appender(Appender::builder().build("stdout", Box::new(stdout)))
@@ -59,10 +58,9 @@ pub(crate) fn init() -> Result<(Handle, AppLoggerBuffer), AppError> {
                 .appender("app")
                 .appender("file")
                 .build(LevelFilter::Info),
-        )
-        .map_err(to_app_error)?;
+        ).map_err(|e| AppError::IllegalState { message: e.to_string() })?;
 
-    let handle = log4rs::init_config(config).map_err(to_app_error)?;
+    let handle = log4rs::init_config(config)?;
     Ok((handle, buf))
 }
 
@@ -70,8 +68,7 @@ pub(crate) fn build_dedicated_config() -> Result<Config, AppError> {
     let stdout = ConsoleAppender::builder().build();
     let file = FileAppender::builder()
         .encoder(Box::new(PatternEncoder::new(PATTERN)))
-        .build("app.log")
-        .map_err(to_app_error)?;
+        .build("app.log")?;
     let config = Config::builder()
         .appender(Appender::builder().build("stdout", Box::new(stdout)))
         .appender(Appender::builder().build("file", Box::new(file)))
@@ -81,7 +78,7 @@ pub(crate) fn build_dedicated_config() -> Result<Config, AppError> {
                 .appender("file")
                 .build(LevelFilter::Info),
         )
-        .map_err(to_app_error)?;
+        .map_err(|e| AppError::IllegalState { message: e.to_string() })?;
 
     Ok(config)
 }

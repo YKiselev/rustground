@@ -1,4 +1,5 @@
 use crate::app::App;
+use crate::error::AppError;
 use crate::server::Server;
 use log::{error, info, warn};
 use std::sync::{Arc, Mutex};
@@ -6,11 +7,9 @@ use std::thread;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use super::sv_error::ServerError;
-
 pub(crate) fn server_init(
     app: &Arc<App>,
-) -> Result<(Arc<Mutex<Server>>, JoinHandle<()>), ServerError> {
+) -> Result<(Arc<Mutex<Server>>, JoinHandle<()>), AppError> {
     let server = Arc::new(Mutex::new(Server::new(app)?));
     let sv_clone = server.clone();
     let app_clone = app.clone();
