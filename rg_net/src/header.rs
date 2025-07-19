@@ -1,5 +1,6 @@
+
 use crate::{
-    net_rw::{write_u16, NetReader, NetWriter},
+    net_rw::{NetReader, NetWriter},
     protocol::{Header, PacketKind, ProtocolError},
 };
 

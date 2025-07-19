@@ -256,7 +256,7 @@ where
     R: NetReader<'a>,
     H: FnMut(&Header, &mut R) -> bool,
 {
-    while reader.available() > MIN_HEADER_SIZE {
+    while reader.available() >= MIN_HEADER_SIZE {
         match read_header(reader) {
             Ok(header) => {
                 let amount = header.size as usize;

@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::usize::MAX;
 
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use mio::net::UdpSocket;
 use nom::Err;
 use rg_net::connect::write_connect;
@@ -17,7 +17,6 @@ use rg_net::protocol::{
 };
 use rg_net::server_info::read_server_info;
 use rg_net::{process_buf, read_accepted, read_rejected};
-use rsa::RsaPublicKey;
 
 use crate::app::App;
 use crate::client::cl_pub_key::PublicKey;
@@ -25,10 +24,9 @@ use crate::error::AppError;
 
 use super::cl_net::receive_data;
 
-#[derive(Eq, PartialEq)]
+#[derive(Eq, PartialEq, Clone, Copy)]
 enum ClientState {
     Disconnected,
-    Connected,
     AwaitingAcceptance,
     Accepted,
 }
@@ -88,8 +86,9 @@ impl Client {
         Ok(())
     }
 
-    fn send_hello(&mut self) -> Result<(), ProtocolError> {
-        self.write_to_send_buf(|w| write_with_header(w, PacketKind::Hello, |w| write_hello(w)))
+    fn send_hello(&mut self) -> Result<(), AppError> {
+        Ok(self
+            .write_to_send_buf(|w| write_with_header(w, PacketKind::Hello, |w| write_hello(w)))?)
     }
 
     fn send_connect(&mut self) -> Result<(), AppError> {
@@ -112,10 +111,14 @@ impl Client {
         R: NetReader<'a>,
     {
         let info = read_server_info(reader)?;
-        self.server_props.key = PublicKey::from_der(info.key)
-            .inspect_err(|e| warn!("Unable to build public key: {e:?}"))
-            .ok();
-        Ok(())
+        let public_key = PublicKey::from_der(info.key)?;
+        self.server_props.key = Some(public_key);
+        info!("Got server key");
+        if self.state == ClientState::AwaitingAcceptance {
+            self.send_connect()
+        } else {
+            Ok(())
+        }
     }
 
     fn on_accepted<'a, R>(&mut self, reader: &mut R) -> Result<(), AppError>
@@ -124,6 +127,7 @@ impl Client {
     {
         let _ = read_accepted(reader)?;
         self.state = ClientState::Accepted;
+        info!("Accepted by the server");
         Ok(())
     }
 
@@ -134,8 +138,6 @@ impl Client {
         let rejected = read_rejected(reader)?;
         error!("Server rejected connection: {:?}", rejected.reason);
         self.state = ClientState::Disconnected;
-        //let info = read_server_info(reader)?;
-        //self.server_props.key = PublicKey::from_der(info.key).ok();
         Ok(())
     }
 
@@ -176,7 +178,7 @@ impl Client {
                     self.last_seen = Some(Instant::now());
                     let mut reader = NetBufReader::new(buf.as_slice());
                     let _ = process_buf(&mut reader, |header, reader| {
-                        info!("Got packet {:?} from {}", header, addr);
+                        debug!("Got server packet {:?} from {}", header, addr);
 
                         match header.kind {
                             PacketKind::ServerInfo => self.on_server_info(reader),
@@ -221,54 +223,53 @@ impl Client {
     pub(crate) fn update(&mut self, app: &Arc<App>) {
         self.receive_from_server();
         if self.is_time_to_resend() {
-            match self.state {
-                ClientState::Disconnected => {
-                    if let Ok(cfg_guard) = app.config().lock() {
-                        if let Some(addr) = cfg_guard.server.bound_to.as_ref() {
-                            if let Ok(addr) = addr.parse::<SocketAddr>() {
-                                match self.socket.connect(addr) {
-                                    Ok(()) => {
-                                        info!("Client socket connected to {}", addr);
-                                        self.state = ClientState::Connected;
-                                        self.server_props.addr = Some(addr);
-                                        self.server_props.password =
-                                            cfg_guard.server.password.clone();
+            loop {
+                let state = self.state;
+                match state {
+                    ClientState::Disconnected => {
+                        if let Ok(cfg_guard) = app.config().lock() {
+                            if let Some(addr) = cfg_guard.server.bound_to.as_ref() {
+                                if let Ok(addr) = addr.parse::<SocketAddr>() {
+                                    match self.socket.connect(addr) {
+                                        Ok(_) => {
+                                            info!("Client socket connected to {}", addr);
+                                            self.state = ClientState::AwaitingAcceptance;
+                                            self.server_props.addr = Some(addr);
+                                            self.server_props.password =
+                                                cfg_guard.server.password.clone();
+                                        }
+                                        Err(e) => {
+                                            error!("Unable to connect socket: {}", e);
+                                        }
                                     }
-                                    Err(e) => {
-                                        error!("Unable to connect socket: {}", e);
-                                    }
+                                } else {
+                                    warn!("Unable to parse socket address: {}", addr);
                                 }
                             } else {
-                                warn!("Unable to parse socket address: {}", addr);
+                                warn!("Server not bound yet?");
                             }
                         } else {
-                            warn!("Server not bound yet?");
+                            warn!("Unable to lock configuration!");
                         }
                     }
-                }
-                ClientState::Connected => {
-                    let _ = self
-                        .send_hello()
+                    ClientState::AwaitingAcceptance => {
+                        let _ = if !self.server_props.key.is_some() {
+                            self.send_hello()
+                        } else {
+                            self.send_connect()
+                        }
                         .inspect_err(|e| error!("Failed to send: {:?}", e));
-                    self.state = ClientState::AwaitingAcceptance;
+                    }
+                    ClientState::Accepted => {
+                        // for i in 0..10 {
+                        //     self.send(&Ping {
+                        //         time: Instant::now().elapsed().as_secs_f64(),
+                        //     });
+                        // }
+                    }
                 }
-                ClientState::AwaitingAcceptance => {
-                    if !self.server_props.key.is_some() {
-                        info!("No key, sending hello...");
-                        self.send_hello()
-                            .inspect_err(|e| error!("Failed to send: {:?}", e));
-                    } else {
-                        info!("Got key, sending connect...");
-                        self.send_connect();
-                    };
-                }
-                ClientState::Accepted => {
-                    info!("Server accepted connection!");
-                    // for i in 0..10 {
-                    //     self.send(&Ping {
-                    //         time: Instant::now().elapsed().as_secs_f64(),
-                    //     });
-                    // }
+                if state == self.state {
+                    break;
                 }
             }
         }

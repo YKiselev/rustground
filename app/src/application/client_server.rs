@@ -6,10 +6,11 @@ use rg_common::Arguments;
 use crate::{app::App, app_logger, client::Client, error::AppError, server::server_init};
 
 pub(crate) fn run_client_server(args: Arguments) -> Result<(), AppError> {
-    let (handle, log_buf) = app_logger::init().expect("Unable to init app logger!");
-    info!("Begin initialization...");
+    let (handle, log_buf) = app_logger::init(&args).expect("Unable to init app logger!");
+    info!("=== App started ===");
 
     let app = Arc::new(App::new(args));
+    
     info!("Entering main loop...");
     let mut client = Client::new(&app)?;
     let (server, sv_handle) = server_init(&app).expect("Server initialization failed!");

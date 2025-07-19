@@ -32,7 +32,7 @@ impl Clients {
     }
 
     pub fn exists(&self, client_id: &ClientId) -> bool {
-        false
+        self.clients.get(client_id).is_some()
     }
 
     pub fn update(&mut self) {}

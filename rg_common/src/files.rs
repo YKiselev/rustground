@@ -12,6 +12,7 @@ pub trait Files {
     fn open<S: AsRef<str>>(&mut self, path: S) -> Option<File>;
 }
 
+#[derive(Debug)]
 struct FileRoot {
     readonly: bool,
     path: PathBuf,
@@ -61,7 +62,6 @@ pub struct AppFiles {
 
 impl AppFiles {
     pub fn new(args: &Arguments) -> Self {
-        let current_dir = env::current_dir().unwrap_or(PathBuf::from("."));
         let mut folders: Vec<PathBuf> = Vec::new();
         if let Some(home) = dirs::home_dir() {
             let app_home = home.join(".rustground");
@@ -70,10 +70,12 @@ impl AppFiles {
             }
             folders.push(app_home);
         }
+        let current_dir = env::current_dir().unwrap_or(PathBuf::from("."));
         folders.push(current_dir.join("base"));
         folders.push(current_dir.join("base/resources"));
         let roots = folders
             .iter()
+            .filter(|p| p.exists())
             .map(|path| {
                 let r = FileRoot::try_new(path);
                 if r.is_err() {

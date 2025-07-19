@@ -4,7 +4,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use log::{error, warn};
+use log::{error, info, warn};
 use mio::net::UdpSocket;
 use rg_net::{
     try_write, write_accepted, write_rejected, write_server_info, write_with_header, NetBufWriter, PacketKind, ProtocolError, RejectionReason, MAX_DATAGRAM_SIZE

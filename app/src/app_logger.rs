@@ -9,11 +9,12 @@ use log4rs::append::Append;
 use log4rs::config::{Appender, Logger, Root};
 use log4rs::encode::pattern::PatternEncoder;
 use log4rs::{Config, Handle};
+use rg_common::Arguments;
 
 use crate::error::AppError;
 
-const CONSOLE_PATTERN: &str = "{d(%H:%M:%S)} - {m}{n}";
-const PATTERN: &str = "{d(%Y-%m-%d %H:%M:%S)} - {m}{n}";
+const CONSOLE_PATTERN: &str = "{d(%H:%M:%S)} {h({l})} [{T}] {M} - {m}{n}";
+const PATTERN: &str = "{d(%Y-%m-%d %H:%M:%S)} {l} [{T}] {M} - {m}{n}";
 
 #[derive(Debug)]
 pub(crate) struct AppLogger {
@@ -39,7 +40,7 @@ fn create_app_logger(max_size: usize) -> (AppLogger, AppLoggerBuffer) {
     (logger, buf)
 }
 
-pub(crate) fn init() -> Result<(Handle, AppLoggerBuffer), AppError> {
+pub(crate) fn init(args: &Arguments) -> Result<(Handle, AppLoggerBuffer), AppError> {
     let stdout = ConsoleAppender::builder()
         .encoder(Box::new(PatternEncoder::new(CONSOLE_PATTERN)))
         .build();
@@ -47,17 +48,18 @@ pub(crate) fn init() -> Result<(Handle, AppLoggerBuffer), AppError> {
         .encoder(Box::new(PatternEncoder::new(PATTERN)))
         .build("app.log")?;
     let (logger, buf) = create_app_logger(400);
+    let level = args.log_level();
     let config = Config::builder()
         .appender(Appender::builder().build("stdout", Box::new(stdout)))
         .appender(Appender::builder().build("file", Box::new(file)))
         .appender(Appender::builder().build("app", Box::new(logger)))
-        .logger(Logger::builder().build("app", LevelFilter::Debug))
+        .logger(Logger::builder().build("app", level))
         .build(
             Root::builder()
                 .appender("stdout")
                 .appender("app")
                 .appender("file")
-                .build(LevelFilter::Info),
+                .build(level),
         ).map_err(|e| AppError::IllegalState { message: e.to_string() })?;
 
     let handle = log4rs::init_config(config)?;

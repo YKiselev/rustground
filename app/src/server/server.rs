@@ -1,7 +1,7 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use log::info;
+use log::{debug, info, warn};
 use rg_net::connect::read_connect;
 use rg_net::hello::read_hello;
 use rg_net::net_rw::NetBufReader;
@@ -81,7 +81,7 @@ impl Server {
             let client_id = ClientId::new(p.address);
             let mut reader = NetBufReader::new(p.bytes.as_slice());
             let _ = process_buf(&mut reader, |header, reader| {
-                info!("Got {:?} from {}", header, p.address);
+                debug!("Got {:?} from client {}", header, p.address);
                 match header.kind {
                     PacketKind::Hello => {
                         if clients.exists(&client_id) {
@@ -95,10 +95,9 @@ impl Server {
                     }
 
                     PacketKind::Connect => {
-                        if clients.exists(&client_id) {
-                            false
-                        } else if let Ok(ref connect) = read_connect(reader) {
-                            on_connect(&client_id, connect, guests, clients, security);
+                        if let Ok(ref connect) = read_connect(reader) {
+                            let _ = on_connect(&client_id, connect, guests, clients, security)
+                                .inspect_err(|e| warn!("Unable to connect client: {:?}", e));
                             true
                         } else {
                             false

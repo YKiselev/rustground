@@ -1,4 +1,7 @@
+use std::option;
+
 use argh::FromArgs;
+use log::LevelFilter;
 
 /// Program arguments
 #[derive(FromArgs)]
@@ -9,6 +12,10 @@ pub struct Arguments {
     /// run client in windowed mode
     #[argh(switch)]
     windowed: bool,
+
+    /// log level filter
+    #[argh(option, default="LevelFilter::Info")]
+    log_level: LevelFilter
 }
 
 impl Arguments {
@@ -18,5 +25,9 @@ impl Arguments {
 
     pub fn windowed(&self) -> bool {
         self.windowed
+    }
+
+    pub fn log_level(&self) -> LevelFilter {
+        self.log_level
     }
 }
