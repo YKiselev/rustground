@@ -1,25 +1,26 @@
-use std::io;
+use std::collections::VecDeque;
+use std::net::SocketAddr;
+use std::sync::mpsc::Sender;
 use std::time::Instant;
 
-use log::{error, info, warn};
 
-use crate::error::AppError;
+use log::error;
 
-use super::sv_clients::ClientId;
+use super::sv_poll::Packet;
 
 #[derive(Debug)]
 pub struct Client {
-    //id: ClientId,
     name: String,
-    last_seen: Instant
+    last_seen: Instant,
+    send_buf: VecDeque<Vec<u8>>,
 }
 
 impl Client {
     pub fn new(name: &str) -> Self {
         Client {
-            //id,
             name: name.to_string(),
-            last_seen: Instant::now()
+            last_seen: Instant::now(),
+            send_buf: VecDeque::new(),
         }
     }
 
@@ -27,62 +28,18 @@ impl Client {
         self.last_seen = Instant::now();
     }
 
-    // pub(crate) fn send(&mut self, msg: &Message) -> io::Result<usize> {
-    //     self.endpoint.send(msg)
-    // }
-
-    // fn clear_buffers(&mut self) {
-    //     self.endpoint.clear_buffers();
-    // }
-
-    // pub(crate) fn flush(&mut self) -> io::Result<usize> {
-    //     self.endpoint.flush()
-    // }
-
-    // pub(crate) fn process_message(&mut self, msg: &Message) -> Result<(), AppError> {
-    //     self.touch();
-    //     info!("Got from connected client: {msg:?}");
-    //     match msg {
-    //         // Message::Ack(_) => {}
-    //         // Message::Connect(_) => {}
-    //         // Message::Accepted => {}
-    //         // Message::Hello => {}
-    //         Pong { time } => {
-    //             info!(
-    //                 "Ping to client is {:.6} sec.",
-    //                 Instant::now().elapsed().as_secs_f64() - time
-    //             );
-    //         }
-    //         Ping { time } => {
-    //             self.endpoint.send(&Pong { time: *time })?;
-    //         }
-    //         m => {
-    //             warn!("Ignoring unsupported message: {m:?}");
-    //         }
-    //     }
-    //     Ok(())
-    // }
-
-    pub(crate) fn update(&mut self, buf: &mut Vec<u8>) -> Result<(), AppError> {
-        // self.clear_buffers();
-        // loop {
-        //     match self.endpoint.receive_data(buf.as_mut()) {
-        //         Ok(Some(mut data)) => {
-        //             self.last_seen = Instant::now();
-        //             while let Some(ref m) = data.read() {
-        //                 self.process_message(m)?;
-        //             }
-        //         }
-
-        //         Ok(None) => {
-        //             break;
-        //         }
-        //         Err(e) => {
-        //             error!("Failed to receive from client: {e:?}");
-        //             break;
-        //         }
-        //     }
-        // }
-        Ok(())
+    pub fn flush(&mut self, addr: SocketAddr, tx: &Sender<Packet>) {
+        while let Some(buf) = self.send_buf.pop_front() {
+            match tx.send(Packet {
+                bytes: buf,
+                address: addr,
+            }) {
+                Ok(_) => {}
+                Err(_) => {
+                    error!("Send channel is closed!");
+                    break;
+                }
+            }
+        }
     }
 }

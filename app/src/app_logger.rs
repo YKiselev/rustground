@@ -13,8 +13,8 @@ use rg_common::Arguments;
 
 use crate::error::AppError;
 
-const CONSOLE_PATTERN: &str = "{d(%H:%M:%S)} {h({l})} [{T}] {M} - {m}{n}";
-const PATTERN: &str = "{d(%Y-%m-%d %H:%M:%S)} {l} [{T}] {M} - {m}{n}";
+const CONSOLE_PATTERN: &str = "{d(%H:%M:%S%.3f)} {h({l})} [{T}] {M} - {m}{n}";
+const PATTERN: &str = "{d(%Y-%m-%d %H:%M:%S%.3f)} {l} [{T}] {M} - {m}{n}";
 
 #[derive(Debug)]
 pub(crate) struct AppLogger {

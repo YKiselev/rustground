@@ -1,6 +1,7 @@
-use std::{collections::{hash_map::Entry, HashMap}, net::SocketAddr};
+use std::{collections::{hash_map::Entry, HashMap}, net::SocketAddr, sync::mpsc::Sender};
 
 use log::{error, info};
+use mio::net::UdpSocket;
 use rg_net::{
     header::read_header,
     net_rw::{NetBufReader, NetReader, WithPosition},
@@ -35,7 +36,11 @@ impl Clients {
         self.clients.get(client_id).is_some()
     }
 
-    pub fn update(&mut self) {}
+    pub fn flush(&mut self, tx: &Sender<Packet>) {
+        for (client_id, client) in self.clients.iter_mut() {
+            client.flush(client_id.0, tx);
+        }
+    }
 
     pub fn add(&mut self, client_id: ClientId, name: &str) {
         match self.clients.entry(client_id) {

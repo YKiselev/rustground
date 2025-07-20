@@ -1,16 +1,18 @@
 use std::{
     collections::{HashMap, VecDeque},
     net::SocketAddr,
+    sync::mpsc::Sender,
     time::{Duration, Instant},
 };
 
 use log::{error, info, warn};
 use mio::net::UdpSocket;
 use rg_net::{
-    try_write, write_accepted, write_rejected, write_server_info, write_with_header, NetBufWriter, PacketKind, ProtocolError, RejectionReason, MAX_DATAGRAM_SIZE
+    try_write, write_accepted, write_rejected, write_server_info, write_with_header, NetBufWriter,
+    PacketKind, ProtocolError, RejectionReason, MAX_DATAGRAM_SIZE,
 };
 
-use super::sv_clients::ClientId;
+use super::{sv_clients::ClientId, sv_poll::Packet};
 
 const OBSOLETE_AFTER: Duration = Duration::from_secs(2 * 60);
 
@@ -51,17 +53,16 @@ impl Guest {
             .inspect_err(|e| warn!("Failed to write server info: {:?}", e));
     }
 
-    pub fn flush(&mut self, addr: SocketAddr, socket: &UdpSocket) {
+    pub fn flush(&mut self, addr: SocketAddr, tx: &Sender<Packet>) {
         while let Some(buf) = self.send_buf.pop_front() {
-            match socket.send_to(buf.as_slice(), addr) {
-                Ok(amount) => {
-                    if amount < buf.len() {
-                        warn!("Partial send: {} of {}", amount, buf.len());
-                    }
-                }
-                Err(e) => {
-                    self.send_buf.push_front(buf);
-                    error!("Failed to send to client {}: {:?}", addr, e);
+            match tx.send(Packet {
+                bytes: buf,
+                address: addr,
+            }) {
+                Ok(_) => {}
+                Err(_) => {
+                    error!("Send channel is closed!");
+                    break;
                 }
             }
         }
@@ -114,9 +115,9 @@ impl Guests {
         self.guests.entry(id).or_insert_with(|| Guest::new())
     }
 
-    pub fn flush(&mut self, socket: &UdpSocket) {
+    pub fn flush(&mut self, tx: &Sender<Packet>) {
         for (client_id, guest) in self.guests.iter_mut() {
-            guest.flush(client_id.0, socket);
+            guest.flush(client_id.0, tx);
         }
         self.cleanup();
     }

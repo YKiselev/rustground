@@ -58,7 +58,7 @@ impl Server {
         let mut cfg_guard = app.config().lock()?;
         let cfg = &mut cfg_guard.server;
         let addr: SocketAddr = cfg.address.parse()?;
-        let poll_thread = ServerPollThread::new(addr, app.exit_flag())?;
+        let poll_thread = ServerPollThread::new(addr)?;
         let security = ServerSecurity::new(cfg.key_bits, &cfg.password)?;
         let server_address = poll_thread.local_addr()?;
         info!("Server bound to {:?}", server_address);
@@ -108,29 +108,10 @@ impl Server {
             });
         }
 
-        guests.flush(self.poll_thread.socket.as_ref());
+        guests.flush(&self.poll_thread.tx);
 
-        // for (_, c) in self.clients.iter_mut() {
-        //     c.update(&mut buf)?;
-        // }
+        clients.flush(&self.poll_thread.tx);
 
-        //self.listen(&mut buf)?;
-
-        // for (id, c) in self.clients.iter_mut() {
-        //     if let Err(e) = c.flush() {
-        //         warn!("Flush failed for {id:?}: {e:?}");
-        //     }
-        // }
-
-        //self.recv_buf.replace(buf);
         Ok(())
     }
-
-    // fn pass_to_client(&mut self, key: ClientId, msg: &Message) -> Result<(), AppError> {
-    //     if let Entry::Occupied(ref mut o) = self.clients.entry(key) {
-    //         o.get_mut().process_message(msg)
-    //     } else {
-    //         Ok(())
-    //     }
-    // }
 }

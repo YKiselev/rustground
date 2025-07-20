@@ -71,6 +71,7 @@ impl AppFiles {
             folders.push(app_home);
         }
         let current_dir = env::current_dir().unwrap_or(PathBuf::from("."));
+        info!("Current dir is \"{}\"", current_dir.display());
         folders.push(current_dir.join("base"));
         folders.push(current_dir.join("base/resources"));
         let roots = folders
@@ -83,8 +84,8 @@ impl AppFiles {
                         warn!("Failed to map \"{}\": {error}", path.display());
                     })
                 } else {
-                    r.inspect(|path| {
-                        info!("Added path: {}", path);
+                    r.inspect(|root| {
+                        info!("Added {root}");
                     })
                 }
             })
