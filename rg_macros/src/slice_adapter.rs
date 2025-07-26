@@ -65,15 +65,15 @@ fn define_slice_adapter_struct(
     name: &Ident,
     info: &Vec<proc_macro2::TokenStream>
 ) -> proc_macro2::TokenStream {
-    let adapterIdent = quote::format_ident!("{}{}", name, "SliceAdapter");
+    let adapter_ident = quote::format_ident!("{}{}", name, "SliceAdapter");
     let len = info.len();
     quote::quote! {
 
-        pub struct #adapterIdent<'a> {
+        pub struct #adapter_ident<'a> {
             slice: &'a [u8]
         }
 
-        impl<'a> #adapterIdent<'a> {
+        impl<'a> #adapter_ident<'a> {
             pub fn new(slice:&'a [u8]) -> Self {
                 Self {
                     slice

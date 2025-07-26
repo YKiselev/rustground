@@ -1,12 +1,8 @@
-use std::str::Chars;
 
 ///
 /// Command line parser
 ///
 
-pub struct CmdParser<'a> {
-    chars: Chars<'a>,
-}
 
 enum State {
     Normal,
@@ -15,135 +11,131 @@ enum State {
     Whitespace,
 }
 
-impl<'a> CmdParser<'a> {
-    pub fn new(cmd_line: &'a str) -> Self {
-        CmdParser {
-            chars: cmd_line.chars(),
-        }
-    }
+fn is_quote(ch: char) -> bool {
+    ch == '\"' || ch == '\''
+}
 
-    fn is_quote(ch: char) -> bool {
-        ch == '\"' || ch == '\''
+fn unquote(mut value: String) -> Option<String> {
+    let first = value.chars().next()?;
+    let last = value.chars().next_back()?;
+    let result = if is_quote(first) && is_quote(last) {
+        value.remove(0);
+        value.pop();
+        value
+    } else {
+        value
+    };
+    if !result.is_empty() {
+        Some(result)
+    } else {
+        None
     }
+}
 
-    fn strip_last_quote(mut value: String) -> Option<String> {
-        let result = if value.len() >= 2
-            && Self::is_quote(value.chars().next().unwrap())
-            && Self::is_quote(value.chars().next_back().unwrap())
-        {
-            value.remove(0);
-            value.pop();
-            value
-        } else {
-            value
-        };
-        if !result.is_empty() {
-            Some(result)
-        } else {
-            None
-        }
-    }
-
-    pub fn next(&mut self) -> Option<Vec<String>> {
-        let mut result = Vec::new();
-        let mut buf = String::new();
-        let mut state = State::Whitespace;
-        while let Some(ch) = self.chars.next() {
-            match state {
-                State::Normal => match ch {
-                    ';' => {
-                        break;
-                    }
-                    '\\' => {
-                        state = State::Backslash('a');
-                        buf.push(ch);
-                    }
-                    '"' | '\'' => {
-                        state = State::Quoted(ch);
-                        buf.push(ch);
-                    }
-                    _ if ch.is_whitespace() => {
-                        state = State::Whitespace;
-                        if !buf.is_empty() {
-                            if let Some(v) = Self::strip_last_quote(buf) {
-                                result.push(v);
-                            }
-                            buf = String::new();
+pub fn parse_command_line<S>(value: S) -> Option<Vec<String>>
+where
+    S: AsRef<str>,
+{
+    let mut chars = value.as_ref().chars();
+    let mut result = Vec::new();
+    let mut buf = String::new();
+    let mut state = State::Whitespace;
+    while let Some(ch) = chars.next() {
+        match state {
+            State::Normal => match ch {
+                ';' => {
+                    break;
+                }
+                '\\' => {
+                    state = State::Backslash('a');
+                    buf.push(ch);
+                }
+                '"' | '\'' => {
+                    state = State::Quoted(ch);
+                    buf.push(ch);
+                }
+                _ if ch.is_whitespace() => {
+                    state = State::Whitespace;
+                    if !buf.is_empty() {
+                        if let Some(v) = unquote(buf) {
+                            result.push(v);
                         }
-                    }
-                    _ => {
-                        buf.push(ch);
-                    }
-                },
-                State::Whitespace => {
-                    if !ch.is_whitespace() {
-                        match ch {
-                            ';' => {
-                                break;
-                            }
-                            '\\' => {
-                                state = State::Backslash(' ');
-                                buf.push(ch);
-                            }
-                            '"' | '\'' => {
-                                state = State::Quoted(ch);
-                                buf.push(ch);
-                            }
-                            _ => {
-                                state = State::Normal;
-                                buf.push(ch);
-                            }
-                        }
+                        buf = String::new();
                     }
                 }
-                State::Quoted(q) => match ch {
-                    '"' | '\'' if q == ch => {
-                        state = State::Normal;
-                        buf.push(ch);
-                    }
-                    '\\' => {
-                        state = State::Backslash(q);
-                        buf.push(ch);
-                    }
-                    _ => {
-                        buf.push(ch);
-                    }
-                },
-                State::Backslash(v) => {
+                _ => {
                     buf.push(ch);
-                    match v {
+                }
+            },
+            State::Whitespace => {
+                if !ch.is_whitespace() {
+                    match ch {
+                        ';' => {
+                            break;
+                        }
+                        '\\' => {
+                            state = State::Backslash(' ');
+                            buf.push(ch);
+                        }
                         '"' | '\'' => {
-                            state = State::Quoted(v);
+                            state = State::Quoted(ch);
+                            buf.push(ch);
                         }
                         _ => {
                             state = State::Normal;
+                            buf.push(ch);
                         }
                     }
                 }
             }
+            State::Quoted(q) => match ch {
+                '"' | '\'' if q == ch => {
+                    state = State::Normal;
+                    buf.push(ch);
+                }
+                '\\' => {
+                    state = State::Backslash(q);
+                    buf.push(ch);
+                }
+                _ => {
+                    buf.push(ch);
+                }
+            },
+            State::Backslash(v) => {
+                buf.push(ch);
+                match v {
+                    '"' | '\'' => {
+                        state = State::Quoted(v);
+                    }
+                    _ => {
+                        state = State::Normal;
+                    }
+                }
+            }
         }
-        if let Some(v) = Self::strip_last_quote(buf) {
-            result.push(v);
-        }
-        if result.is_empty() {
-            None
-        } else {
-            Some(result)
-        }
+    }
+    if let Some(v) = unquote(buf) {
+        result.push(v);
+    }
+    if result.is_empty() {
+        None
+    } else {
+        Some(result)
     }
 }
 
+
 #[cfg(test)]
 mod test {
-    use super::CmdParser;
+    use crate::cmd_parser::parse_command_line;
+
 
     fn assert(cmd: &str, expected: Vec<&str>) {
-        let mut parser = CmdParser::new(cmd);
         let e = expected
             .iter()
             .map(|s| s.to_string())
             .collect::<Vec<String>>();
-        assert_eq!(parser.next(), Some(e));
+        assert_eq!(parse_command_line(cmd), Some(e));
     }
 
     #[test]

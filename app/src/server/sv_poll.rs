@@ -24,15 +24,15 @@ pub(crate) struct Packet {
     pub bytes: Vec<u8>,
 }
 
-pub(crate) struct ServerPollThread {
+pub(crate) struct ServerPoll {
     pub(crate) local_addr: SocketAddr,
-    pub(crate) rx: Receiver<Packet>,
-    pub(crate) tx: Sender<Packet>,
-    poll_thread_handle: Option<JoinHandle<()>>,
-    send_thread_handle: Option<JoinHandle<()>>,
+    rx: Receiver<Packet>,
+    tx: Sender<Packet>,
+    poll_thread: JoinHandle<()>,
+    send_thread: JoinHandle<()>,
 }
 
-impl ServerPollThread {
+impl ServerPoll {
     const SERVER: Token = Token(1);
 
     pub(crate) fn new(addr: SocketAddr) -> Result<Self, AppError> {
@@ -79,7 +79,7 @@ impl ServerPollThread {
                                                 if e.kind() == ErrorKind::WouldBlock {
                                                     break;
                                                 } else {
-                                                    warn!("Failed to read: {e:?}");
+                                                    warn!("Failed to receive: {e:?}");
                                                 }
                                             }
                                         }
@@ -97,21 +97,18 @@ impl ServerPollThread {
         let send_thread_handle = thread::spawn(move || {
             let mut unsent = VecDeque::<Packet>::new();
             loop {
+                if unsent.len() > 10 {
+                    warn!("Too many unsent packets!");
+                }
+                while let Some(packet) = unsent.pop_front() {
+                    if let Some(p) = try_send(send_socket.as_ref(), packet) {
+                        unsent.push_front(p);
+                    }
+                }
                 match in_rx.recv_timeout(timeout.unwrap()) {
-                    Ok(p) => {
-                        match send_socket.send_to(p.bytes.as_slice(), p.address) {
-                            Ok(amount) => {
-                                if amount < p.bytes.len() {
-                                    warn!("Partial send: {amount} of {}", p.bytes.len());
-                                }
-                            }
-                            Err(e) => {
-                                if e.kind() == ErrorKind::WouldBlock {
-                                    unsent.push_back(p);
-                                } else {
-                                    error!("Failed to send packet: {e:?}");
-                                }
-                            }
+                    Ok(packet) => {
+                        if let Some(p) = try_send(send_socket.as_ref(), packet) {
+                            unsent.push_back(p);
                         }
                     }
                     Err(e) => match e {
@@ -126,19 +123,51 @@ impl ServerPollThread {
             local_addr,
             rx: out_rx,
             tx: in_tx,
-            poll_thread_handle: Some(poll_thread_handle),
-            send_thread_handle: Some(send_thread_handle)
+            poll_thread: poll_thread_handle,
+            send_thread: send_thread_handle,
         })
     }
 
     pub(crate) fn local_addr(&self) -> Result<SocketAddr, AppError> {
         Ok(self.local_addr)
     }
+
+    pub(crate) fn rx(&self) -> &Receiver<Packet> {
+        &self.rx
+    }
+
+    pub(crate) fn tx(&self) -> &Sender<Packet> {
+        &self.tx
+    }
+
+    pub(crate) fn shutdown(mut self) {
+        std::mem::drop(self.rx);
+        std::mem::drop(self.tx);
+        let _ = self
+            .poll_thread
+            .join()
+            .inspect_err(|e| warn!("Poll thread join failed: {:?}", e));
+        let _ = self
+            .send_thread
+            .join()
+            .inspect_err(|e| warn!("Send thread join failed: {:?}", e));
+    }
 }
 
-impl Drop for ServerPollThread {
-    fn drop(&mut self) {
-        self.poll_thread_handle.take().map(JoinHandle::join);
-        self.send_thread_handle.take().map(JoinHandle::join);
+fn try_send(socket: &UdpSocket, packet: Packet) -> Option<Packet> {
+    match socket.send_to(packet.bytes.as_slice(), packet.address) {
+        Ok(amount) => {
+            if amount < packet.bytes.len() {
+                warn!("Partial send: {amount} of {}", packet.bytes.len());
+            }
+        }
+        Err(e) => {
+            if e.kind() == ErrorKind::WouldBlock {
+                return Some(packet);
+            } else {
+                error!("Failed to send packet: {e:?}");
+            }
+        }
     }
+    None
 }

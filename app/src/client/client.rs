@@ -261,6 +261,9 @@ impl Client {
                         .inspect_err(|e| error!("Failed to send: {:?}", e));
                     }
                     ClientState::Accepted => {
+                        if app.elapsed().as_secs() > 30 {
+                                // todo - app.exit_flag()
+                        }
                         // for i in 0..10 {
                         //     self.send(&Ping {
                         //         time: Instant::now().elapsed().as_secs_f64(),

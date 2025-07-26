@@ -2,6 +2,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use log::{debug, info, warn};
+use nom::combinator::Opt;
 use rg_net::connect::read_connect;
 use rg_net::hello::read_hello;
 use rg_net::net_rw::NetBufReader;
@@ -12,7 +13,7 @@ use crate::app::App;
 use crate::error::AppError;
 use crate::server::key_pair::KeyPair;
 use crate::server::sv_guests::Guests;
-use crate::server::sv_poll::ServerPollThread;
+use crate::server::sv_poll::ServerPoll;
 
 use super::messages::sv_connect::on_connect;
 use super::messages::sv_hello::on_hello;
@@ -45,25 +46,25 @@ impl ServerSecurity {
     }
 }
 
-pub(crate) struct Server {
-    poll_thread: ServerPollThread,
+struct ServerState {
+    poll_thread: ServerPoll,
     clients: Clients,
     guests: Guests,
     security: ServerSecurity,
 }
 
-impl Server {
-    pub fn new(app: &Arc<App>) -> Result<Self, AppError> {
+impl ServerState {
+    fn new(app: &App) -> Result<Self, AppError> {
         info!("Starting server...");
         let mut cfg_guard = app.config().lock()?;
         let cfg = &mut cfg_guard.server;
         let addr: SocketAddr = cfg.address.parse()?;
-        let poll_thread = ServerPollThread::new(addr)?;
+        let poll_thread = ServerPoll::new(addr)?;
         let security = ServerSecurity::new(cfg.key_bits, &cfg.password)?;
         let server_address = poll_thread.local_addr()?;
         info!("Server bound to {:?}", server_address);
         cfg.bound_to = Some(server_address.to_string());
-        Ok(Server {
+        Ok(ServerState {
             poll_thread,
             clients: Clients::new(),
             guests: Guests::new(),
@@ -71,13 +72,16 @@ impl Server {
         })
     }
 
-    pub(crate) fn update(&mut self) -> Result<(), AppError> {
-        let rx = &mut self.poll_thread.rx;
+    fn shutdow(self) {
+        self.poll_thread.shutdown();
+    }
+
+    fn update(&mut self) -> Result<(), AppError> {
         let clients = &mut self.clients;
         let guests = &mut self.guests;
         let security = &self.security;
 
-        for p in rx.try_iter() {
+        for p in self.poll_thread.rx().try_iter() {
             let client_id = ClientId::new(p.address);
             let mut reader = NetBufReader::new(p.bytes.as_slice());
             let _ = process_buf(&mut reader, |header, reader| {
@@ -108,10 +112,32 @@ impl Server {
             });
         }
 
-        guests.flush(&self.poll_thread.tx);
+        guests.flush(&self.poll_thread.tx());
 
-        clients.flush(&self.poll_thread.tx);
+        clients.flush(&self.poll_thread.tx());
 
         Ok(())
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct Server(Option<ServerState>);
+
+impl Server {
+    pub fn init(&mut self, app: &Arc<App>) -> Result<(), AppError> {
+        if self.0.is_none() {
+            self.0 = Some(ServerState::new(app)?);
+        }
+        Ok(())
+    }
+
+    pub fn shutdown(&mut self) {
+        if let Some(s) = self.0.take() {
+            s.shutdow();
+        }
+    }
+
+    pub(crate) fn update(&mut self) -> Result<(), AppError> {
+        self.0.as_mut().map(|state| state.update()).unwrap_or(Ok(()))
     }
 }

@@ -22,3 +22,4 @@ pub mod pool;
 mod v_from;
 mod v_from_str;
 mod vars;
+mod test;

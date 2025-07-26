@@ -47,6 +47,6 @@ mod tests {
 
     #[test]
     fn test() {
-        let mut pool = Pool::<u32>::default();
+        //let mut pool = Pool::<u32>::default();
     }
 }

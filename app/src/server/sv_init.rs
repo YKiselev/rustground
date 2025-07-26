@@ -10,7 +10,8 @@ use std::time::{Duration, Instant};
 pub(crate) fn server_init(
     app: &Arc<App>,
 ) -> Result<(Arc<Mutex<Server>>, JoinHandle<()>), AppError> {
-    let server = Arc::new(Mutex::new(Server::new(app)?));
+    let server = Arc::new(Mutex::new(Server::default()));
+    server.lock()?.init(app)?;
     let sv_clone = server.clone();
     let app_clone = app.clone();
     let handle = thread::Builder::new()
