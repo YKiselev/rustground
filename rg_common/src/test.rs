@@ -36,7 +36,7 @@ where
 #[cfg(test)]
 mod tests {
 
-    use super::{register_handler};
+    use super::register_handler;
 
     #[test]
     fn omg() {

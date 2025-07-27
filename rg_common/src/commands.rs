@@ -1,7 +1,6 @@
 use std::{
     any::Any,
     collections::HashMap,
-    ops::Deref,
     str::FromStr,
     sync::{Arc, Mutex, PoisonError, Weak},
 };
@@ -34,7 +33,7 @@ impl CommandRegistry {
 
     pub fn invoke(&self, args: &[String]) -> Result<(), CmdError> {
         if args.len() < 1 {
-            return Err(arg_num_mismatch(1, 0));
+            return arg_num_mismatch(1, 0);
         }
         let guard = self.0.lock()?;
         if let Some(adapter) = guard.get(&args[0]).and_then(|weak| weak.upgrade()) {
@@ -43,94 +42,6 @@ impl CommandRegistry {
         }
         Err(CmdError::NotFound)
     }
-}
-
-// macro_rules! impl_from_arg {
-//     ( $($t:ty),* ) => {
-//         $(  impl<'a> FromArg<'a> for $t
-//             {
-//                 type Output = $t;
-
-//                 fn from_arg(arg: &'a str) -> Result<Self::Output, CmdError> {
-//                     arg.parse().map_err(|_| CmdError::ParseError {
-//                         value: arg.to_owned(),
-//                     })
-//                 }
-//             }
-//         ) *
-//     }
-// }
-
-// impl_from_arg! {u8, u16, u32, u64, usize, i8, i16, i32, i64, f32, f64, String}
-
-#[inline(always)]
-fn parse<T>(v: &str) -> Result<T, CmdError>
-where
-    T: FromStr,
-{
-    v.parse().map_err(|_| CmdError::ParseError {
-        value: v.to_owned(),
-    })
-}
-
-fn adapter0<F>(handler: F) -> Box<CmdAdapter>
-where
-    F: Fn() -> Result<(), CmdError> + 'static,
-{
-    Box::new(move |args: &[String]| {
-        if !args.is_empty() {
-            return Err(arg_num_mismatch(1, args.len()));
-        }
-        (handler)()
-    })
-}
-
-fn adapter1<F, A>(handler: F) -> Box<CmdAdapter>
-where
-    F: Fn(A) -> Result<(), CmdError> + 'static,
-    A: FromStr,
-{
-    Box::new(move |args: &[String]| {
-        if args.len() != 1 {
-            return Err(arg_num_mismatch(1, args.len()));
-        }
-        let arg1 = args.get(0).unwrap();
-        (handler)(parse(arg1)?)
-    })
-}
-
-fn adapter2<F, A, B>(handler: F) -> Box<CmdAdapter>
-where
-    F: Fn(A, B) -> Result<(), CmdError> + 'static,
-    A: FromStr,
-    B: FromStr,
-{
-    Box::new(move |args: &[String]| {
-        if args.len() != 2 {
-            return Err(arg_num_mismatch(1, args.len()));
-        }
-        let arg1 = args.get(0).unwrap();
-        let arg2 = args.get(1).unwrap();
-        (handler)(parse(arg1)?, parse(arg2)?)
-    })
-}
-
-fn adapter3<F, A, B, C>(handler: F) -> Box<CmdAdapter>
-where
-    F: Fn(A, B, C) -> Result<(), CmdError> + 'static,
-    A: FromStr,
-    B: FromStr,
-    C: FromStr,
-{
-    Box::new(move |args: &[String]| {
-        if args.len() != 3 {
-            return Err(arg_num_mismatch(1, args.len()));
-        }
-        let arg1 = args.get(0).unwrap();
-        let arg2 = args.get(1).unwrap();
-        let arg3 = args.get(2).unwrap();
-        (handler)(parse(arg1)?, parse(arg2)?, parse(arg3)?)
-    })
 }
 
 ///
@@ -152,8 +63,8 @@ pub enum CmdError {
     ConversionFailed,
 }
 
-fn arg_num_mismatch(expected: usize, actual: usize) -> CmdError {
-    CmdError::ArgNumberMismatch { expected, actual }
+fn arg_num_mismatch(expected: usize, actual: usize) -> Result<(), CmdError> {
+    Err(CmdError::ArgNumberMismatch { expected, actual })
 }
 
 impl<T> From<PoisonError<T>> for CmdError {
@@ -171,6 +82,108 @@ pub struct CommandBuilder<'a> {
 }
 
 pub struct CommandOwner(Vec<Arc<dyn Any>>);
+
+pub trait ToArg<Output = Self> {
+    fn to_arg(value: Option<&str>) -> Result<Output, CmdError>;
+}
+
+#[inline(always)]
+fn parse<T>(v: &str) -> Result<T, CmdError>
+where
+    T: FromStr,
+{
+    v.parse().map_err(|_| CmdError::ParseError {
+        value: v.to_owned(),
+    })
+}
+
+macro_rules! impl_to_arg {
+    ( $($t:ty),* ) => {
+        $(  impl ToArg for $t
+            {
+                fn to_arg(value: Option<&str>) -> Result<Self, CmdError> {
+                    parse(value.ok_or(CmdError::ParseError {
+                        value: "No value!".to_owned(),
+                    })?)
+                }
+            }
+        ) *
+    }
+}
+
+impl<T> ToArg for Option<T>
+where
+    T: FromStr,
+{
+    fn to_arg(value: Option<&str>) -> Result<Self, CmdError> {
+        Ok(match value {
+            Some(v) => Some(parse::<T>(v)?),
+            None => None,
+        })
+    }
+}
+
+impl_to_arg! {u8, u16, u32, u64, usize, i8, i16, i32, i64, f32, f64, String, bool}
+
+
+fn check_args(expected: usize, actual: usize) -> Result<(), CmdError> {
+    if actual > expected {
+        return arg_num_mismatch(expected, actual);
+    }
+    Ok(())
+}
+
+fn adapter0<F>(handler: F) -> Box<CmdAdapter>
+where
+    F: Fn() -> Result<(), CmdError> + 'static,
+{
+    Box::new(move |args: &[String]| {
+        check_args(0, args.len())?;
+        (handler)()
+    })
+}
+
+fn adapter1<F, A>(handler: F) -> Box<CmdAdapter>
+where
+    F: Fn(A) -> Result<(), CmdError> + 'static,
+    A: ToArg<A>,
+{
+    Box::new(move |args: &[String]| {
+        check_args(1, args.len())?;
+        let arg1 = A::to_arg(args.get(0).map(|v| v.as_str()))?;
+        (handler)(arg1)
+    })
+}
+
+fn adapter2<F, A, B>(handler: F) -> Box<CmdAdapter>
+where
+    F: Fn(A, B) -> Result<(), CmdError> + 'static,
+    A: ToArg<A>,
+    B: ToArg<B>,
+{
+    Box::new(move |args: &[String]| {
+        check_args(2, args.len())?;
+        let arg1 = A::to_arg(args.get(0).map(|v| v.as_str()))?;
+        let arg2 = B::to_arg(args.get(1).map(|v| v.as_str()))?;
+        (handler)(arg1, arg2)
+    })
+}
+
+fn adapter3<F, A, B, C>(handler: F) -> Box<CmdAdapter>
+where
+    F: Fn(A, B, C) -> Result<(), CmdError> + 'static,
+    A: ToArg<A>,
+    B: ToArg<B>,
+    C: ToArg<C>,
+{
+    Box::new(move |args: &[String]| {
+        check_args(3, args.len())?;
+        let arg1 = A::to_arg(args.get(0).map(|v| v.as_str()))?;
+        let arg2 = B::to_arg(args.get(1).map(|v| v.as_str()))?;
+        let arg3 = C::to_arg(args.get(2).map(|v| v.as_str()))?;
+        (handler)(arg1, arg2, arg3)
+    })
+}
 
 impl CommandBuilder<'_> {
     pub fn new<'a>(registry: &'a CommandRegistry) -> CommandBuilder<'a> {
@@ -197,7 +210,7 @@ impl CommandBuilder<'_> {
     pub fn add1<A, F>(&mut self, name: &str, handler: F) -> Result<(), CmdError>
     where
         F: Fn(A) -> Result<(), CmdError> + 'static,
-        A: FromStr,
+        A: ToArg,
     {
         self.add(name, adapter1(handler))
     }
@@ -205,8 +218,8 @@ impl CommandBuilder<'_> {
     pub fn add2<A, B, F>(&mut self, name: &str, handler: F) -> Result<(), CmdError>
     where
         F: Fn(A, B) -> Result<(), CmdError> + 'static,
-        A: FromStr,
-        B: FromStr,
+        A: ToArg,
+        B: ToArg,
     {
         self.add(name, adapter2(handler))
     }
@@ -214,9 +227,9 @@ impl CommandBuilder<'_> {
     pub fn add3<A, B, C, F>(&mut self, name: &str, handler: F) -> Result<(), CmdError>
     where
         F: Fn(A, B, C) -> Result<(), CmdError> + 'static,
-        A: FromStr + 'static,
-        B: FromStr + 'static,
-        C: FromStr + 'static,
+        A: ToArg,
+        B: ToArg,
+        C: ToArg,
     {
         self.add(name, adapter3(handler))
     }
@@ -233,12 +246,12 @@ impl CommandBuilder<'_> {
 mod test {
     use std::sync::{
         atomic::{AtomicUsize, Ordering},
-        Arc,
+        Arc, Mutex,
     };
 
     use crate::{commands::CmdError, CommandRegistry};
 
-    use super::CommandBuilder;
+    use super::{CommandBuilder, CommandOwner};
 
     fn invoke<const N: usize>(reg: &CommandRegistry, args: [&str; N]) -> Result<(), CmdError> {
         let args: Vec<String> = args.iter().map(|v| v.to_string()).collect();
@@ -281,28 +294,32 @@ mod test {
     fn commands() {
         let reg = CommandRegistry::default();
         let mut b = CommandBuilder::new(&reg);
-        b.add1("1", |a: String| Ok(())).unwrap();
+        b.add0("0", || Ok(())).unwrap();
+        b.add1("1", |a: i32| Ok(())).unwrap();
         assert!(matches!(
-            b.add1("1", |a: i32| Ok(())),
+            b.add1("1", |a: String| Ok(())),
             Err(CmdError::AlreadyExists)
         ));
-        b.add1("2", |a: i32| Ok(())).unwrap();
-        b.add2("3", |a: i32, b: String| Ok(())).unwrap();
-        b.add0("4", || Ok(())).unwrap();
-        b.add3("5", |a: i32, b: u8, c: String| Ok(())).unwrap();
+        b.add2("2", |a: i32, b: String| Ok(())).unwrap();
+        b.add2("2_2", |a: i32, b: Option<String>| {
+            print!("Got a={a}, b={b:?}");
+            Ok(())
+        })
+        .unwrap();
+        b.add3("3", |a: i32, b: u8, c: String| Ok(())).unwrap();
         let _cmds = b.build();
 
-        invoke(&reg, ["1", "Hello"]).unwrap();
-        invoke(&reg, ["2", "321"]).unwrap();
-        invoke(&reg, ["3", "123", "Hello_World!"]).unwrap();
-        invoke(&reg, ["4"]).unwrap();
-        invoke(&reg, ["5", "5", "128", "Hello!"]).unwrap();
+        invoke(&reg, ["0"]).unwrap();
+        invoke(&reg, ["1", "123"]).unwrap();
+        invoke(&reg, ["2_2", "321"]).unwrap();
+        invoke(&reg, ["3", "123", "22", "Hello_World!"]).unwrap();
+
         assert!(matches!(
-            invoke(&reg, ["2", "2.3"]),
+            invoke(&reg, ["1", "2.3"]),
             Err(CmdError::ParseError { value: _ })
         ));
         assert!(matches!(
-            invoke(&reg, ["2", "2", ".3"]),
+            invoke(&reg, ["1", "2", ".3"]),
             Err(CmdError::ArgNumberMismatch {
                 expected: 1,
                 actual: 2
@@ -335,5 +352,41 @@ mod test {
         .unwrap();
         invoke(&reg, ["1", "5"]).unwrap();
         assert_eq!(15, counter.load(Ordering::Acquire));
+    }
+
+    struct Module {
+        commands: Option<CommandOwner>,
+        data: i32,
+        name: String,
+    }
+
+    #[test]
+    fn real_module() {
+        let reg = CommandRegistry::default();
+        let mut b = CommandBuilder::new(&reg);
+        let mut arc = Arc::new(Mutex::new(Module {
+            commands: None,
+            data: 123,
+            name: "Dummy".to_owned(),
+        }));
+        let m = Module {
+            commands: None,
+            data: 123,
+            name: "one".to_owned(),
+        };
+        let ac = Arc::clone(&arc);
+        b.add1("name", move |n: Option<String>| {
+            if let Some(n) = n {
+                ac.lock().unwrap().name = n;
+            } else {
+                println!("Name is: {}", ac.lock().unwrap().name);
+            }
+            Ok(())
+        })
+        .unwrap();
+        arc.lock().unwrap().commands = Some(b.build());
+        invoke(&reg, ["name"]).unwrap();
+        invoke(&reg, ["name", "Guffy"]).unwrap();
+        assert_eq!("Guffy", arc.lock().unwrap().name);
     }
 }
