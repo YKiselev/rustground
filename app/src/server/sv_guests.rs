@@ -16,6 +16,7 @@ use super::{sv_clients::ClientId, sv_poll::Packet};
 
 const OBSOLETE_AFTER: Duration = Duration::from_secs(2 * 60);
 
+#[derive(Debug)]
 pub(super) struct Guest {
     send_buf: VecDeque<Vec<u8>>,
     received_at: Option<Instant>,
@@ -100,6 +101,7 @@ impl Guest {
     }
 }
 
+#[derive(Debug)]
 pub(super) struct Guests {
     guests: HashMap<ClientId, Guest>,
 }

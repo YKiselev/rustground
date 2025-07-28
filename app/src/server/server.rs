@@ -3,13 +3,13 @@ use std::sync::Arc;
 
 use log::{debug, info, warn};
 use nom::combinator::Opt;
+use rg_common::app::App;
 use rg_net::connect::read_connect;
 use rg_net::hello::read_hello;
 use rg_net::net_rw::NetBufReader;
 use rg_net::process_buf;
 use rg_net::protocol::PacketKind;
 
-use crate::app::App;
 use crate::error::AppError;
 use crate::server::key_pair::KeyPair;
 use crate::server::sv_guests::Guests;
@@ -19,6 +19,7 @@ use super::messages::sv_connect::on_connect;
 use super::messages::sv_hello::on_hello;
 use super::sv_clients::{ClientId, Clients};
 
+#[derive(Debug)]
 pub(super) struct ServerSecurity {
     keys: KeyPair,
     password: Option<String>,
@@ -46,6 +47,7 @@ impl ServerSecurity {
     }
 }
 
+#[derive(Debug)]
 struct ServerState {
     poll_thread: ServerPoll,
     clients: Clients,
@@ -56,7 +58,7 @@ struct ServerState {
 impl ServerState {
     fn new(app: &App) -> Result<Self, AppError> {
         info!("Starting server...");
-        let mut cfg_guard = app.config().lock()?;
+        let mut cfg_guard = app.config.lock()?;
         let cfg = &mut cfg_guard.server;
         let addr: SocketAddr = cfg.address.parse()?;
         let poll_thread = ServerPoll::new(addr)?;

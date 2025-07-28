@@ -1,8 +1,8 @@
+use std::str::Chars;
 
 ///
 /// Command line parser
 ///
-
 
 enum State {
     Normal,
@@ -32,18 +32,14 @@ fn unquote(mut value: String) -> Option<String> {
     }
 }
 
-pub fn parse_command_line<S>(value: S) -> Option<Vec<String>>
-where
-    S: AsRef<str>,
-{
-    let mut chars = value.as_ref().chars();
+pub fn parse_command_line(chars: &mut Chars<'_>) -> Option<Vec<String>> {
     let mut result = Vec::new();
     let mut buf = String::new();
     let mut state = State::Whitespace;
     while let Some(ch) = chars.next() {
         match state {
             State::Normal => match ch {
-                ';' => {
+                '\n' | ';' => {
                     break;
                 }
                 '\\' => {
@@ -124,49 +120,70 @@ where
     }
 }
 
-
 #[cfg(test)]
 mod test {
     use crate::cmd_parser::parse_command_line;
 
-
-    fn assert(cmd: &str, expected: Vec<&str>) {
+    fn assert(cmd: &str, expected: &[&str]) {
         let e = expected
             .iter()
             .map(|s| s.to_string())
             .collect::<Vec<String>>();
-        assert_eq!(parse_command_line(cmd), Some(e));
+        let mut chars = cmd.chars();
+        assert_eq!(parse_command_line(&mut chars), Some(e));
     }
 
     #[test]
     fn multibyte_chars() {
-        assert("Ф Ы Ё", vec!["Ф", "Ы", "Ё"]);
+        assert("Ф Ы Ё", &["Ф", "Ы", "Ё"]);
     }
 
     #[test]
     fn whitespaces() {
-        assert("a b c d", vec!["a", "b", "c", "d"]);
+        assert("a b c d", &["a", "b", "c", "d"]);
     }
 
     #[test]
     fn quotes() {
-        assert("a \"b c\" d", vec!["a", "b c", "d"]);
-        assert("a 'b c' d", vec!["a", "b c", "d"]);
-        assert("a \" 'b c' \" d", vec!["a", " 'b c' ", "d"]);
-        assert("a ' \"b c\" ' d", vec!["a", " \"b c\" ", "d"]);
-        assert("a' b c 'd", vec!["a' b c 'd"]);
+        assert("a \"b c\" d", &["a", "b c", "d"]);
+        assert("a 'b c' d", &["a", "b c", "d"]);
+        assert("a \" 'b c' \" d", &["a", " 'b c' ", "d"]);
+        assert("a ' \"b c\" ' d", &["a", " \"b c\" ", "d"]);
+        assert("a' b c 'd", &["a' b c 'd"]);
     }
 
     #[test]
     fn backslash() {
-        assert("a\" b c \"d", vec!["a\" b c \"d"]);
-        assert("a\" b c\\\" d\"", vec!["a\" b c\\\" d\""]);
+        assert("a\" b c \"d", &["a\" b c \"d"]);
+        assert("a\" b c\\\" d\"", &["a\" b c\\\" d\""]);
     }
 
     #[test]
     fn semicolon() {
-        assert("a b; c d", vec!["a", "b"]);
-        assert("a b\\; c d", vec!["a", "b\\;", "c", "d"]);
-        assert("a \"b; c d\"", vec!["a", "b; c d"]);
+        assert("a b; c d", &["a", "b"]);
+        assert("a b\\; c d", &["a", "b\\;", "c", "d"]);
+        assert("a \"b; c d\"", &["a", "b; c d"]);
+    }
+
+    #[test]
+    fn several_commands() {
+        let a = "a 1 2 3 ; b 4 5; c 6\n d 7";
+        let mut chars = a.chars();
+        let mut r = Vec::new();
+        loop {
+            match parse_command_line(&mut chars) {
+                Some(args) => r.push(args),
+                None => break,
+            }
+        }
+        assert_eq!(
+            vec![
+                vec!["a", "1", "2", "3"],
+                vec!["b", "4", "5"],
+                vec!["c", "6"],
+                vec!["d", "7"]
+            ],
+            r
+        );
     }
 }

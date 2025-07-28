@@ -4,7 +4,6 @@ use error::AppError;
 
 use rg_common::Arguments;
 
-mod app;
 mod app_logger;
 mod application;
 mod client;

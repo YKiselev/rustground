@@ -3,7 +3,6 @@ extern crate self as rg_common;
 pub use arguments::Arguments;
 pub use commands::CommandRegistry;
 pub use files::AppFiles;
-use log::debug;
 use log::error;
 use log::info;
 use log::warn;
@@ -14,6 +13,7 @@ pub use vars::Variable;
 pub use vars::VariableError;
 
 pub mod arguments;
+pub mod app;
 pub mod cmd_parser;
 pub mod commands;
 pub mod config;

@@ -17,3 +17,4 @@ pub mod protocol;
 pub mod server_info;
 pub mod version;
 pub mod rejected;
+pub mod ping;

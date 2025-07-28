@@ -3,6 +3,7 @@ use std::{
     io::ErrorKind,
     net::SocketAddr,
     sync::{
+        atomic::{AtomicBool, Ordering},
         mpsc::{self, Receiver, Sender},
         Arc,
     },
@@ -10,7 +11,7 @@ use std::{
     time::Duration,
 };
 
-use log::{error, warn};
+use log::{debug, error, warn};
 use mio::{net::UdpSocket, Events, Interest, Poll, Token};
 use rg_net::{protocol::NET_BUF_SIZE, MAX_DATAGRAM_SIZE};
 
@@ -24,12 +25,14 @@ pub(crate) struct Packet {
     pub bytes: Vec<u8>,
 }
 
+#[derive(Debug)]
 pub(crate) struct ServerPoll {
     pub(crate) local_addr: SocketAddr,
     rx: Receiver<Packet>,
     tx: Sender<Packet>,
     poll_thread: JoinHandle<()>,
     send_thread: JoinHandle<()>,
+    exit_flag: Arc<AtomicBool>,
 }
 
 impl ServerPoll {
@@ -48,10 +51,12 @@ impl ServerPoll {
         let socket = Arc::new(socket);
         let send_socket = Arc::clone(&socket);
         let new_buf = || Vec::with_capacity(MAX_DATAGRAM_SIZE);
+        let exit_flag = Arc::new(AtomicBool::new(false));
+        let exit_flag_copy = exit_flag.clone();
         let poll_thread_handle = thread::spawn(move || {
             let mut buf = new_buf();
-            let mut exit_flag = false;
-            while !exit_flag {
+            let exit_flag = exit_flag_copy;
+            while !exit_flag.load(Ordering::Relaxed) {
                 match poll.poll(&mut events, timeout) {
                     Ok(_) => {
                         for e in events.iter() {
@@ -71,7 +76,7 @@ impl ServerPoll {
                                                         ),
                                                     }) {
                                                         error!("Send channel is closed!");
-                                                        exit_flag = true;
+                                                        exit_flag.store(true, Ordering::Relaxed);
                                                     }
                                                 }
                                             }
@@ -125,6 +130,7 @@ impl ServerPoll {
             tx: in_tx,
             poll_thread: poll_thread_handle,
             send_thread: send_thread_handle,
+            exit_flag: exit_flag,
         })
     }
 
@@ -140,17 +146,20 @@ impl ServerPoll {
         &self.tx
     }
 
-    pub(crate) fn shutdown(mut self) {
-        std::mem::drop(self.rx);
+    pub(crate) fn shutdown(self) {
+        self.exit_flag.store(true, Ordering::Relaxed);
         std::mem::drop(self.tx);
+        debug!("Joining poll thread...");
         let _ = self
             .poll_thread
             .join()
             .inspect_err(|e| warn!("Poll thread join failed: {:?}", e));
+        debug!("Joining send thread...");
         let _ = self
             .send_thread
             .join()
             .inspect_err(|e| warn!("Send thread join failed: {:?}", e));
+        debug!("ServerPoll is shut down");
     }
 }
 

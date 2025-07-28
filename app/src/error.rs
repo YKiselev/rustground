@@ -1,6 +1,7 @@
 use std::{net::AddrParseError, sync::PoisonError};
 
 use log::SetLoggerError;
+use rg_common::commands::CmdError;
 use rg_net::protocol::ProtocolError;
 use snafu::Snafu;
 
@@ -20,6 +21,8 @@ pub enum AppError {
     AddrParseError,
     #[snafu(display("Illegal state: {message}"))]
     IllegalState { message: String },
+    #[snafu(display("Command error: {cause}"))]
+    CmdError { cause: CmdError },
 }
 
 impl From<ProtocolError> for AppError {
@@ -63,5 +66,11 @@ impl From<SetLoggerError> for AppError {
         Self::IllegalState {
             message: value.to_string(),
         }
+    }
+}
+
+impl From<CmdError> for AppError {
+    fn from(value: CmdError) -> Self {
+        AppError::CmdError { cause: value }
     }
 }

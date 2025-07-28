@@ -14,7 +14,7 @@ pub struct Arguments {
     windowed: bool,
 
     /// log level filter
-    #[argh(option, default="LevelFilter::Info")]
+    #[argh(option, default="LevelFilter::Debug")]
     log_level: LevelFilter
 }
 

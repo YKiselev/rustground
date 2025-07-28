@@ -21,6 +21,7 @@ impl ClientId {
     }
 }
 
+#[derive(Debug)]
 pub(crate) struct Clients {
     clients: HashMap<ClientId, Client>,
 }

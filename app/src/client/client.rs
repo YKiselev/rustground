@@ -8,17 +8,18 @@ use std::usize::MAX;
 use log::{debug, error, info, warn};
 use mio::net::UdpSocket;
 use nom::Err;
+use rg_common::app::App;
 use rg_net::connect::write_connect;
 use rg_net::header::{read_header, write_with_header};
 use rg_net::hello::write_hello;
 use rg_net::net_rw::{try_write, NetBufReader, NetBufWriter, NetReader, NetWriter, WithPosition};
+use rg_net::ping::write_ping;
 use rg_net::protocol::{
     Header, PacketKind, ProtocolError, MAX_DATAGRAM_SIZE, MIN_HEADER_SIZE, NET_BUF_SIZE,
 };
 use rg_net::server_info::read_server_info;
 use rg_net::{process_buf, read_accepted, read_rejected};
 
-use crate::app::App;
 use crate::client::cl_pub_key::PublicKey;
 use crate::error::AppError;
 
@@ -104,6 +105,14 @@ impl Client {
                 message: "No server key to encode data!".to_owned(),
             })
         }
+    }
+
+    fn send_ping(&mut self) -> Result<(), AppError> {
+        Ok(self.write_to_send_buf(|w| {
+            write_with_header(w, PacketKind::Connect, |w| {
+                write_ping(w)
+            })
+        })?)
     }
 
     fn on_server_info<'a, R>(&mut self, reader: &mut R) -> Result<(), AppError>
@@ -227,7 +236,7 @@ impl Client {
                 let state = self.state;
                 match state {
                     ClientState::Disconnected => {
-                        if let Ok(cfg_guard) = app.config().lock() {
+                        if let Ok(cfg_guard) = app.config.lock() {
                             if let Some(addr) = cfg_guard.server.bound_to.as_ref() {
                                 if let Ok(addr) = addr.parse::<SocketAddr>() {
                                     match self.socket.connect(addr) {
@@ -261,14 +270,14 @@ impl Client {
                         .inspect_err(|e| error!("Failed to send: {:?}", e));
                     }
                     ClientState::Accepted => {
-                        if app.elapsed().as_secs() > 30 {
-                                // todo - app.exit_flag()
+                        if app.elapsed().as_secs() >= 10 {
+                            let _ = app
+                                .commands
+                                .execute("quit")
+                                .inspect_err(|e| error!("Quit failed: {:?}", e));
+                        } else {
+                            self.send_ping();
                         }
-                        // for i in 0..10 {
-                        //     self.send(&Ping {
-                        //         time: Instant::now().elapsed().as_secs_f64(),
-                        //     });
-                        // }
                     }
                 }
                 if state == self.state {

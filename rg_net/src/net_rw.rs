@@ -23,12 +23,37 @@ pub trait WithPosition {
 pub trait NetWriter: WithPosition {
     fn write_u8(&mut self, value: u8) -> Result<(), ProtocolError>;
     fn write_u16(&mut self, value: u16) -> Result<(), ProtocolError>;
+    fn write_u32(&mut self, value: u32) -> Result<(), ProtocolError>;
+    fn write_u64(&mut self, value: u64) -> Result<(), ProtocolError>;
+    fn write_f32(&mut self, value: f32) -> Result<(), ProtocolError> {
+        self.write_u32(value.to_bits())
+    }
+
+    fn write_f64(&mut self, value: f64) -> Result<(), ProtocolError> {
+        self.write_u64(value.to_bits())
+    }
+
+    fn write_i8(&mut self, value: i8) -> Result<(), ProtocolError> {
+        self.write_u8(value as u8)
+    }
+    fn write_i16(&mut self, value: i16) -> Result<(), ProtocolError> {
+        self.write_u16(value as u16)
+    }
+    fn write_i32(&mut self, value: i32) -> Result<(), ProtocolError> {
+        self.write_u32(value as u32)
+    }
+    fn write_i64(&mut self, value: i64) -> Result<(), ProtocolError> {
+        self.write_u64(value as u64)
+    }
+
     fn write_u16_at(&mut self, offset: usize, value: u16) -> Result<(), ProtocolError>;
+
     ///
     /// Bytes layout is 2 bytes prefix (data length) (u16) and then data itself
     /// Of course you can't write more than u16::MAX bytes.
     ///
     fn write_bytes(&mut self, value: &[u8]) -> Result<(), ProtocolError>;
+
     ///
     /// String length is limited to u16::MAX
     ///
@@ -45,6 +70,27 @@ pub trait NetReader<'a>: WithPosition {
     }
     fn read_u8(&mut self) -> Result<u8, ProtocolError>;
     fn read_u16(&mut self) -> Result<u16, ProtocolError>;
+    fn read_u32(&mut self) -> Result<u32, ProtocolError>;
+    fn read_u64(&mut self) -> Result<u64, ProtocolError>;
+    fn read_f32(&mut self) -> Result<f32, ProtocolError> {
+        self.read_u32().map(|v| f32::from_bits(v))
+    }
+    fn read_f64(&mut self) -> Result<f64, ProtocolError> {
+        self.read_u64().map(|v| f64::from_bits(v))
+    }
+    fn read_i8(&mut self) -> Result<i8, ProtocolError> {
+        self.read_u8().map(|v| v as i8)
+    }
+    fn read_i16(&mut self) -> Result<i16, ProtocolError> {
+        self.read_u16().map(|v| v as i16)
+    }
+    fn read_i32(&mut self) -> Result<i32, ProtocolError> {
+        self.read_u32().map(|v| v as i32)
+    }
+    fn read_i64(&mut self) -> Result<i64, ProtocolError> {
+        self.read_u64().map(|v| v as i64)
+    }
+
     ///
     /// Bytes layout is 2 bytes prefix (data length) (u16) and then data itself
     /// Of course you can't write more than u16::MAX bytes.
@@ -109,6 +155,18 @@ impl NetWriter for NetBufWriter<'_> {
     fn write_u16(&mut self, value: u16) -> Result<(), ProtocolError> {
         write_u16(self.buf, self.offset, value)?;
         self.offset += 2;
+        Ok(())
+    }
+
+    fn write_u32(&mut self, value: u32) -> Result<(), ProtocolError> {
+        write_u32(self.buf, self.offset, value)?;
+        self.offset += 4;
+        Ok(())
+    }
+
+    fn write_u64(&mut self, value: u64) -> Result<(), ProtocolError> {
+        write_u64(self.buf, self.offset, value)?;
+        self.offset += 8;
         Ok(())
     }
 
@@ -177,6 +235,18 @@ impl<'a> NetReader<'a> for NetBufReader<'a> {
         Ok(result)
     }
 
+    fn read_u32(&mut self) -> Result<u32, ProtocolError> {
+        let result = read_u32(self.buf, self.offset)?;
+        self.offset += 4;
+        Ok(result)
+    }
+
+    fn read_u64(&mut self) -> Result<u64, ProtocolError> {
+        let result = read_u64(self.buf, self.offset)?;
+        self.offset += 8;
+        Ok(result)
+    }
+
     fn read_bytes(&mut self) -> Result<&'a [u8], ProtocolError> {
         let len = self.read_u16()? as usize;
         let offset = self.offset;
@@ -210,6 +280,24 @@ pub fn write_u16(buf: &mut [u8], offset: usize, value: u16) -> Result<(), Protoc
 }
 
 #[inline(always)]
+pub fn write_u32(buf: &mut [u8], offset: usize, value: u32) -> Result<(), ProtocolError> {
+    if buf.len() < offset + 4 {
+        return Err(ProtocolError::BufferOverflow);
+    }
+    buf[offset..offset + 4].copy_from_slice(&value.to_be_bytes());
+    Ok(())
+}
+
+#[inline(always)]
+pub fn write_u64(buf: &mut [u8], offset: usize, value: u64) -> Result<(), ProtocolError> {
+    if buf.len() < offset + 8 {
+        return Err(ProtocolError::BufferOverflow);
+    }
+    buf[offset..offset + 8].copy_from_slice(&value.to_be_bytes());
+    Ok(())
+}
+
+#[inline(always)]
 pub fn read_u8(buf: &[u8], offset: usize) -> Result<u8, ProtocolError> {
     check_bounds(offset + 1, buf.len())?;
     Ok(u8::from_be_bytes(buf[offset..offset + 1].try_into()?))
@@ -219,6 +307,18 @@ pub fn read_u8(buf: &[u8], offset: usize) -> Result<u8, ProtocolError> {
 pub fn read_u16(buf: &[u8], offset: usize) -> Result<u16, ProtocolError> {
     check_bounds(offset + 2, buf.len())?;
     Ok(u16::from_be_bytes(buf[offset..offset + 2].try_into()?))
+}
+
+#[inline(always)]
+pub fn read_u32(buf: &[u8], offset: usize) -> Result<u32, ProtocolError> {
+    check_bounds(offset + 4, buf.len())?;
+    Ok(u32::from_be_bytes(buf[offset..offset + 4].try_into()?))
+}
+
+#[inline(always)]
+pub fn read_u64(buf: &[u8], offset: usize) -> Result<u64, ProtocolError> {
+    check_bounds(offset + 8, buf.len())?;
+    Ok(u64::from_be_bytes(buf[offset..offset + 8].try_into()?))
 }
 
 ///
@@ -281,38 +381,82 @@ mod tests {
     use crate::net_rw::{NetBufReader, NetBufWriter, NetReader, NetWriter, WithPosition};
 
     #[test]
-    fn test_net_writer() {
-        let mut v = vec![1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4, 5, 6, 7, 8];
+    fn unsigned_ints() {
+        let v = &mut [0; 16];
         {
-            let mut writer = NetBufWriter::new(v.as_mut_slice());
+            let mut writer = NetBufWriter::new(v);
             assert_eq!(0, writer.pos());
-            writer.write_u16(321).unwrap();
-            assert_eq!(2, writer.pos());
-            writer.write_u16(543).unwrap();
-            assert_eq!(4, writer.pos());
-            writer.write_u8(222).unwrap();
+
+            writer.write_u8(1u8).unwrap();
+            writer.write_u16(1001u16).unwrap();
+            writer.write_u32(500_005u32).unwrap();
+            writer.write_u64(321_000_000_321u64).unwrap();
+
             assert_eq!(
                 writer.buf(),
-                &[1, 65, 2, 31, 222, 6, 7, 8, 1, 2, 3, 4, 5, 6, 7, 8]
-            );
-            assert_eq!(5, writer.pos());
-            assert_eq!(0, writer.set_pos(0).unwrap());
-            writer.write_u16(11222).unwrap();
-            assert_eq!(2, writer.pos());
-            writer.write_bytes(&[1, 1, 1, 1, 1]).unwrap();
-            assert_eq!(9, writer.pos());
-            writer.write_str("test").unwrap();
-            assert_eq!(
-                writer.buf(),
-                &[
-                    43, 214, 0, 5, 1, 1, 1, 1, 1, 0, 4, 't' as u8, 'e' as u8, 's' as u8, 't' as u8,
-                    8
-                ]
+                &[1, 3, 233, 0, 7, 161, 37, 0, 0, 0, 74, 189, 23, 75, 65, 0]
             );
         }
-        let mut reader = NetBufReader::new(v.as_slice());
-        assert_eq!(11222, reader.read_u16().unwrap());
-        assert_eq!(&[1, 1, 1, 1, 1], reader.read_bytes().unwrap());
-        assert_eq!("test", reader.read_str().unwrap());
+        let mut reader = NetBufReader::new(v);
+        assert_eq!(1u8, reader.read_u8().unwrap());
+        assert_eq!(1001u16, reader.read_u16().unwrap());
+        assert_eq!(500_005u32, reader.read_u32().unwrap());
+        assert_eq!(321_000_000_321u64, reader.read_u64().unwrap());
+    }
+
+    #[test]
+    fn signed_ints() {
+        let v = &mut [0; 16];
+        {
+            let mut writer = NetBufWriter::new(v);
+            writer.write_i8(-5i8).unwrap();
+            writer.write_i16(-10_000i16).unwrap();
+            writer.write_i32(-3i32).unwrap();
+            writer.write_i64(-700_000i64).unwrap();
+
+            assert_eq!(
+                writer.buf(),
+                &[251, 216, 240, 255, 255, 255, 253, 255, 255, 255, 255, 255, 245, 81, 160, 0]
+            );
+        }
+        let mut reader = NetBufReader::new(v);
+        assert_eq!(-5i8, reader.read_i8().unwrap());
+        assert_eq!(-10_000i16, reader.read_i16().unwrap());
+        assert_eq!(-3i32, reader.read_i32().unwrap());
+        assert_eq!(-700_000i64, reader.read_i64().unwrap());
+    }
+
+    #[test]
+    fn floating_point() {
+        let v = &mut [0; 16];
+        {
+            let mut writer = NetBufWriter::new(v);
+            writer.write_f32(3.1415f32).unwrap();
+            writer.write_f64(0.00000456f64).unwrap();
+            assert_eq!(
+                writer.buf(),
+                &[64, 73, 14, 86, 62, 211, 32, 67, 65, 115, 60, 228, 0, 0, 0, 0]
+            );
+        }
+        let mut reader = NetBufReader::new(v);
+        assert_eq!(3.1415f32, reader.read_f32().unwrap());
+        assert_eq!(0.00000456f64, reader.read_f64().unwrap());
+    }
+
+    #[test]
+    fn insized() {
+        let v = &mut [0; 20];
+        {
+            let mut writer = NetBufWriter::new(v);
+            writer.write_bytes(&[1, 0, 1, 0, 1]).unwrap();
+            writer.write_str("Test string").unwrap();
+            assert_eq!(
+                writer.buf(),
+                &[0, 5, 1, 0, 1, 0, 1, 0, 11, 84, 101, 115, 116, 32, 115, 116, 114, 105, 110, 103]
+            );
+        }
+        let mut reader = NetBufReader::new(v);
+        assert_eq!(&[1, 0, 1, 0, 1], reader.read_bytes().unwrap());
+        assert_eq!("Test string", reader.read_str().unwrap());
     }
 }
