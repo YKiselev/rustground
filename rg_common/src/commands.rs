@@ -211,14 +211,6 @@ impl CommandBuilder<'_> {
         }
     }
 
-    // fn addx<A, Args>(&mut self, name: &str, adapter: A) -> Result<(), CmdError>
-    // where
-    //     A: AsAdapter<Args> + 'static,
-    //     Args: 'static,
-    // {
-    //     self.add(name, adapter.as_handler())
-    // }
-
     pub fn add<A, Args>(&mut self, name: &str, adapter: A) -> Result<(), CmdError>
     where
         A: AsAdapter<Args> + 'static,
