@@ -211,53 +211,73 @@ impl CommandBuilder<'_> {
         }
     }
 
-    fn add<A>(&mut self, name: &str, adapter: A) -> Result<(), CmdError>
+    // fn addx<A, Args>(&mut self, name: &str, adapter: A) -> Result<(), CmdError>
+    // where
+    //     A: AsAdapter<Args> + 'static,
+    //     Args: 'static,
+    // {
+    //     self.add(name, adapter.as_handler())
+    // }
+
+    pub fn add<A, Args>(&mut self, name: &str, adapter: A) -> Result<(), CmdError>
     where
-        A: CmdAdapter,
-        A: 'static,
+        A: AsAdapter<Args> + 'static,
+        Args: 'static,
     {
-        let a = Arc::new(adapter);
+        let a = Arc::new(adapter.as_handler());
         self.registry.register(name, Arc::downgrade(&a) as _)?;
         self.handlers.push(a);
         Ok(())
     }
 
-    pub fn add0<F>(&mut self, name: &str, handler: F) -> Result<(), CmdError>
-    where
-        F: Fn() -> Result<(), CmdError> + Send + Sync + 'static,
-    {
-        self.add(name, adapter0(handler))
-    }
-
-    pub fn add1<A, F>(&mut self, name: &str, handler: F) -> Result<(), CmdError>
-    where
-        F: Fn(A) -> Result<(), CmdError> + Send + Sync + 'static,
-        A: FromContext + 'static,
-    {
-        self.add(name, adapter1(handler))
-    }
-
-    pub fn add2<A, B, F>(&mut self, name: &str, handler: F) -> Result<(), CmdError>
-    where
-        F: Fn(A, B) -> Result<(), CmdError> + Send + Sync + 'static,
-        A: FromContext + 'static,
-        B: FromContext + 'static,
-    {
-        self.add(name, adapter2(handler))
-    }
-
-    pub fn add3<A, B, C, F>(&mut self, name: &str, handler: F) -> Result<(), CmdError>
-    where
-        F: Fn(A, B, C) -> Result<(), CmdError> + Send + Sync + 'static,
-        A: FromContext + 'static,
-        B: FromContext + 'static,
-        C: FromContext + 'static,
-    {
-        self.add(name, adapter3(handler))
-    }
-
     pub fn build(self) -> CommandOwner {
         CommandOwner(self.handlers)
+    }
+}
+
+pub trait AsAdapter<Args> {
+    fn as_handler(self) -> impl CmdAdapter;
+}
+
+impl<F> AsAdapter<()> for F
+where
+    F: Fn() -> Result<(), CmdError> + Send + Sync + 'static,
+{
+    fn as_handler(self) -> impl CmdAdapter {
+        adapter0(self)
+    }
+}
+
+impl<F, A> AsAdapter<(A,)> for F
+where
+    F: Fn(A) -> Result<(), CmdError> + Send + Sync + 'static,
+    A: FromContext + 'static,
+{
+    fn as_handler(self) -> impl CmdAdapter {
+        adapter1(self)
+    }
+}
+
+impl<F, A, B> AsAdapter<(A, B)> for F
+where
+    F: Fn(A, B) -> Result<(), CmdError> + Send + Sync + 'static,
+    A: FromContext + 'static,
+    B: FromContext + 'static,
+{
+    fn as_handler(self) -> impl CmdAdapter {
+        adapter2(self)
+    }
+}
+
+impl<F, A, B, C> AsAdapter<(A, B, C)> for F
+where
+    F: Fn(A, B, C) -> Result<(), CmdError> + Send + Sync + 'static,
+    A: FromContext + 'static,
+    B: FromContext + 'static,
+    C: FromContext + 'static,
+{
+    fn as_handler(self) -> impl CmdAdapter {
+        adapter3(self)
     }
 }
 
@@ -288,9 +308,9 @@ mod test {
 
     fn build_and_invoke(reg: &CommandRegistry) {
         let mut b = CommandBuilder::new(reg);
-        b.add0("1", || Ok(())).unwrap();
-        b.add0("2", || Ok(())).unwrap();
-        b.add0("3", || Ok(())).unwrap();
+        b.add("1", || Ok(())).unwrap();
+        b.add("2", || Ok(())).unwrap();
+        b.add("3", || Ok(())).unwrap();
         let _cmds = b.build();
         invoke(reg, ["1"]).unwrap();
         invoke(reg, ["2"]).unwrap();
@@ -322,19 +342,19 @@ mod test {
     fn commands() {
         let reg = CommandRegistry::default();
         let mut b = CommandBuilder::new(&reg);
-        b.add0("0", || Ok(())).unwrap();
-        b.add1("1", |a: i32| Ok(())).unwrap();
+        b.add("0", || Ok(())).unwrap();
+        b.add("1", |a: i32| Ok(())).unwrap();
         assert!(matches!(
-            b.add1("1", |a: String| Ok(())),
+            b.add("1", |a: String| Ok(())),
             Err(CmdError::AlreadyExists)
         ));
-        b.add2("2", |a: i32, b: String| Ok(())).unwrap();
-        b.add2("2_2", |a: i32, b: Option<String>| {
+        b.add("2", |a: i32, b: String| Ok(())).unwrap();
+        b.add("2_2", |a: i32, b: Option<String>| {
             print!("Got a={a}, b={b:?}");
             Ok(())
         })
         .unwrap();
-        b.add3("3", |a: i32, b: u8, c: String| Ok(())).unwrap();
+        b.add("3", |a: i32, b: u8, c: String| Ok(())).unwrap();
         let _cmds = b.build();
 
         invoke(&reg, ["0"]).unwrap();
@@ -366,14 +386,14 @@ mod test {
         let c2 = Arc::clone(&counter);
         let r2 = Arc::clone(&reg);
         let mut b = CommandBuilder::new(reg.as_ref());
-        b.add1("1", move |a: usize| {
+        b.add("1", move |a: usize| {
             c2.fetch_add(a, Ordering::SeqCst);
             invoke(r2.clone(), ["2", &(a * 2).to_string()]).unwrap();
             Ok(())
         })
         .unwrap();
         let c3 = Arc::clone(&counter);
-        b.add1("2", move |a: usize| {
+        b.add("2", move |a: usize| {
             c3.fetch_add(a, Ordering::SeqCst);
             Ok(())
         })
@@ -398,7 +418,7 @@ mod test {
             name: "Dummy".to_owned(),
         }));
         let ac = Arc::clone(&arc);
-        b.add1("name", move |n: Option<String>| {
+        b.add("name", move |n: Option<String>| {
             if let Some(n) = n {
                 ac.lock().unwrap().name = n;
             } else {
@@ -407,9 +427,27 @@ mod test {
             Ok(())
         })
         .unwrap();
+        b.add("wow", || {
+            println!("It works!");
+            Ok(())
+        })
+        .unwrap();
+        b.add("wow2", |a: i32| {
+            println!("It works: {a}");
+            Ok(())
+        })
+        .unwrap();
+        b.add("wow3", |a: bool, b: String| {
+            println!("It works: {a},{b}");
+            Ok(())
+        })
+        .unwrap();
         arc.lock().unwrap().commands = Some(b.build());
         invoke(&reg, ["name"]).unwrap();
         invoke(&reg, ["name", "Guffy"]).unwrap();
         assert_eq!("Guffy", arc.lock().unwrap().name);
+        invoke(&reg, ["wow"]).unwrap();
+        invoke(&reg, ["wow2", "777"]).unwrap();
+        invoke(&reg, ["wow3", "true", "Wohoaa!"]).unwrap();
     }
 }

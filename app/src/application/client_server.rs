@@ -3,7 +3,10 @@ use std::{sync::Arc, thread, time::Duration};
 use log::{debug, info, warn};
 use rg_common::Arguments;
 
-use crate::{app_logger, application::app_host::AppHost, client::Client, error::AppError, server::server_init};
+use crate::{
+    app_logger, application::app_host::AppHost, client::Client, error::AppError,
+    server::server_init,
+};
 
 pub(crate) fn run_client_server(args: Arguments) -> Result<(), AppError> {
     let (handle, log_buf) = app_logger::init(&args)?;
