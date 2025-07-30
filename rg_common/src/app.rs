@@ -20,11 +20,11 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(args: Arguments) -> Arc<Self> {
+    pub fn new(args: Arguments) -> Self {
         let mut files = AppFiles::new(&args);
         let cfg = Arc::new(Mutex::new(Config::load("config.toml", &mut files)));
         info!("Loaded config: {:?}", cfg.lock().unwrap());
-        Arc::new(Self {
+        Self {
             arguments: args,
             exit_flag: AtomicBool::new(false),
             started_at: Instant::now(),
@@ -32,7 +32,7 @@ impl App {
             files: Arc::new(Mutex::new(files)),
             vars: VarRegistry::new(cfg),
             commands: CommandRegistry::default(),
-        })
+        }
     }
 
     pub fn is_exit(&self) -> bool {

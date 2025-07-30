@@ -6,16 +6,16 @@ use super::app_commands::AppCommands;
 
 pub struct AppHost {
     pub app: Arc<App>,
-    app_commands: Arc<AppCommands>,
+    _app_commands: AppCommands,
 }
 
 impl AppHost {
     pub fn new(args: Arguments) -> Self {
-        let app = App::new(args);
-        let app_commands = AppCommands::new(app.clone()).unwrap();
+        let app = Arc::new(App::new(args));
+        let app_commands = AppCommands::new(app.clone()).expect("Failed to register app commands!");
         Self {
             app,
-            app_commands
+            _app_commands: app_commands
         }
     }
 }
