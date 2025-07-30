@@ -22,20 +22,19 @@ type CmdMap = HashMap<String, Weak<dyn CmdAdapter>>;
 pub struct CommandRegistry(Mutex<CmdMap>);
 
 impl CommandRegistry {
-    pub fn register<S>(&self, name: S, adapter: Weak<dyn CmdAdapter>) -> Result<(), CmdError>
-    where
-        S: AsRef<str>,
-    {
+    /// Binds passed adapter to [name] until weak reference is upgradeble.
+    pub fn register(&self, name: String, adapter: Weak<dyn CmdAdapter>) -> Result<(), CmdError> {
         let mut guard = self.0.lock()?;
-        if let Some(v) = guard.get(name.as_ref()) {
+        if let Some(v) = guard.get(&name) {
             if v.strong_count() > 0 {
                 return Err(CmdError::AlreadyExists);
             }
         }
-        guard.insert(name.as_ref().to_owned(), adapter);
+        guard.insert(name, adapter);
         Ok(())
     }
 
+    /// Invokes command handler by name passed as first argument in [args]
     pub fn invoke(&self, args: &[String]) -> Result<(), CmdError> {
         if args.len() < 1 {
             return arg_num_mismatch(1, 0);
@@ -48,6 +47,7 @@ impl CommandRegistry {
         Err(CmdError::NotFound)
     }
 
+    /// Parses [command] script and invokes command handler for each found command
     pub fn execute<S>(&self, command: S) -> Result<(), CmdError>
     where
         S: AsRef<str>,
@@ -92,9 +92,6 @@ impl<T> From<PoisonError<T>> for CmdError {
     }
 }
 
-///
-/// Command builder
-///
 pub struct CommandBuilder<'a> {
     registry: &'a CommandRegistry,
     handlers: Vec<Arc<dyn CmdAdapter>>,
@@ -116,7 +113,7 @@ where
     })
 }
 
-macro_rules! impl_to_arg {
+macro_rules! impl_from_context {
     ( $($t:ty),* ) => {
         $(  impl FromContext for $t
             {
@@ -142,7 +139,7 @@ where
     }
 }
 
-impl_to_arg! {u8, u16, u32, u64, usize, i8, i16, i32, i64, f32, f64, String, bool}
+impl_from_context! {u8, u16, u32, u64, usize, i8, i16, i32, i64, f32, f64, String, bool}
 
 fn check_args(expected: usize, actual: usize) -> Result<(), CmdError> {
     if actual > expected {
@@ -151,58 +148,9 @@ fn check_args(expected: usize, actual: usize) -> Result<(), CmdError> {
     Ok(())
 }
 
-fn adapter0<F>(handler: F) -> impl CmdAdapter
-where
-    F: Fn() -> Result<(), CmdError> + Send + Sync + 'static,
-{
-    move |args: &[String]| {
-        check_args(0, args.len())?;
-        (handler)()
-    }
-}
-
-fn adapter1<F, A>(handler: F) -> impl CmdAdapter
-where
-    F: Fn(A) -> Result<(), CmdError> + Send + Sync + 'static,
-    A: FromContext<A>,
-{
-    move |args: &[String]| {
-        check_args(1, args.len())?;
-        let arg1 = A::to_arg(args.get(0).map(|v| v.as_str()))?;
-        (handler)(arg1)
-    }
-}
-
-fn adapter2<F, A, B>(handler: F) -> impl CmdAdapter
-where
-    F: Fn(A, B) -> Result<(), CmdError> + Send + Sync + 'static,
-    A: FromContext<A>,
-    B: FromContext<B>,
-{
-    move |args: &[String]| {
-        check_args(2, args.len())?;
-        let arg1 = A::to_arg(args.get(0).map(|v| v.as_str()))?;
-        let arg2 = B::to_arg(args.get(1).map(|v| v.as_str()))?;
-        (handler)(arg1, arg2)
-    }
-}
-
-fn adapter3<F, A, B, C>(handler: F) -> impl CmdAdapter
-where
-    F: Fn(A, B, C) -> Result<(), CmdError> + Send + Sync + 'static,
-    A: FromContext<A>,
-    B: FromContext<B>,
-    C: FromContext<C>,
-{
-    move |args: &[String]| {
-        check_args(3, args.len())?;
-        let arg1 = A::to_arg(args.get(0).map(|v| v.as_str()))?;
-        let arg2 = B::to_arg(args.get(1).map(|v| v.as_str()))?;
-        let arg3 = C::to_arg(args.get(2).map(|v| v.as_str()))?;
-        (handler)(arg1, arg2, arg3)
-    }
-}
-
+///
+/// Command builder
+///
 impl CommandBuilder<'_> {
     pub fn new<'a>(registry: &'a CommandRegistry) -> CommandBuilder<'a> {
         CommandBuilder {
@@ -211,17 +159,21 @@ impl CommandBuilder<'_> {
         }
     }
 
+    /// Binds supplied command handler [adapter] to [name]
     pub fn add<A, Args>(&mut self, name: &str, adapter: A) -> Result<(), CmdError>
     where
         A: AsAdapter<Args> + 'static,
         Args: 'static,
     {
         let a = Arc::new(adapter.as_handler());
-        self.registry.register(name, Arc::downgrade(&a) as _)?;
+        self.registry
+            .register(name.to_owned(), Arc::downgrade(&a) as _)?;
         self.handlers.push(a);
         Ok(())
     }
 
+    /// Returns command owner - the structure wich holds strong references to command handlers.
+    /// Handler is bound to name in registry as long as this struct is not dropped.
     pub fn build(self) -> CommandOwner {
         CommandOwner(self.handlers)
     }
@@ -231,47 +183,45 @@ pub trait AsAdapter<Args> {
     fn as_handler(self) -> impl CmdAdapter;
 }
 
-impl<F> AsAdapter<()> for F
-where
-    F: Fn() -> Result<(), CmdError> + Send + Sync + 'static,
-{
-    fn as_handler(self) -> impl CmdAdapter {
-        adapter0(self)
-    }
+macro_rules! count {
+    () => (0usize);
+    ( $x:tt $($xs:tt)* ) => (1usize + count!($($xs)*));
 }
 
-impl<F, A> AsAdapter<(A,)> for F
-where
-    F: Fn(A) -> Result<(), CmdError> + Send + Sync + 'static,
-    A: FromContext + 'static,
-{
-    fn as_handler(self) -> impl CmdAdapter {
-        adapter1(self)
-    }
+macro_rules! impl_as_adapter {
+    ($($t:ident),*) => {
+        impl<F, $($t),*> AsAdapter<($($t),*)> for F
+        where
+            F: Fn($($t),*) -> Result<(), CmdError> + Send + Sync + 'static,
+            $(
+                $t : FromContext + 'static,
+            )*
+        {
+            fn as_handler(self) -> impl CmdAdapter {
+                const ARG_COUNT: usize = count!($($t),*);
+                move |args: &[String]| {
+                    check_args(ARG_COUNT, args.len())?;
+                    let mut k = 0usize;
+
+                    (self)(
+                        $({
+                            let arg = $t::to_arg(args.get(k).map(|v| v.as_str()))?;
+                            k += 1;
+                            arg
+                        },)*
+                    )
+                }
+            }
+        }
+    };
 }
 
-impl<F, A, B> AsAdapter<(A, B)> for F
-where
-    F: Fn(A, B) -> Result<(), CmdError> + Send + Sync + 'static,
-    A: FromContext + 'static,
-    B: FromContext + 'static,
-{
-    fn as_handler(self) -> impl CmdAdapter {
-        adapter2(self)
-    }
-}
+impl_as_adapter!();
+impl_as_adapter!(A);
+impl_as_adapter!(A, B);
+impl_as_adapter!(A, B, C);
+impl_as_adapter!(A, B, C, D);
 
-impl<F, A, B, C> AsAdapter<(A, B, C)> for F
-where
-    F: Fn(A, B, C) -> Result<(), CmdError> + Send + Sync + 'static,
-    A: FromContext + 'static,
-    B: FromContext + 'static,
-    C: FromContext + 'static,
-{
-    fn as_handler(self) -> impl CmdAdapter {
-        adapter3(self)
-    }
-}
 
 ///
 /// Tests

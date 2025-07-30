@@ -6,6 +6,8 @@ use std::ops::Deref;
 use std::str::Split;
 use std::sync::{Arc, Mutex, MutexGuard};
 
+use snafu::Snafu;
+
 use crate::vars::VarRegistryError::VarError;
 use crate::VariableError::NotFound;
 
@@ -179,26 +181,14 @@ impl From<VariableError> for VarRegistryError {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Ord, PartialOrd, Clone)]
+#[derive(Debug, PartialEq, Eq, Ord, PartialOrd, Clone, Snafu)]
 pub enum VariableError {
+    #[snafu(display("Parsing failed"))]
     ParsingError,
+    #[snafu(display("Not found"))]
     NotFound,
 }
 
-impl Display for VariableError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            VariableError::ParsingError => {
-                write!(f, "Parsing failed!")
-            }
-            NotFound => {
-                write!(f, "No such variable!")
-            }
-        }
-    }
-}
-
-impl Error for VariableError {}
 
 #[cfg(test)]
 mod test {
