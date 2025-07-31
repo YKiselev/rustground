@@ -113,7 +113,7 @@ where
 
 macro_rules! impl_as_visitor {
     ($($t:ident),+) => {
-        impl<F, $($t),*> AsVisitor<($($t),*)> for F
+        impl<F, $($t),*> AsVisitor<($($t,)*)> for F
         where
             for<'b> F: FnMut($($t),*) + FnMut($(<$t as Arg>::Item<'b>),*),
             $(
@@ -124,16 +124,16 @@ macro_rules! impl_as_visitor {
             fn as_visitor(mut self) -> impl Visitor {
                 let f = move |chunk: &Chunk| {
                     $(
-                    let mut [<guard_ $t>] = $t::lock(chunk);
+                    let mut [<guard_ $t:lower>] = $t::lock(chunk);
                     )*
                     $(
-                    let mut [<it_ $t>] = $t::iter(&mut [<guard_ $t>]);
+                    let mut [<it_ $t:lower>] = $t::iter(&mut [<guard_ $t:lower>]);
                     )*
-                    while let ($(Some([<v_ $t>])),*) = ($([<it_ $t>].next()),*) {
-                        (self)($([<v_ $t>]),*);
+                    while let ($(Some([<v_ $t:lower>]),)*) = ($([<it_ $t:lower>].next(),)*) {
+                        (self)($([<v_ $t:lower>]),*);
                     }
                 };
-                SystemFn::<_, ($($t),*)>(f, vec![$($t::comp_id()),*], PhantomData::default())
+                SystemFn::<_, ($($t,)*)>(f, vec![$($t::comp_id()),*], PhantomData::default())
             }}
         }
     };
