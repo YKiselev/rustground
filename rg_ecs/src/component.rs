@@ -39,7 +39,7 @@ pub trait ComponentStorage {
 
 ///
 /// Helper functions
-///
+/// 
 #[inline]
 pub(crate) fn try_cast<'a, T: 'static>(
     value: &'a dyn ComponentStorage,
@@ -114,9 +114,7 @@ impl<T: Any + Default + 'static> ComponentStorage for TypedComponentStorage<T> {
     }
 }
 
-///
-/// Tests
-///
+
 #[cfg(test)]
 mod test {
     use super::{ComponentId, ComponentStorage, TypedComponentStorage};

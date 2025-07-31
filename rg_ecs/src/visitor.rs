@@ -1,39 +1,60 @@
 use std::{
     collections::HashSet,
     marker::PhantomData,
-    slice::Iter,
     sync::{RwLockReadGuard, RwLockWriteGuard},
 };
 
 use crate::{
-    archetype::Chunk,
+    chunk::Chunk,
     component::{cast, cast_mut, ComponentId, ComponentStorage},
 };
 
-///
-/// Locker
-///
-trait Locker {
-    type Ty: 'static;
-    type Guard<'g>;
+pub trait Arg {
+    type Guard<'r>;
     type Item<'r>;
     type Iter<'i>: Iterator<Item = Self::Item<'i>>;
 
-    fn lock(chunk: &Chunk) -> Self::Guard<'_>;
+    fn lock<'a>(chunk: &'a Chunk) -> Self::Guard<'a>;
 
     fn iter<'a>(guard: &'a mut Self::Guard<'_>) -> Self::Iter<'a>;
+
+    fn comp_id() -> ComponentId;
 }
 
-impl<T> Locker for &mut T
+impl<T> Arg for &T
 where
     T: 'static,
 {
-    type Ty = T;
+    type Guard<'g> = RwLockReadGuard<'g, Box<dyn ComponentStorage>>;
+    type Item<'r> = &'r T;
+    type Iter<'i> = core::slice::Iter<'i, T>;
+
+    fn lock<'a>(chunk: &'a Chunk) -> Self::Guard<'a> {
+        chunk
+            .get_column(ComponentId::new::<T>())
+            .expect(std::any::type_name::<T>())
+            .read()
+            .unwrap()
+    }
+
+    fn iter<'a>(guard: &'a mut Self::Guard<'_>) -> Self::Iter<'a> {
+        cast::<T>(guard.as_ref()).iter()
+    }
+
+    fn comp_id() -> ComponentId {
+        ComponentId::new::<T>()
+    }
+}
+
+impl<T> Arg for &mut T
+where
+    T: 'static,
+{
     type Guard<'g> = RwLockWriteGuard<'g, Box<dyn ComponentStorage>>;
     type Item<'r> = &'r mut T;
     type Iter<'i> = core::slice::IterMut<'i, T>;
 
-    fn lock(chunk: &Chunk) -> Self::Guard<'_> {
+    fn lock<'a>(chunk: &'a Chunk) -> Self::Guard<'a> {
         chunk
             .get_column(ComponentId::new::<T>())
             .unwrap()
@@ -44,152 +65,118 @@ where
     fn iter<'a>(guard: &'a mut Self::Guard<'_>) -> Self::Iter<'a> {
         cast_mut::<T>(guard.as_mut()).iter_mut()
     }
-}
 
-impl<T> Locker for &T
-where
-    T: 'static,
-{
-    type Ty = T;
-    type Guard<'g> = RwLockReadGuard<'g, Box<dyn ComponentStorage>>;
-    type Item<'r> = &'r T;
-    type Iter<'i> = core::slice::Iter<'i, T>;
-
-    fn lock(chunk: &Chunk) -> Self::Guard<'_> {
-        chunk
-            .get_column(ComponentId::new::<T>())
-            .unwrap()
-            .read()
-            .unwrap()
-    }
-
-    fn iter<'a>(guard: &'a mut Self::Guard<'_>) -> Self::Iter<'a> {
-        cast::<T>(guard.as_ref()).iter()
+    fn comp_id() -> ComponentId {
+        ComponentId::new::<T>()
     }
 }
 
-fn comp_id<L: Locker>() -> ComponentId {
-    ComponentId::new::<L::Ty>()
+pub trait Visitor {
+    fn accept(&self, columns: &HashSet<ComponentId>) -> bool;
+
+    fn visit(&mut self, chunk: &Chunk);
 }
 
-///
-/// Visitor1
-///
-struct Visitor1<A, H> {
-    component: ComponentId,
-    handler: H,
-    _phantom: PhantomData<A>,
+pub trait AsVisitor<Args> {
+    fn as_visitor(self) -> impl Visitor;
 }
 
-impl<A, H> Visitor1<A, H>
+struct SystemFn<F, Args>(F, Vec<ComponentId>, PhantomData<Args>)
 where
-    H: Fn(A::Item<'_>),
-    A: Locker,
+    F: FnMut(&Chunk);
+
+impl<F, Args> Visitor for SystemFn<F, Args>
+where
+    F: FnMut(&Chunk),
 {
-    fn new(handler: H) -> Self {
-        Visitor1 {
-            component: comp_id::<A>(),
-            handler,
-            _phantom: PhantomData::default(),
-        }
+    fn visit(&mut self, chunk: &Chunk) {
+        (self.0)(chunk)
     }
 
     fn accept(&self, columns: &HashSet<ComponentId>) -> bool {
-        columns.contains(&self.component)
-    }
-
-    fn visit(&self, chunk: &Chunk) {
-        let mut guard1 = A::lock(chunk);
-        let mut it1 = A::iter(&mut guard1);
-        while let Some(v1) = it1.next() {
-            (self.handler)(v1);
-        }
+        self.1.iter().all(|c| columns.contains(c))
     }
 }
 
-///
-/// Visitor2
-///
-struct Visitor2<A, B, H> {
-    components: Vec<ComponentId>,
-    handler: H,
-    _phantom: PhantomData<(A, B)>,
+macro_rules! impl_as_visitor {
+    ($($t:ident),+) => {
+        impl<Func, $($t),*> AsVisitor<($($t,)*)> for Func
+        where
+            for<'b> Func: FnMut($($t),*) + FnMut($(<$t as Arg>::Item<'b>),*),
+            $(
+                $t: Arg
+            ),*
+        {
+            paste::paste! {
+            fn as_visitor(mut self) -> impl Visitor {
+                let f = move |chunk: &Chunk| {
+                    $(
+                    let mut [<guard_ $t:lower>] = $t::lock(chunk);
+                    )*
+                    $(
+                    let mut [<it_ $t:lower>] = $t::iter(&mut [<guard_ $t:lower>]);
+                    )*
+                    while let ($(Some([<v_ $t:lower>]),)*) = ($([<it_ $t:lower>].next(),)*) {
+                        (self)($([<v_ $t:lower>]),*);
+                    }
+                };
+                SystemFn::<_, ($($t,)*)>(f, vec![$($t::comp_id()),*], PhantomData::default())
+            }}
+        }
+    };
 }
 
-impl<A, B, H> Visitor2<A, B, H>
-where
-    H: Fn(A::Item<'_>, B::Item<'_>),
-    A: Locker,
-    B: Locker,
-{
-    fn new(handler: H) -> Self {
-        Visitor2 {
-            components: vec![comp_id::<A>(), comp_id::<B>()],
-            handler,
-            _phantom: PhantomData::default(),
-        }
-    }
-
-    fn accept(&self, columns: &HashSet<ComponentId>) -> bool {
-        self.components.iter().all(|c| columns.contains(c))
-    }
-
-    fn visit(&self, chunk: &Chunk) {
-        let mut guard1 = A::lock(chunk);
-        let mut guard2 = B::lock(chunk);
-        let mut it1 = A::iter(&mut guard1);
-        let mut it2 = B::iter(&mut guard2);
-        while let (Some(v1), Some(v2)) = (it1.next(), it2.next()) {
-            (self.handler)(v1, v2);
-        }
-    }
-}
-
+impl_as_visitor!(A);
+impl_as_visitor!(A, B);
+impl_as_visitor!(A, B, C);
+impl_as_visitor!(A, B, C, D);
+impl_as_visitor!(A, B, C, D, E);
+impl_as_visitor!(A, B, C, D, E, F);
+impl_as_visitor!(A, B, C, D, E, F, G);
+impl_as_visitor!(A, B, C, D, E, F, G, H);
+impl_as_visitor!(A, B, C, D, E, F, G, H, I);
 
 #[cfg(test)]
-mod test {
+mod tests {
+    use crate::{
+        archetype_storage::ArchetypeStorage,
+        build_archetype,
+        entity::EntityId,
+        visitor::{AsVisitor, Visitor},
+    };
 
-    use crate::{archetype::ArchetypeStorage, build_archetype, entity::EntityId};
+    #[derive(Default, Debug)]
+    struct Position(i32, i32);
 
-    use super::{Visitor1, Visitor2};
-
-    #[test]
-    fn visitor1() {
-        let mut storage = ArchetypeStorage::new(build_archetype![String, f64, bool, i32], 1000);
-        for i in 0..5 {
-            storage.add(EntityId::new(i));
-        }
-
-        let vis = Visitor1::<&mut i32, _>::new(|v1| {
-            dbg!(v1);
-        });
-
-        for chunk in storage.iter() {
-            vis.visit(chunk);
-        }
-
-        let vis = Visitor1::<&f64, _>::new(|v1| {
-            dbg!(v1);
-        });
-
-        for chunk in storage.iter() {
-            vis.visit(chunk);
-        }
-    }
+    #[derive(Default, Debug)]
+    struct Direction(i8, i8);
 
     #[test]
-    fn visitor2() {
-        let mut storage = ArchetypeStorage::new(build_archetype![String, f64, bool, i32], 1000);
-        for i in 0..5 {
+    fn as_visitor() {
+        let show_system = |a: &Position| {
+            println!("Got {a:?}");
+        };
+        let modify_system = |a: &mut Position| {
+            a.0 += 17;
+            a.1 += 77;
+        };
+        let mut v1 = show_system.as_visitor();
+        let mut v2 = modify_system.as_visitor();
+
+        let mut storage =
+            ArchetypeStorage::new(build_archetype![Direction, Position, f64, bool, i32], 1000);
+        for i in 0..10 {
             storage.add(EntityId::new(i));
         }
-
-        let vis = Visitor2::<&mut i32, &f64, _>::new(|v1, v2| {
-            dbg!(v1, v2);
-        });
-
+        // Pass 1
         for chunk in storage.iter() {
-            vis.visit(chunk);
+            v1.visit(chunk);
+            v2.visit(chunk);
+        }
+
+        // Pass 2
+        for chunk in storage.iter() {
+            v1.visit(chunk);
         }
     }
 }
