@@ -1,16 +1,13 @@
 use std::{
-    any::Any,
-    borrow::{Borrow, BorrowMut},
     collections::HashSet,
     marker::PhantomData,
-    ops::Index,
     slice::Iter,
-    sync::{RwLock, RwLockReadGuard, RwLockWriteGuard},
+    sync::{RwLockReadGuard, RwLockWriteGuard},
 };
 
 use crate::{
     archetype::Chunk,
-    component::{cast, cast_mut, ComponentId, ComponentStorage, TypedComponentStorage},
+    component::{cast, cast_mut, ComponentId, ComponentStorage},
 };
 
 ///
@@ -147,6 +144,7 @@ where
         }
     }
 }
+
 
 #[cfg(test)]
 mod test {

@@ -4,3 +4,4 @@ pub mod entity;
 pub mod error;
 pub mod visitor;
 pub mod playground;
+pub mod v2;
