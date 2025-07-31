@@ -79,7 +79,6 @@ impl ArchetypeRef {
 ///
 /// ColumnFactory
 ///
-//type ColumnFactory = dyn Fn(usize) -> Box<dyn ComponentStorage + 'static>;
 trait ColumnFactory {
     fn create(&self, capacity: usize) -> Box<dyn ComponentStorage + 'static>;
     fn item_size(&self) -> usize;
