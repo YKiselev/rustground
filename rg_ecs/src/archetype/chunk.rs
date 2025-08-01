@@ -7,9 +7,7 @@ use std::{
 };
 
 use crate::{
-    archetype::COLUMN_ENTITY_ID,
-    component::{cast, cast_mut, ComponentId, ComponentStorage},
-    entity::EntityId,
+    archetype::archetype::COLUMN_ENTITY_ID, component::{cast, cast_mut, ComponentId, ComponentStorage}, entity::EntityId
 };
 
 type ColumnMap = HashMap<ComponentId, RwLock<Box<dyn ComponentStorage>>>;
@@ -30,14 +28,14 @@ impl Chunk {
         }
     }
 
-    pub(crate) fn available(&self) -> u32 {
+    pub(super) fn available(&self) -> u32 {
         self.available_rows.load(Ordering::Acquire)
     }
 
     /// Adds new row for passed entity to this storage and returns local index
     /// # Arguments:
     /// * `ent_id` - entity id
-    pub(crate) fn add(&self, ent_id: EntityId) -> usize {
+    pub(super) fn add(&self, ent_id: EntityId) -> usize {
         assert!(self.available() > 0);
         let mut index = 0;
         for (_, column) in self.columns.iter() {
@@ -51,7 +49,7 @@ impl Chunk {
         index
     }
 
-    pub(crate) fn get_entity_id(&self, index: usize) -> Option<EntityId> {
+    pub(super) fn get_entity_id(&self, index: usize) -> Option<EntityId> {
         let column = self.columns.get(&COLUMN_ENTITY_ID)?;
         cast::<EntityId>(column.read().unwrap().as_ref())
             .get(index)
@@ -61,7 +59,7 @@ impl Chunk {
     /// Removes row from this chunk
     /// # Arguments:
     /// * `index` - row index
-    pub(crate) fn remove(&self, index: usize) -> Option<EntityId> {
+    pub(super) fn remove(&self, index: usize) -> Option<EntityId> {
         for column in self.columns.values() {
             column.write().unwrap().remove(index);
         }
@@ -70,7 +68,7 @@ impl Chunk {
     }
 
     /// Moves row from this chunk to another storage. Returns id of the entity which has taken place of the moved one.
-    pub(crate) fn move_to<T>(&self, index: usize, dest: &Chunk, value: T) -> (usize, Option<EntityId>)
+    pub(super) fn move_to<T>(&self, index: usize, dest: &Chunk, value: T) -> (usize, Option<EntityId>)
     where
         T: Default + 'static,
     {
@@ -101,14 +99,14 @@ impl Chunk {
     }
 
     #[inline(always)]
-    pub(crate) fn get_column_for_type<T>(&self) -> Option<&RwLock<Box<dyn ComponentStorage>>>
+    pub(super) fn get_column_for_type<T>(&self) -> Option<&RwLock<Box<dyn ComponentStorage>>>
     where
         T: Default + 'static,
     {
         self.columns.get(&ComponentId::new::<T>())
     }
 
-    pub(crate) fn row_count(&self) -> usize {
+    pub(super) fn row_count(&self) -> usize {
         for (_, col) in self.columns.iter() {
             return col.read().unwrap().row_count();
         }

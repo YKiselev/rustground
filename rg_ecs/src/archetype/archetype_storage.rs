@@ -1,23 +1,8 @@
-use std::{
-    collections::HashMap,
-    fmt::Display,
-    hash::{Hash, Hasher},
-    marker::PhantomData,
-    slice::Iter,
-    sync::{
-        atomic::{AtomicU32, Ordering},
-        Arc, RwLock,
-    },
-};
-
-use fxhash::FxHasher32;
-use itertools::Itertools;
-use once_cell::sync::{self, Lazy};
+use std::{slice::Iter, sync::RwLock};
 
 use crate::{
-    archetype::Archetype,
-    chunk::Chunk,
-    component::{cast, cast_mut, ComponentId, ComponentStorage, TypedComponentStorage},
+    archetype::{archetype::Archetype, chunk::Chunk},
+    component::{ComponentId, ComponentStorage},
     entity::EntityId,
     error::EntityError,
 };
@@ -184,7 +169,7 @@ impl ArchetypeStorage {
 mod test {
 
     use crate::{
-        archetype_storage::{ArchetypeStorage, StorageRowRef},
+        archetype::archetype_storage::{ArchetypeStorage, StorageRowRef},
         build_archetype,
         entity::EntityId,
     };

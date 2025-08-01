@@ -5,7 +5,7 @@ use std::{
 };
 
 use crate::{
-    chunk::Chunk,
+    archetype::Chunk,
     component::{cast, cast_mut, ComponentId, ComponentStorage},
 };
 
@@ -139,7 +139,7 @@ impl_as_visitor!(A, B, C, D, E, F, G, H, I);
 #[cfg(test)]
 mod tests {
     use crate::{
-        archetype_storage::ArchetypeStorage,
+        archetype::ArchetypeStorage,
         build_archetype,
         entity::EntityId,
         visitor::{AsVisitor, Visitor},

@@ -1,5 +1,5 @@
 use std::{
-    collections::{hash_map::Values, HashMap, HashSet},
+    collections::{hash_map::Values, HashMap},
     sync::{
         atomic::{AtomicU32, Ordering},
         RwLock,
@@ -7,10 +7,8 @@ use std::{
 };
 
 use crate::{
-    archetype::{Archetype, ArchetypeId},
-    archetype_storage::ArchetypeStorage,
+    archetype::{Archetype, ArchetypeId, ArchetypeStorage},
     build_archetype,
-    chunk::Chunk,
     component::{cast, cast_mut, ComponentId},
     entity::{EntityId, EntityRef},
     error::EntityError,
@@ -160,7 +158,7 @@ impl EntityStorage {
         let mut row_count: usize = 0;
         for v in self.archetypes.values() {
             let guard = v.read().unwrap();
-            // todo 
+            // todo
             // if !visitor.accept(columns) columns.iter().all(|c| guard.archetype.has_component(c)) {
             //     continue;
             // }

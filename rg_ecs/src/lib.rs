@@ -2,8 +2,6 @@ pub mod archetype;
 pub mod component;
 pub mod entity;
 pub mod entity_storage;
-pub mod archetype_storage;
-pub mod chunk;
 pub mod error;
 pub mod visitor;
 pub mod ecs;

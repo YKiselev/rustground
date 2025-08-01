@@ -3,11 +3,7 @@ use std::{
     fmt::Display,
     hash::{Hash, Hasher},
     marker::PhantomData,
-    slice::Iter,
-    sync::{
-        atomic::{AtomicU32, Ordering},
-        Arc, RwLock,
-    },
+    sync::{Arc, RwLock},
 };
 
 use fxhash::FxHasher32;
@@ -15,7 +11,9 @@ use itertools::Itertools;
 use once_cell::sync::{self, Lazy};
 
 use crate::{
-    chunk::Chunk, component::{cast, cast_mut, ComponentId, ComponentStorage, TypedComponentStorage}, entity::EntityId, error::EntityError
+    archetype::chunk::Chunk,
+    component::{ComponentId, ComponentStorage, TypedComponentStorage},
+    entity::EntityId,
 };
 ///
 /// Constants
@@ -171,7 +169,7 @@ impl std::fmt::Debug for Archetype {
 #[doc(hidden)]
 macro_rules! build_archetype {
     ($($column_type:ty),*) => {
-        $crate::archetype::ArchetypeBuilder::new()
+        $crate::archetype::archetype::ArchetypeBuilder::new()
         $(.add::<$column_type>())*
         .build()
     };
@@ -179,12 +177,12 @@ macro_rules! build_archetype {
 
 pub use build_archetype;
 
-
 #[cfg(test)]
 mod test {
 
     use crate::{
-        archetype_storage::{ArchetypeStorage, StorageRowRef}, entity::EntityId
+        archetype::archetype_storage::{ArchetypeStorage, StorageRowRef},
+        entity::EntityId,
     };
 
     #[test]

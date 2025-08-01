@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use crate::{archetype::ArchetypeId, archetype_storage::StorageRowRef};
+use crate::{archetype::ArchetypeId, archetype::StorageRowRef};
 
 ///
 /// EntityId
