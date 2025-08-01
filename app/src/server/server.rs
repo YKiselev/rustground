@@ -2,7 +2,6 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use log::{debug, info, warn};
-use nom::combinator::Opt;
 use rg_common::app::App;
 use rg_net::connect::read_connect;
 use rg_net::hello::read_hello;

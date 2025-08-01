@@ -1,15 +1,10 @@
-use std::{
-    collections::HashSet,
-    sync::{RwLock, RwLockReadGuard},
-};
+use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crate::{
     archetype::{Archetype, ArchetypeId},
-    chunk::Chunk,
-    component::ComponentId,
-    entity::EntityId,
-    entity_storage::EntityStorage,
-    error::EntityError, visitor::{AsVisitor, Visitor},
+    entity::{EntityId, EntityStorage},
+    error::EntityError,
+    visitor::AsVisitor,
 };
 
 pub struct Entities {
@@ -17,46 +12,37 @@ pub struct Entities {
 }
 
 impl Entities {
-    ///
+
     /// Creates new instance
-    ///
     pub fn new(chunk_size_in_bytes: usize) -> Self {
         Entities {
             storage: RwLock::new(EntityStorage::new(chunk_size_in_bytes)),
         }
     }
 
-    ///
     /// Adds new archetype to this storage
-    ///
     #[inline]
     pub fn add_archetype(&self, archetype: Archetype) -> ArchetypeId {
-        self.storage.write().unwrap().add_archetype(archetype)
+        self.write().add_archetype(archetype)
     }
 
-    ///
     /// Adds new entity into this storage
-    ///
     #[inline]
     pub fn add(&self, archetype: Option<ArchetypeId>) -> Result<EntityId, EntityError> {
-        self.storage.write().unwrap().add(archetype)
+        self.write().add(archetype)
     }
 
-    ///
     /// Sets component on specified entity.
     /// Entity will be moved from one table to another (possibly new one) if current table doesn't have such component column.
-    ///
     #[inline]
     pub fn set<T>(&self, entity: EntityId, value: T) -> Result<(), EntityError>
     where
         T: Default + 'static,
     {
-        self.storage.write().unwrap().set(entity, value)
+        self.write().set(entity, value)
     }
 
-    ///
     /// Gets the value of component of specified entity.
-    ///
     #[inline]
     pub fn get<T, F, R>(&self, entity: EntityId, consumer: F) -> Option<R>
     where
@@ -64,32 +50,35 @@ impl Entities {
         R: 'static,
         F: FnOnce(Option<&T>) -> R,
     {
-        self.storage.read().unwrap().get(entity, consumer)
+        self.read().get(entity, consumer)
     }
 
-    ///
     /// Removes entity from storage
-    ///
     #[inline]
     pub fn remove(&self, entity: EntityId) -> Result<(), EntityError> {
-        self.storage.write().unwrap().remove(entity)
+        self.write().remove(entity)
     }
 
-    pub fn visit<F, Args>(&self, visitor: F) -> (usize, usize, usize)
+    pub fn visit<F, Args>(&self, visitor: F)
     where
         F: AsVisitor<Args>,
     {
-        self.storage.read().unwrap().visit(visitor.as_visitor())
+        self.read().visit(visitor.as_visitor())
     }
 
     /// Removes all entities from storage
     pub fn clear(&self) {
-        self.storage.write().unwrap().clear();
+        self.write().clear();
     }
 
-    #[doc(hidden)]
-    pub(crate) fn read(&self) -> RwLockReadGuard<'_, EntityStorage> {
+    #[inline]
+    fn read(&self) -> RwLockReadGuard<'_, EntityStorage> {
         self.storage.read().unwrap()
+    }
+
+    #[inline]
+    fn write(&self) -> RwLockWriteGuard<'_, EntityStorage> {
+        self.storage.write().unwrap()
     }
 }
 
@@ -99,9 +88,7 @@ impl Entities {
 #[cfg(test)]
 mod test {
 
-    use std::collections::HashSet;
-
-    use crate::{build_archetype, component::ComponentId, entity::EntityId};
+    use crate::{build_archetype, error::EntityError};
 
     use super::Entities;
 
@@ -153,25 +140,29 @@ mod test {
                 .unwrap()
         );
 
-        //let columns = HashSet::from([ComponentId::new::<EntityId>(), ComponentId::new::<String>()]);
-        // let v2 = visit_2::<EntityId, String, _>(move |(_, _)| {});
-        // let (ac, cc, rc) = entities.visit(&columns, v2);
-        // println!("archs={}, chunks={}, rows={}", ac, cc, rc);
-        entities.visit(|a:&i32, b: &f64|{
+        entities.visit(|a: &i32, b: &f64| {
             println!("Got {a}, {b}");
         });
     }
 
-     #[test]
-    fn visit() {
+    #[test]
+    fn visit() -> Result<(), EntityError> {
         let entities = Entities::new(100);
         let arch_id1 = entities.add_archetype(build_archetype! {i32, f64, String, bool});
         for i in 0..100 {
-            entities.add(Some(arch_id1)).unwrap();
+            let id = entities.add(Some(arch_id1))?;
+            entities.set(id, 5i32)?;
+            entities.set(id, 3.14f64)?;
+            entities.set(id, "Test".to_owned())?;
+            entities.set(id, true)?;
         }
 
-        entities.visit(|a:&i32, b: &f64|{
-            println!("Got {a}, {b}");
+        entities.visit(|a: &i32, b: &f64, c: &String, d: &bool| {
+            assert_eq!(5i32, *a);
+            assert_eq!(3.14f64, *b);
+            assert_eq!("Test", c);
+            assert_eq!(true, *d);
         });
+        Ok(())
     }
 }

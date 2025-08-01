@@ -1,11 +1,9 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use rg_ecs::{
     archetype::{build_archetype, ArchetypeId},
-    component::ComponentId,
     entity::{Entities, EntityId},
-    visitor::{visit_2, visit_3},
 };
-use std::{collections::HashSet, hint::black_box};
+use std::hint::black_box;
 
 #[derive(Default)]
 struct Location(f32, f32, f32);
@@ -35,6 +33,7 @@ fn init_storage(chunk_size: usize, count: Option<usize>) -> (Entities, Archetype
 }
 
 fn ecs_benchmark(c: &mut Criterion) {
+    /*
     let (entities, arch_id1, arch_id2) = init_storage(128 * 1024, None);
 
     c.bench_function("ecs add arch #1", |b| {
@@ -69,38 +68,39 @@ fn ecs_benchmark(c: &mut Criterion) {
             |batch| batch.iter().map(|ent_id| entities.remove(*ent_id)).count(),
             criterion::BatchSize::SmallInput,
         )
-    });
-    let columns1 = HashSet::from([ComponentId::new::<EntityId>(), ComponentId::new::<String>()]);
-    let columns2 = HashSet::from([
-        ComponentId::new::<Location>(),
-        ComponentId::new::<Velocity>(),
-        ComponentId::new::<Direction>(),
-    ]);
-    let fn_lvd = |loc: &mut Location, vel: &mut Velocity, dir: &mut Direction| {
-        // black_box(loc);
-        // black_box(vel);
-        // black_box(dir);
-        loc.0 += dir.0 * vel.0;
-        loc.1 += dir.1 * vel.1;
-        loc.2 += dir.2 * vel.2;
+    });*/
+    let fn_2 = |v1: &EntityId,
+                //v2: &String,
+                loc: &mut Location,
+                vel: &Velocity,
+                dir: &Direction| {
+        black_box(v1);
+        //black_box(v2);
+        black_box(loc);
+        black_box(vel);
+        black_box(dir);
     };
-    for chunk_size in [64 * 1024, 128 * 1024, 256 * 1024, 512 * 1024, 1024 * 1024] {
-        let (entities, _, _) = init_storage(chunk_size, Some(1000000));
-        let name = format!("ecs visit e1 (chunk_size={chunk_size})");
+    let fn_5 =
+        |id: &EntityId, loc: &mut Location, vel: &Velocity, dir: &Direction, tag: &String| {
+            black_box(id);
+            black_box(tag);
+            loc.0 += dir.0 * vel.0;
+            loc.1 += dir.1 * vel.1;
+            loc.2 += dir.2 * vel.2;
+            black_box(loc);
+            black_box(dir);
+            black_box(vel);
+        };
+    for chunk_size in [4, 64, 256, 512, 1024] {
+        let chunk_size = chunk_size * 1024;
+        let (entities, _, _) = init_storage(chunk_size, Some(1_000_000));
+        let name = format!("ecs visit 2-arg system (chunk_size={chunk_size})");
         c.bench_function(&name, |b| {
-            b.iter(|| {
-                entities.visit(
-                    &columns1,
-                    visit_2(|(v1, v2): (&EntityId, &String)| {
-                        black_box(v1);
-                        black_box(v2);
-                    }),
-                )
-            });
+            b.iter(|| entities.visit(fn_2));
         });
-        let name = format!("ecs visit LVD (chunk_size={chunk_size})");
+        let name = format!("ecs visit 5-arg system (chunk_size={chunk_size})");
         c.bench_function(&name, |b| {
-            b.iter(|| entities.visit(&columns2, visit_3(fn_lvd)));
+            b.iter(|| entities.visit(fn_5));
         });
     }
 }

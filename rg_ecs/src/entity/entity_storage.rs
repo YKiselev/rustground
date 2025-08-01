@@ -42,14 +42,14 @@ impl EntityStorage {
         }
     }
 
-    pub(crate) fn add_archetype(&mut self, archetype: Archetype) -> ArchetypeId {
+    pub(super) fn add_archetype(&mut self, archetype: Archetype) -> ArchetypeId {
         let arc_id = archetype.id;
         let arc_storage = ArchetypeStorage::new(archetype, self.chunk_size_in_bytes);
         self.archetypes.insert(arc_id, RwLock::new(arc_storage));
         arc_id
     }
 
-    pub(crate) fn add(&mut self, archetype: Option<ArchetypeId>) -> Result<EntityId, EntityError> {
+    pub(super) fn add(&mut self, archetype: Option<ArchetypeId>) -> Result<EntityId, EntityError> {
         let arch_id = archetype.unwrap_or(self.def_arch_id);
         let seq = self.entity_seq.fetch_add(1, Ordering::Relaxed);
         let ent_id = EntityId::new(seq);
@@ -67,7 +67,7 @@ impl EntityStorage {
         Ok(ent_id)
     }
 
-    pub(crate) fn get<T, F, R>(&self, entity: EntityId, consumer: F) -> Option<R>
+    pub(super) fn get<T, F, R>(&self, entity: EntityId, consumer: F) -> Option<R>
     where
         T: Default + 'static,
         R: Sized + 'static,
@@ -108,7 +108,7 @@ impl EntityStorage {
         Ok(())
     }
 
-    pub(crate) fn set<T>(&mut self, entity: EntityId, value: T) -> Result<(), EntityError>
+    pub(super) fn set<T>(&mut self, entity: EntityId, value: T) -> Result<(), EntityError>
     where
         T: Default + 'static,
     {
@@ -134,7 +134,7 @@ impl EntityStorage {
         }
     }
 
-    pub(crate) fn remove(&mut self, entity: EntityId) -> Result<(), EntityError> {
+    pub(super) fn remove(&mut self, entity: EntityId) -> Result<(), EntityError> {
         // Remove entity reference
         let ent_ref = self.entities.remove(&entity).ok_or(EntityError::NotFound)?;
         let storage = self
@@ -149,44 +149,29 @@ impl EntityStorage {
         Ok(())
     }
 
-    pub(crate) fn visit<V>(&self, mut visitor: V) -> (usize, usize, usize)
+    pub(super) fn visit<V>(&self, mut visitor: V)
     where
         V: Visitor,
     {
-        let mut arch_count: usize = 0;
-        let mut chunk_count: usize = 0;
-        let mut row_count: usize = 0;
         for v in self.archetypes.values() {
             let guard = v.read().unwrap();
-            // todo
-            // if !visitor.accept(columns) columns.iter().all(|c| guard.archetype.has_component(c)) {
-            //     continue;
-            // }
+            if !visitor.columns().iter().all(|c| guard.archetype.has_component(c)) {
+                continue;
+            }
             for chunk in guard.iter() {
                 visitor.visit(chunk);
-                //row_count += (handler)(chunk);
-                chunk_count += 1;
             }
-            arch_count += 1;
         }
-        (arch_count, chunk_count, row_count)
     }
 
-    pub(crate) fn clear(&mut self) {
+    pub(super) fn clear(&mut self) {
         self.entities.clear();
         for (_, lock) in self.archetypes.iter() {
             lock.write().unwrap().clear();
         }
     }
 
-    pub(crate) fn archetypes(&self) -> Values<'_, ArchetypeId, RwLock<ArchetypeStorage>> {
+    pub(super) fn archetypes(&self) -> Values<'_, ArchetypeId, RwLock<ArchetypeStorage>> {
         self.archetypes.values()
     }
-}
-
-#[cfg(test)]
-mod test {
-
-    #[test]
-    fn test() {}
 }

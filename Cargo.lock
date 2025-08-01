@@ -1184,13 +1184,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rg_ecs_macros"
-version = "0.1.0"
-dependencies = [
- "syn 2.0.98",
-]
-
-[[package]]
 name = "rg_macros"
 version = "0.1.0"
 dependencies = [

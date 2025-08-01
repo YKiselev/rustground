@@ -190,9 +190,9 @@ macro_rules! count {
 
 macro_rules! impl_as_adapter {
     ($($t:ident),*) => {
-        impl<F, $($t),*> AsAdapter<($($t),*)> for F
+        impl<Func, $($t),*> AsAdapter<($($t,)*)> for Func
         where
-            F: Fn($($t),*) -> Result<(), CmdError> + Send + Sync + 'static,
+            Func: Fn($($t),*) -> Result<(), CmdError> + Send + Sync + 'static,
             $(
                 $t : FromContext + 'static,
             )*
@@ -221,7 +221,8 @@ impl_as_adapter!(A);
 impl_as_adapter!(A, B);
 impl_as_adapter!(A, B, C);
 impl_as_adapter!(A, B, C, D);
-
+impl_as_adapter!(A, B, C, D, E);
+impl_as_adapter!(A, B, C, D, E, F);
 
 ///
 /// Tests

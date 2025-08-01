@@ -1,6 +1,6 @@
-pub mod archetype;
-pub mod archetype_storage;
-pub mod chunk;
+mod archetype;
+mod archetype_storage;
+mod chunk;
 
 pub use archetype::ArchetypeId;
 pub use archetype::Archetype;

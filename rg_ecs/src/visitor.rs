@@ -72,8 +72,8 @@ where
 }
 
 pub trait Visitor {
-    fn accept(&self, columns: &HashSet<ComponentId>) -> bool;
-
+    fn columns(&self) -> &Vec<ComponentId>;
+    
     fn visit(&mut self, chunk: &Chunk);
 }
 
@@ -92,9 +92,9 @@ where
     fn visit(&mut self, chunk: &Chunk) {
         (self.0)(chunk)
     }
-
-    fn accept(&self, columns: &HashSet<ComponentId>) -> bool {
-        self.1.iter().all(|c| columns.contains(c))
+    
+    fn columns(&self) -> &Vec<ComponentId> {
+        &self.1
     }
 }
 
@@ -164,7 +164,7 @@ mod tests {
         let mut v2 = modify_system.as_visitor();
 
         let mut storage =
-            ArchetypeStorage::new(build_archetype![Direction, Position, f64, bool, i32], 1000);
+            ArchetypeStorage::new(build_archetype![Direction, Position, f64, bool, i32, String], 1000);
         for i in 0..10 {
             storage.add(EntityId::new(i));
         }

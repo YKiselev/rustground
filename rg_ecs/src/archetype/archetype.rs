@@ -169,7 +169,7 @@ impl std::fmt::Debug for Archetype {
 #[doc(hidden)]
 macro_rules! build_archetype {
     ($($column_type:ty),*) => {
-        $crate::archetype::archetype::ArchetypeBuilder::new()
+        $crate::archetype::ArchetypeBuilder::new()
         $(.add::<$column_type>())*
         .build()
     };
@@ -181,8 +181,7 @@ pub use build_archetype;
 mod test {
 
     use crate::{
-        archetype::archetype_storage::{ArchetypeStorage, StorageRowRef},
-        entity::EntityId,
+        archetype::{ArchetypeStorage, StorageRowRef}, entity::EntityId
     };
 
     #[test]
