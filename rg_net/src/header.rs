@@ -72,7 +72,7 @@ mod tests {
         {
             let mut writer = NetBufWriter::new(buf.as_mut_slice());
 
-            write_with_header(&mut writer, PacketKind::Hello, { |w| write_hello(w) }).unwrap()
+            write_with_header(&mut writer, PacketKind::Hello, |w| write_hello(w)).unwrap()
         }
         let mut reader = NetBufReader::new(buf.as_slice());
         let header = read_header(&mut reader).unwrap();

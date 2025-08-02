@@ -32,7 +32,7 @@ pub trait FromStrMutator {
     fn set_from_str(&mut self, sp: &mut Split<&str>, value: &str) -> Result<(), VariableError>;
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct VarRegistry<T>
 where
     T: VarBag,

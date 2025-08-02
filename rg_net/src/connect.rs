@@ -1,6 +1,6 @@
 use crate::{
-    net_rw::{NetBufWriter, NetReader, NetWriter, WithPosition},
-    protocol::{Connect, PacketKind, ProtocolError, ServerInfo},
+    net_rw::{NetReader, NetWriter},
+    protocol::{Connect, ProtocolError},
 };
 
 ///

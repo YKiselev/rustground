@@ -13,7 +13,7 @@ use std::{
 
 use log::{debug, error, warn};
 use mio::{net::UdpSocket, Events, Interest, Poll, Token};
-use rg_net::{protocol::NET_BUF_SIZE, MAX_DATAGRAM_SIZE};
+use rg_net::{NET_BUF_SIZE, MAX_DATAGRAM_SIZE};
 
 use crate::error::AppError;
 

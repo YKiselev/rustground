@@ -1,6 +1,6 @@
 use crate::{
-    net_rw::{NetBufReader, NetBufWriter, NetReader, NetWriter, WithPosition},
-    protocol::{PacketKind, ProtocolError, ServerInfo},
+    net_rw::{NetReader, NetWriter},
+    protocol::{ProtocolError, ServerInfo},
     version::{read_protocol_version, write_protocol_version},
 };
 
@@ -30,8 +30,8 @@ where
 #[cfg(test)]
 mod tests {
     use crate::{
-        net_rw::{NetBufReader, NetBufWriter, NetReader},
-        protocol::{PacketKind, PROTOCOL_VERSION},
+        net_rw::{NetBufReader, NetBufWriter},
+        protocol::PROTOCOL_VERSION,
         server_info::read_server_info,
     };
 

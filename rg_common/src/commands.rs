@@ -18,7 +18,7 @@ impl<T> CmdAdapter for T where T: Fn(&[String]) -> Result<(), CmdError> + Send +
 
 type CmdMap = HashMap<String, Weak<dyn CmdAdapter>>;
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct CommandRegistry(Mutex<CmdMap>);
 
 impl CommandRegistry {

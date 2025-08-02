@@ -44,7 +44,7 @@ impl KeyPair {
 
 #[cfg(test)]
 mod test {
-    use rsa::{pkcs1::{DecodeRsaPublicKey, EncodeRsaPublicKey}, RsaPublicKey};
+    use rsa::{pkcs1::DecodeRsaPublicKey, RsaPublicKey};
 
     use crate::server::key_pair::KeyPair;
 

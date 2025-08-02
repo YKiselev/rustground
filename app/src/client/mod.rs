@@ -1,5 +1,6 @@
 mod cl_pub_key;
-pub mod client;
 mod cl_net;
+mod client;
+mod cl_window;
 
 pub(crate) use client::Client;

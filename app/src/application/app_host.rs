@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use rg_common::{app::App, Arguments};
+use rg_common::{App, Arguments};
 
 use super::app_commands::AppCommands;
 

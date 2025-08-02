@@ -8,7 +8,6 @@ mod app_logger;
 mod application;
 mod client;
 mod error;
-mod net;
 mod server;
 
 fn main() -> Result<(), AppError> {

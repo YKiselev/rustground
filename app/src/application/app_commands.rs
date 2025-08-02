@@ -1,6 +1,6 @@
 use std::sync::{atomic::Ordering, Arc};
 
-use rg_common::{app::App, commands::{CommandBuilder, CommandOwner}};
+use rg_common::{App, commands::{CommandBuilder, CommandOwner}};
 
 use crate::error::AppError;
 

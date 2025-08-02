@@ -1,6 +1,6 @@
 use std::{array::TryFromSliceError, fmt::Debug};
 
-use num_enum::{FromPrimitive, IntoPrimitive, TryFromPrimitive};
+use num_enum::{IntoPrimitive, TryFromPrimitive};
 use snafu::Snafu;
 
 pub const MAX_DATAGRAM_SIZE: usize = 65507;
@@ -18,8 +18,8 @@ pub enum ProtocolError {
     ValueTooBig,
     #[snafu(display("Bad string"))]
     BadString,
-    #[snafu(display("Bad enum tag"))]
-    BadEnumTag,
+    #[snafu(display("Bad enum tag: {value}"))]
+    BadEnumTag { value: isize },
 }
 
 impl ProtocolError {
@@ -90,20 +90,18 @@ pub struct Connect<'a> {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct Accepted {
-
-}
+pub struct Accepted {}
 
 #[derive(Debug, PartialEq)]
 pub struct Rejected {
-    pub reason: RejectionReason
+    pub reason: RejectionReason,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, IntoPrimitive, TryFromPrimitive)]
 #[repr(u8)]
 pub enum RejectionReason {
     Unauthorized,
-    UnsupportedVersion
+    UnsupportedVersion,
 }
 
 ///

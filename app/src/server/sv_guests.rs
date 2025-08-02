@@ -5,11 +5,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-use log::{error, info, warn};
-use mio::net::UdpSocket;
+use log::{error, warn};
 use rg_net::{
-    try_write, write_accepted, write_rejected, write_server_info, write_with_header, NetBufWriter,
-    PacketKind, ProtocolError, RejectionReason, MAX_DATAGRAM_SIZE,
+    try_write, write_accepted, write_pong, write_rejected, write_server_info, write_with_header, NetBufWriter, PacketKind, Ping, ProtocolError, RejectionReason, MAX_DATAGRAM_SIZE
 };
 
 use super::{sv_clients::ClientId, sv_poll::Packet};
@@ -52,6 +50,14 @@ impl Guest {
                 write_with_header(w, PacketKind::Accepted, |w| write_accepted(w))
             })
             .inspect_err(|e| warn!("Failed to write server info: {:?}", e));
+    }
+
+    pub fn send_pong(&mut self, ping: &Ping) {
+        let _ = self
+            .write_to_send_buf(|w| {
+                write_with_header(w, PacketKind::Pong, |w| write_pong(w, ping.time))
+            })
+            .inspect_err(|e| warn!("Failed to write pong: {:?}", e));
     }
 
     pub fn flush(&mut self, addr: SocketAddr, tx: &Sender<Packet>) {

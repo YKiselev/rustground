@@ -2,15 +2,17 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use log::{debug, info, warn};
-use rg_common::app::App;
-use rg_net::connect::read_connect;
-use rg_net::hello::read_hello;
-use rg_net::net_rw::NetBufReader;
+use rg_common::App;
 use rg_net::process_buf;
-use rg_net::protocol::PacketKind;
+use rg_net::read_connect;
+use rg_net::read_hello;
+use rg_net::read_ping;
+use rg_net::NetBufReader;
+use rg_net::PacketKind;
 
 use crate::error::AppError;
 use crate::server::key_pair::KeyPair;
+use crate::server::messages::sv_ping::on_ping;
 use crate::server::sv_guests::Guests;
 use crate::server::sv_poll::ServerPoll;
 
@@ -108,6 +110,16 @@ impl ServerState {
                             false
                         }
                     }
+
+                    PacketKind::Ping => {
+                        if let Ok(ref ping) = read_ping(reader) {
+                            let _ = on_ping(&client_id, ping, guests);
+                            true
+                        } else {
+                            false
+                        }
+                    }
+
                     _ => false,
                 }
             });
@@ -139,6 +151,9 @@ impl Server {
     }
 
     pub(crate) fn update(&mut self) -> Result<(), AppError> {
-        self.0.as_mut().map(|state| state.update()).unwrap_or(Ok(()))
+        self.0
+            .as_mut()
+            .map(|state| state.update())
+            .unwrap_or(Ok(()))
     }
 }

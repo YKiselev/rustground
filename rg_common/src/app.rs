@@ -9,6 +9,7 @@ use rg_common::{AppFiles, CommandRegistry, VarRegistry};
 
 use rg_common::config::Config;
 
+#[derive(Debug)]
 pub struct App {
     pub arguments: Arguments,
     pub exit_flag: AtomicBool,

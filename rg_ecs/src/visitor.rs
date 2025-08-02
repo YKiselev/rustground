@@ -1,5 +1,4 @@
 use std::{
-    collections::HashSet,
     marker::PhantomData,
     sync::{RwLockReadGuard, RwLockWriteGuard},
 };

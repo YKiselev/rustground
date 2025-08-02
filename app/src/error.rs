@@ -2,8 +2,9 @@ use std::{net::AddrParseError, sync::PoisonError};
 
 use log::SetLoggerError;
 use rg_common::commands::CmdError;
-use rg_net::protocol::ProtocolError;
+use rg_net::ProtocolError;
 use snafu::Snafu;
+use winit::{error::EventLoopError};
 
 #[derive(Debug, Snafu)]
 pub enum AppError {
@@ -23,6 +24,8 @@ pub enum AppError {
     IllegalState { message: String },
     #[snafu(display("Command error: {cause}"))]
     CmdError { cause: CmdError },
+    #[snafu(display("Event loop error: {error:?}"))]
+    EventLoopError { error: EventLoopError },
 }
 
 impl From<ProtocolError> for AppError {
@@ -72,5 +75,11 @@ impl From<SetLoggerError> for AppError {
 impl From<CmdError> for AppError {
     fn from(value: CmdError) -> Self {
         AppError::CmdError { cause: value }
+    }
+}
+
+impl From<EventLoopError> for AppError {
+    fn from(value: EventLoopError) -> Self {
+        AppError::EventLoopError { error: value }
     }
 }

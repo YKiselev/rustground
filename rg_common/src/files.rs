@@ -56,6 +56,7 @@ impl Display for FileRoot {
     }
 }
 
+#[derive(Debug)]
 pub struct AppFiles {
     roots: Vec<FileRoot>,
 }

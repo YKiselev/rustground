@@ -1,7 +1,6 @@
 use crate::{
-    header::{update_header_size, write_header_placeholder},
-    net_rw::{NetBufReader, NetBufWriter, NetReader, NetWriter, WithPosition},
-    protocol::{Hello, PacketKind, ProtocolError},
+    net_rw::{NetReader, NetWriter},
+    protocol::{Hello, ProtocolError},
     version::{read_protocol_version, write_protocol_version},
 };
 

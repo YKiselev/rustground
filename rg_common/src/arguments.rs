@@ -1,10 +1,9 @@
-use std::option;
 
 use argh::FromArgs;
 use log::LevelFilter;
 
 /// Program arguments
-#[derive(FromArgs)]
+#[derive(FromArgs, Debug)]
 pub struct Arguments {
     /// run dedicated server
     #[argh(switch)]

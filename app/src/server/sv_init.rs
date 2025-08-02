@@ -1,7 +1,7 @@
 use crate::error::AppError;
 use crate::server::Server;
 use log::{error, info, warn};
-use rg_common::app::App;
+use rg_common::App;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::thread::JoinHandle;

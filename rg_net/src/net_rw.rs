@@ -108,8 +108,8 @@ pub trait NetReader<'a>: WithPosition {
     where
         E: TryFromPrimitive<Primitive = u8>,
     {
-        self.read_u8()
-            .and_then(|v| E::try_from_primitive(v).map_err(|_| ProtocolError::BadEnumTag))
+        let v = self.read_u8()?;
+        E::try_from_primitive(v).map_err(|e| ProtocolError::BadEnumTag { value: v as isize })
     }
 }
 
