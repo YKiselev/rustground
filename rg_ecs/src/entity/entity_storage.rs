@@ -149,19 +149,29 @@ impl EntityStorage {
         Ok(())
     }
 
-    pub(super) fn visit<V>(&self, mut visitor: V)
+    pub(super) fn visit<V>(&self, mut visitor: V) -> (usize, usize, usize)
     where
         V: Visitor,
     {
+        let mut arch_count = 0usize;
+        let mut chunk_count = 0usize;
+        let mut row_count = 0usize;
         for v in self.archetypes.values() {
             let guard = v.read().unwrap();
-            if !visitor.columns().iter().all(|c| guard.archetype.has_component(c)) {
+            if !visitor
+                .columns()
+                .iter()
+                .all(|c| guard.archetype.has_component(c))
+            {
                 continue;
             }
+            arch_count += 1;
             for chunk in guard.iter() {
-                visitor.visit(chunk);
+                chunk_count += 1;
+                row_count += visitor.visit(chunk);
             }
         }
+        (arch_count, chunk_count, row_count)
     }
 
     pub(super) fn clear(&mut self) {

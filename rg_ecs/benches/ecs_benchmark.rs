@@ -5,13 +5,13 @@ use rg_ecs::{
 };
 use std::hint::black_box;
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 struct Location(f32, f32, f32);
-#[derive(Default)]
+#[derive(Default, Debug)]
 struct Velocity(f32, f32, f32);
-#[derive(Default)]
+#[derive(Default, Debug)]
 struct Direction(f32, f32, f32);
-#[derive(Default)]
+#[derive(Default, Debug)]
 struct Name(String);
 
 fn init_storage(chunk_size: usize, count: Option<usize>) -> (Entities, ArchetypeId, ArchetypeId) {
@@ -29,6 +29,35 @@ fn init_storage(chunk_size: usize, count: Option<usize>) -> (Entities, Archetype
         black_box(c1);
         black_box(c2);
     }
+    let mut counter = 1usize;
+    entities.visit(
+        |l: &mut Location,
+         v: &mut Velocity,
+         d: &mut Direction,
+         n: &mut Name,
+         flag: &mut bool,
+         ch: &mut char,
+         i1: &mut i8,
+         i2: &mut i16| {
+            l.0 = (counter + 1) as f32;
+            l.1 = (counter + 2) as f32;
+            l.2 = (counter + 3) as f32;
+            counter += 3;
+            v.0 = (counter + 1) as f32;
+            v.1 = (counter + 2) as f32;
+            v.2 = (counter + 3) as f32;
+            counter += 3;
+            d.0 = (counter + 1) as f32;
+            d.1 = (counter + 2) as f32;
+            d.2 = (counter + 3) as f32;
+            counter += 3;
+            n.0 = format!("Test_{}", counter);
+            *flag = if counter & 1 != 0 { true } else { false };
+            *ch = counter as u8 as char;
+            *i1 = counter as i8;
+            *i2 = counter as i16;
+        },
+    );
     (entities, arch_id1, arch_id2)
 }
 
@@ -69,21 +98,24 @@ fn ecs_benchmark(c: &mut Criterion) {
             criterion::BatchSize::SmallInput,
         )
     });*/
-    let fn_2 = |v1: &EntityId,
-                //v2: &String,
-                loc: &mut Location,
-                vel: &Velocity,
-                dir: &Direction| {
-        black_box(v1);
-        //black_box(v2);
-        black_box(loc);
+    let fn_1 = |vel: &Location, dir: &Direction| {
         black_box(vel);
         black_box(dir);
     };
+    let fn_2 =
+        |v1: &EntityId, loc: &mut Location, vel: &Velocity, dir: &Direction| {
+            black_box(v1);
+            loc.0 += dir.0 * vel.0;
+            loc.1 += dir.1 * vel.1;
+            loc.2 += dir.2 * vel.2;
+            black_box(loc);
+            black_box(vel);
+            black_box(dir);
+        };
     let fn_5 =
-        |id: &EntityId, loc: &mut Location, vel: &Velocity, dir: &Direction, tag: &String| {
+        |id: &EntityId, loc: &mut Location, vel: &Velocity, dir: &Direction| {
             black_box(id);
-            black_box(tag);
+            //black_box(tag);
             loc.0 += dir.0 * vel.0;
             loc.1 += dir.1 * vel.1;
             loc.2 += dir.2 * vel.2;
@@ -91,17 +123,22 @@ fn ecs_benchmark(c: &mut Criterion) {
             black_box(dir);
             black_box(vel);
         };
-    for chunk_size in [4, 64, 256, 512, 1024] {
+    for chunk_size in [128, 512, 1024] {
         let chunk_size = chunk_size * 1024;
-        let (entities, _, _) = init_storage(chunk_size, Some(1_000_000));
-        let name = format!("ecs visit 2-arg system (chunk_size={chunk_size})");
-        c.bench_function(&name, |b| {
-            b.iter(|| entities.visit(fn_2));
-        });
+        let (entities, _, _) = init_storage(chunk_size, Some(black_box(1_000_000)));
+        // let name = format!("ecs visit 1-arg system (chunk_size={chunk_size})");
+        // c.bench_function(&name, |b| {
+        //     b.iter(|| entities.visit(fn_1));
+        // });
+        // let name = format!("ecs visit 2-arg system (chunk_size={chunk_size})");
+        // c.bench_function(&name, |b| {
+        //     b.iter(|| assert!(entities.visit(fn_2).2 > 0));
+        // });
         let name = format!("ecs visit 5-arg system (chunk_size={chunk_size})");
         c.bench_function(&name, |b| {
-            b.iter(|| entities.visit(fn_5));
+            b.iter(|| assert!(entities.visit(fn_5).2 > 0));
         });
+        black_box(entities);
     }
 }
 

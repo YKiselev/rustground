@@ -73,7 +73,7 @@ where
 pub trait Visitor {
     fn columns(&self) -> &Vec<ComponentId>;
     
-    fn visit(&mut self, chunk: &Chunk);
+    fn visit(&mut self, chunk: &Chunk) -> usize;
 }
 
 pub trait AsVisitor<Args> {
@@ -82,13 +82,13 @@ pub trait AsVisitor<Args> {
 
 struct SystemFn<F, Args>(F, Vec<ComponentId>, PhantomData<Args>)
 where
-    F: FnMut(&Chunk);
+    F: FnMut(&Chunk) -> usize;
 
 impl<F, Args> Visitor for SystemFn<F, Args>
 where
-    F: FnMut(&Chunk),
+    F: FnMut(&Chunk) -> usize,
 {
-    fn visit(&mut self, chunk: &Chunk) {
+    fn visit(&mut self, chunk: &Chunk) -> usize {
         (self.0)(chunk)
     }
     
@@ -115,9 +115,12 @@ macro_rules! impl_as_visitor {
                     $(
                     let mut [<it_ $t:lower>] = $t::iter(&mut [<guard_ $t:lower>]);
                     )*
+                    let mut result = 0usize;
                     while let ($(Some([<v_ $t:lower>]),)*) = ($([<it_ $t:lower>].next(),)*) {
                         (self)($([<v_ $t:lower>]),*);
+                        result += 1;
                     }
+                    result
                 };
                 SystemFn::<_, ($($t,)*)>(f, vec![$($t::comp_id()),*], PhantomData::default())
             }}

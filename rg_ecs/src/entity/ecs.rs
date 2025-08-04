@@ -59,7 +59,7 @@ impl Entities {
         self.write().remove(entity)
     }
 
-    pub fn visit<F, Args>(&self, visitor: F)
+    pub fn visit<F, Args>(&self, visitor: F) -> (usize, usize, usize)
     where
         F: AsVisitor<Args>,
     {
