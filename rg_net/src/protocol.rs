@@ -1,4 +1,4 @@
-use std::{array::TryFromSliceError, fmt::Debug};
+use std::{array::TryFromSliceError, fmt::{Debug, Error}};
 
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use snafu::Snafu;
@@ -20,6 +20,10 @@ pub enum ProtocolError {
     BadString,
     #[snafu(display("Bad enum tag: {value}"))]
     BadEnumTag { value: isize },
+    #[snafu(display("Format error: {e:?}"))]
+    FormatError{ e: std::fmt::Error },
+    #[snafu(display("Unexpected packet: {kind:?}"))]
+    UnexpectedPacket{ kind: PacketKind }
 }
 
 impl ProtocolError {
@@ -33,10 +37,16 @@ impl From<TryFromSliceError> for ProtocolError {
     }
 }
 
+impl From<Error> for ProtocolError {
+    fn from(value: Error) -> Self {
+        ProtocolError::FormatError { e: value }
+    }
+}
+
 ///
 /// Packet kinds
 ///
-#[derive(Debug, PartialEq, IntoPrimitive, TryFromPrimitive)]
+#[derive(Debug, PartialEq, IntoPrimitive, TryFromPrimitive, Clone, Copy)]
 #[repr(u8)]
 pub enum PacketKind {
     Hello,

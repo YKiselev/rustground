@@ -158,7 +158,9 @@ impl ClientNetwork {
                             PacketKind::Rejected => self.on_rejected(reader),
                             //PacketKind::Ping => reader.skip(header.size),
                             //PacketKind::Pong => reader.skip(header.size),
-                            _ => Ok(()),
+                            other => Err(AppError::ProtocolError {
+                                e: ProtocolError::UnexpectedPacket { kind: other },
+                            }),
                         }
                         .inspect_err(|e| error!("Failed to process: {:?}", e))
                         .is_ok()

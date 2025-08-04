@@ -1,4 +1,6 @@
-use log::error;
+use std::fmt::Write;
+
+use log::{error, info, warn};
 use num_enum::TryFromPrimitive;
 
 use crate::{
@@ -90,6 +92,9 @@ pub trait NetReader<'a>: WithPosition {
     fn read_i64(&mut self) -> Result<i64, ProtocolError> {
         self.read_u64().map(|v| v as i64)
     }
+    fn dump<W>(&self, writer: &mut W, amount: usize) -> Result<(), ProtocolError>
+    where
+        W: Write;
 
     ///
     /// Bytes layout is 2 bytes prefix (data length) (u16) and then data itself
@@ -259,6 +264,20 @@ impl<'a> NetReader<'a> for NetBufReader<'a> {
     fn available(&self) -> usize {
         self.buf.len().saturating_sub(self.offset)
     }
+
+    fn dump<W>(&self, writer: &mut W, amount: usize) -> Result<(), ProtocolError>
+    where
+        W: Write,
+    {
+        let offset = self.offset;
+        if offset + amount <= self.buf.len() {
+            let b = &self.buf[offset..offset + amount];
+            write!(writer, "\t{:x?}\n", b)?;
+        } else {
+            write!(writer, "Unable to dump {} bytes", amount)?;
+        }
+        Ok(())
+    }
 }
 
 #[inline(always)]
@@ -356,6 +375,7 @@ where
     R: NetReader<'a>,
     H: FnMut(&Header, &mut R) -> bool,
 {
+    let init_pos = reader.pos();
     while reader.available() >= MIN_HEADER_SIZE {
         match read_header(reader) {
             Ok(header) => {
@@ -369,10 +389,50 @@ where
             }
             Err(e) => {
                 error!("Failed to read packet: {e:?}");
+                reader.set_pos(init_pos)?;
+                dump_packets(reader)?;
                 break;
             }
         }
     }
+    Ok(())
+}
+
+fn dump_packets<'a, R>(reader: &mut R) -> Result<(), ProtocolError>
+where
+    R: NetReader<'a>,
+{
+    let mut buf = String::default();
+    let w = &mut buf;
+    write!(w, "Dumping buffer:\n")?;
+    while reader.available() >= MIN_HEADER_SIZE {
+        let packet_start = reader.pos();
+        match read_header(reader) {
+            Ok(header) => {
+                write!(w, "\t{:?}\n", header)?;
+                let amount = header.size as usize;
+                if amount > 0 {
+                    let mark = reader.pos();
+                    write!(w, "Payload: ")?;
+                    reader.dump(w, amount.min(16))?;
+                    if let Err(e) = reader.set_pos(mark + amount) {
+                        write!(w, "Failed to skip packet: {e:?}\n")?;
+                    }
+                }
+            }
+            Err(_) => {
+                if let Ok(_) = reader.set_pos(packet_start) {
+                    write!(w, "Packet: ")?;
+                    reader.dump(w, reader.available().min(16))?;
+                } else {
+                    write!(w, "Unable to set reader pos!\n")?;
+                }
+                break;
+            }
+        }
+    }
+    write!(w, "===\n")?;
+    info!("{}", buf);
     Ok(())
 }
 
