@@ -203,7 +203,7 @@ impl Plugin for ClientNetwork {
                 let state = self.state;
                 match state {
                     ClientState::Disconnected => {
-                        if let Ok(cfg_guard) = app.config.lock() {
+                        match app.config.lock() { Ok(cfg_guard) => {
                             if let Some(addr) = cfg_guard.server.bound_to.as_ref() {
                                 if let Ok(addr) = addr.parse::<SocketAddr>() {
                                     match self.socket.connect(addr) {
@@ -224,9 +224,9 @@ impl Plugin for ClientNetwork {
                             } else {
                                 warn!("Server not bound yet?");
                             }
-                        } else {
+                        } _ => {
                             warn!("Unable to lock configuration!");
-                        }
+                        }}
                     }
                     ClientState::AwaitingAcceptance => {
                         let _ = if !self.server_props.key.is_some() {
