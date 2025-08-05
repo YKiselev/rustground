@@ -7,7 +7,7 @@ pub struct VulkanRenderer {
 }
 
 impl VulkanRenderer {
-    pub fn new(window: &Window) -> Result<Self, > {
-        unimplemented!()
-    }
+    // pub fn new(window: &Window) -> Result<Self, > {
+    //     unimplemented!()
+    // }
 }
