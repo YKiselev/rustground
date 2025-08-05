@@ -5,5 +5,7 @@ edition = "2024"
 
 [dependencies]
 rg_common = { path="../rg_common" }
-vulkanalia = "0.29.0"
+vulkanalia = { version="0.29.0", features = ["libloading", "provisional", "window"] }
 winit = "0.30.12"
+snafu = "0.8.4"
+log = "0.4.21"

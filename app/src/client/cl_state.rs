@@ -1,6 +1,8 @@
 use std::{sync::Arc, time::Instant};
 
+use log::{error, info};
 use rg_common::{App, Plugin};
+use rg_vulkan::renderer::VulkanRenderer;
 use winit::{
     application::ApplicationHandler, event::WindowEvent, event_loop::ActiveEventLoop,
     window::WindowId,
@@ -16,16 +18,22 @@ pub(super) struct ClientState {
     app: Arc<App>,
     net: ClientNetwork,
     window: ClientWindow,
+    renderer: Option<VulkanRenderer>,
+    renderer_failed: bool,
     max_fps: f32,
     frame_time: Instant,
 }
 
 impl ClientState {
     pub(super) fn new(app: &Arc<App>) -> Result<Self, AppError> {
+        let net = ClientNetwork::new(app)?;
+        let window = ClientWindow::new(app)?;
         Ok(Self {
             app: Arc::clone(&app),
-            net: ClientNetwork::new(app)?,
-            window: ClientWindow::new(app)?,
+            net,
+            window,
+            renderer: None,
+            renderer_failed: false,
             max_fps: 60.0,
             frame_time: Instant::now(),
         })
@@ -37,6 +45,24 @@ impl ClientState {
         self.net.update(&self.app);
 
         self.net.frame_end(&self.app);
+    }
+
+    fn ensure_renderer(&mut self) {
+        if self.renderer_failed {
+            return;
+        }
+        if self.renderer.is_none() {
+            if let Some(window) = self.window.window.as_ref() {
+                info!("Initializing renderer...");
+                match VulkanRenderer::new(window) {
+                    Ok(renderer) => self.renderer = Some(renderer),
+                    Err(e) => {
+                        error!("Renderer initialization failed: {}", e);
+                        self.renderer_failed = true;
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -52,8 +78,13 @@ impl ApplicationHandler for ClientState {
         event: WindowEvent,
     ) {
         match event {
-            WindowEvent::RedrawRequested => if !event_loop.exiting() {
-                self.run_frame();
+            WindowEvent::RedrawRequested => {
+                if !event_loop.exiting() {
+                    self.ensure_renderer();
+                    if self.renderer.is_some() {
+                        self.run_frame();
+                    }
+                }
             }
             _ => (),
         }

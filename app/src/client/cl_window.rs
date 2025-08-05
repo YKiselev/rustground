@@ -16,7 +16,7 @@ use crate::error::AppError;
 #[derive(Debug)]
 pub(super) struct ClientWindow {
     app: Arc<App>,
-    window: Option<Window>,
+    pub(super) window: Option<Window>,
     modifiers: ModifiersState,
 }
 

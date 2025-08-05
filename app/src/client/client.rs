@@ -1,14 +1,14 @@
 use std::sync::{atomic::Ordering, Arc};
 
 use log::info;
-use rg_common::{App, Plugin};
+use rg_common::App;
 use winit::{
     application::ApplicationHandler, event::WindowEvent, event_loop::ActiveEventLoop,
     window::WindowId,
 };
 
 use crate::{
-    client::{cl_net::ClientNetwork, cl_state::ClientState, cl_window::ClientWindow},
+    client::cl_state::ClientState,
     error::AppError,
 };
 
