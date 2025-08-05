@@ -2,18 +2,20 @@ use std::sync::{atomic::Ordering, Arc};
 
 use log::info;
 use rg_common::{App, Plugin};
-use winit::{application::ApplicationHandler, event::WindowEvent};
+use winit::{
+    application::ApplicationHandler, event::WindowEvent, event_loop::ActiveEventLoop,
+    window::WindowId,
+};
 
 use crate::{
-    client::{cl_net::ClientNetwork, cl_window::ClientWindow},
+    client::{cl_net::ClientNetwork, cl_state::ClientState, cl_window::ClientWindow},
     error::AppError,
 };
 
 #[derive(Debug)]
 pub struct Client {
     app: Arc<App>,
-    net: ClientNetwork,
-    window: ClientWindow,
+    state: Option<ClientState>,
 }
 
 impl Client {
@@ -22,42 +24,33 @@ impl Client {
         //let _ = app.config().lock()?;
         Ok(Client {
             app: Arc::clone(&app),
-            net: ClientNetwork::new(app)?,
-            window: ClientWindow::new(app)?,
+            state: Some(ClientState::new(&app)?),
         })
-    }
-
-    fn run_frame(&mut self) {
-        self.net.frame_start(&self.app);
-
-        self.net.update(&self.app);
-
-        self.net.frame_end(&self.app);
     }
 }
 
 impl ApplicationHandler for Client {
-    fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
-        self.window.resumed(event_loop);
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if let Some(state) = self.state.as_mut() {
+            state.resumed(event_loop);
+        }
     }
 
     fn window_event(
         &mut self,
-        event_loop: &winit::event_loop::ActiveEventLoop,
-        window_id: winit::window::WindowId,
-        event: winit::event::WindowEvent,
+        event_loop: &ActiveEventLoop,
+        window_id: WindowId,
+        event: WindowEvent,
     ) {
         match event {
             WindowEvent::CloseRequested => {
                 self.app.exit_flag.store(true, Ordering::Relaxed);
                 event_loop.exit();
             }
-            WindowEvent::RedrawRequested => {
-                self.run_frame();
-            }
             _ => (),
         }
-
-        self.window.window_event(event_loop, window_id, event);
+        if let Some(state) = self.state.as_mut() {
+            state.window_event(event_loop, window_id, event);
+        }
     }
 }

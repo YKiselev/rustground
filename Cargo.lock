@@ -119,6 +119,7 @@ dependencies = [
  "rg_macros",
  "rg_math",
  "rg_net",
+ "rg_vulkan",
  "rsa",
  "serde",
  "snafu",
@@ -614,7 +615,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users",
- "windows-sys 0.59.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -663,7 +664,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "778e2ac28f6c47af28e4907f13ffd1e1ddbd400980a9abd7c8df189bf578a5ad"
 dependencies = [
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -1011,7 +1012,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "07033963ba89ebaf1584d767badaa2e8fcec21aedea6b8c0346d487d49c28667"
 dependencies = [
  "cfg-if",
- "windows-targets 0.52.6",
+ "windows-targets 0.53.3",
 ]
 
 [[package]]
@@ -1878,6 +1879,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "rg_vulkan"
+version = "0.1.0"
+dependencies = [
+ "rg_common",
+ "vulkanalia",
+ "winit",
+]
+
+[[package]]
 name = "rsa"
 version = "0.9.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1927,7 +1937,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.9.4",
- "windows-sys 0.59.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -2405,6 +2415,24 @@ name = "version_check"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "49874b5167b65d7193b8aba1567f5c7d93d001cafc34600cee003eda787e483f"
+
+[[package]]
+name = "vulkanalia"
+version = "0.29.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "11c9d6ec9a8e29b3c5d7f1719bf790323139b4f9aa36cef692c1a95ca5fa9b3c"
+dependencies = [
+ "vulkanalia-sys",
+]
+
+[[package]]
+name = "vulkanalia-sys"
+version = "0.29.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4078214d64cad49dcf6362e5a8f2d8db3758704751ab636979fbc2a729a8ff74"
+dependencies = [
+ "bitflags 1.3.2",
+]
 
 [[package]]
 name = "walkdir"

@@ -22,15 +22,7 @@ pub(crate) fn run_client_server(args: Arguments) -> Result<(), AppError> {
 
     info!("Entering main loop...");
     event_loop.run_app(&mut client)?;
-    // while !app.is_exit() {
-    //     client.frame_start(&host.app);
-
-    //     client.update(&host.app);
-
-    //     client.frame_end(&host.app);
-
-    //     thread::sleep(Duration::from_millis(5));
-    // }
+    
     server.lock()?.shutdown();
     debug!("Joining sv thread...");
     let _ = sv_handle
