@@ -43,9 +43,11 @@ impl ClientState {
         self.net.frame_start(&self.app);
 
         self.net.update(&self.app);
-        
-        if let Some(renderer) = self.renderer.as_mut() {
-            renderer.render();
+
+        if let (Some(renderer), Some(window)) =
+            (self.renderer.as_mut(), self.window.window.as_ref())
+        {
+            renderer.render(window);
         }
 
         self.net.frame_end(&self.app);
@@ -82,6 +84,11 @@ impl ApplicationHandler for ClientState {
         event: WindowEvent,
     ) {
         match event {
+            WindowEvent::Resized(_) => {
+                if let (Some(renderer)) = self.renderer.as_mut() {
+                    renderer.mark_resized();
+                }
+            }
             WindowEvent::RedrawRequested => {
                 if !event_loop.exiting() {
                     self.ensure_renderer();

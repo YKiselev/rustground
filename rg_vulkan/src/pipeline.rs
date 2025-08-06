@@ -6,7 +6,7 @@ use vulkanalia::{
 
 use crate::error::VkError;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Pipeline {
     layout: vk::PipelineLayout,
     pub pipeline: vk::Pipeline,
@@ -145,11 +145,7 @@ fn create_shader_module(device: &Device, bytecode: &[u8]) -> Result<vk::ShaderMo
     Ok(unsafe { device.create_shader_module(&info, None) }?)
 }
 
-pub(crate) fn create_render_pass(
-    instance: &Instance,
-    device: &Device,
-    format: Format,
-) -> Result<RenderPass, VkError> {
+pub(crate) fn create_render_pass(device: &Device, format: Format) -> Result<RenderPass, VkError> {
     // Attachments
 
     let color_attachment = vk::AttachmentDescription::builder()

@@ -26,11 +26,15 @@ impl VulkanRenderer {
         }
     }
 
-    pub fn render(&mut self) {
+    pub fn render(&mut self, window: &Window) {
         let _ = self
             .instance
-            .render()
+            .render(window)
             .inspect_err(|e| warn!("Render pass failed: {:?}", e));
+    }
+
+    pub fn mark_resized(&mut self) {
+        self.instance.mark_resized();
     }
 
     pub fn destroy(&mut self) {
