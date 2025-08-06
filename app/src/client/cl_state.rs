@@ -43,6 +43,10 @@ impl ClientState {
         self.net.frame_start(&self.app);
 
         self.net.update(&self.app);
+        
+        if let Some(renderer) = self.renderer.as_mut() {
+            renderer.render();
+        }
 
         self.net.frame_end(&self.app);
     }

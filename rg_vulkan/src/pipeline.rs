@@ -1,18 +1,23 @@
 use vulkanalia::{
     Device, Instance,
     bytecode::Bytecode,
-    vk::{self, DeviceV1_0, Format, HasBuilder, RenderPass},
+    vk::{self, DeviceV1_0, Format, Handle, HasBuilder, RenderPass},
 };
 
 use crate::error::VkError;
 
 #[derive(Debug)]
 pub struct Pipeline {
-    pub layout: vk::PipelineLayout,
+    layout: vk::PipelineLayout,
+    pub pipeline: vk::Pipeline,
 }
 
 impl Pipeline {
-    pub fn new(device: &Device, extent: vk::Extent2D) -> Result<Self, VkError> {
+    pub fn new(
+        device: &Device,
+        extent: vk::Extent2D,
+        render_pass: RenderPass,
+    ) -> Result<Self, VkError> {
         // Stages
 
         let vert = include_bytes!("../../base/resources/shaders/shader.vert.spv");
@@ -97,12 +102,38 @@ impl Pipeline {
 
         let layout = unsafe { device.create_pipeline_layout(&layout_info, None) }?;
 
+        // Create
+
+        let stages = &[vert_stage, frag_stage];
+        let info = vk::GraphicsPipelineCreateInfo::builder()
+            .stages(stages)
+            .vertex_input_state(&vertex_input_state)
+            .input_assembly_state(&input_assembly_state)
+            .viewport_state(&viewport_state)
+            .rasterization_state(&rasterization_state)
+            .multisample_state(&multisample_state)
+            .color_blend_state(&color_blend_state)
+            .layout(layout)
+            .render_pass(render_pass)
+            .subpass(0);
+
+        let pipeline =
+            unsafe { device.create_graphics_pipelines(vk::PipelineCache::null(), &[info], None) }?
+                .0[0];
+
         // Cleanup
 
         unsafe { device.destroy_shader_module(vert_shader_module, None) };
         unsafe { device.destroy_shader_module(frag_shader_module, None) };
 
-        Ok(Self { layout })
+        Ok(Self { layout, pipeline })
+    }
+
+    pub fn destroy(&self, device: &Device) {
+        unsafe {
+            device.destroy_pipeline(self.pipeline, None);
+            device.destroy_pipeline_layout(self.layout, None);
+        }
     }
 }
 

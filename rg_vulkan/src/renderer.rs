@@ -1,3 +1,4 @@
+use log::warn;
 use vulkanalia::{
     Entry,
     loader::{LIBRARY, LibloadingLoader},
@@ -25,7 +26,12 @@ impl VulkanRenderer {
         }
     }
 
-    pub fn render(&mut self) {}
+    pub fn render(&mut self) {
+        let _ = self
+            .instance
+            .render()
+            .inspect_err(|e| warn!("Render pass failed: {:?}", e));
+    }
 
     pub fn destroy(&mut self) {
         self.instance.destroy();
