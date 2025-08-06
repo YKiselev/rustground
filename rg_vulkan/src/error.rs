@@ -3,8 +3,6 @@ use vulkanalia::vk;
 
 #[derive(Debug, Snafu)]
 pub enum VkError {
-    #[snafu(display("Validation layer requested but not supported."))]
-    NoValidationLayer,
     #[snafu(display("Vulkan error code: {code}"))]
     VkErrorCode { code: i32 },
     #[snafu(display("Generic error: {cause}"))]

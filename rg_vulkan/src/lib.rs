@@ -1,4 +1,4 @@
 pub mod renderer;
 mod error;
 mod instance;
-mod device;
+mod pipeline;
