@@ -1,6 +1,5 @@
 use vulkanalia::{
-    Device, Instance,
-    bytecode::Bytecode,
+    Device, bytecode::Bytecode,
     vk::{self, DeviceV1_0, Format, Handle, HasBuilder, RenderPass},
 };
 

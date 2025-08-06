@@ -4,13 +4,12 @@ use log::{error, info};
 use rg_common::{App, Plugin};
 use rg_vulkan::renderer::VulkanRenderer;
 use winit::{
-    application::ApplicationHandler, event::WindowEvent, event_loop::ActiveEventLoop,
-    window::WindowId,
+    application::ApplicationHandler, event::WindowEvent, event_loop::ActiveEventLoop, keyboard::{KeyCode, PhysicalKey}, window::WindowId
 };
 
 use crate::{
     client::{cl_net::ClientNetwork, cl_window::ClientWindow},
-    error::AppError,
+    error::AppError, fps::{self, FrameStats},
 };
 
 #[derive(Debug)]
@@ -21,7 +20,7 @@ pub(super) struct ClientState {
     renderer: Option<VulkanRenderer>,
     renderer_failed: bool,
     max_fps: f32,
-    frame_time: Instant,
+    frame_stats: FrameStats
 }
 
 impl ClientState {
@@ -35,11 +34,12 @@ impl ClientState {
             renderer: None,
             renderer_failed: false,
             max_fps: 60.0,
-            frame_time: Instant::now(),
+            frame_stats: FrameStats::default()
         })
     }
 
     fn run_frame(&mut self) {
+        self.frame_stats.add_sample();
         self.net.frame_start(&self.app);
 
         self.net.update(&self.app);
@@ -85,7 +85,7 @@ impl ApplicationHandler for ClientState {
     ) {
         match event {
             WindowEvent::Resized(_) => {
-                if let (Some(renderer)) = self.renderer.as_mut() {
+                if let Some(renderer) = self.renderer.as_mut() {
                     renderer.mark_resized();
                 }
             }
@@ -95,6 +95,18 @@ impl ApplicationHandler for ClientState {
                     if self.renderer.is_some() {
                         self.run_frame();
                     }
+                }
+            }
+            WindowEvent::KeyboardInput {
+                ref event,
+                is_synthetic: false,
+                ..
+            } => {
+                match event.physical_key {
+                    PhysicalKey::Code(ref key_code) => if *key_code == KeyCode::Space {
+                        info!("fps: {}", self.frame_stats.calc_fps());
+                    },
+                    PhysicalKey::Unidentified(_) => {},
                 }
             }
             _ => (),

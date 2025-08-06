@@ -103,7 +103,7 @@ impl ApplicationHandler for ClientWindow {
             }
             WindowEvent::ModifiersChanged(modifiers) => {
                 self.modifiers = modifiers.state();
-                info!("Keyboard modifiers changed to {:?}", self.modifiers);
+                //info!("Keyboard modifiers changed to {:?}", self.modifiers);
             }
             WindowEvent::MouseWheel { delta, .. } => match delta {
                 MouseScrollDelta::LineDelta(x, y) => {
@@ -119,7 +119,7 @@ impl ApplicationHandler for ClientWindow {
                 ..
             } => {
                 let mods = self.modifiers;
-                info!("Key input: {event:?}");
+                //info!("Key input: {event:?}");
                 // Dispatch actions only on press.
                 // if event.state.is_pressed() {
                 //     let action = if let Key::Character(ch) = event.key_without_modifiers.as_ref() {
@@ -134,7 +134,7 @@ impl ApplicationHandler for ClientWindow {
                 // }
             }
             WindowEvent::MouseInput { state, button, .. } => {
-                info!("Pointer button {button:?} {state:?}");
+                //info!("Pointer button {button:?} {state:?}");
                 let mods = self.modifiers;
                 // if let Some(action) = state
                 //     .is_pressed()
@@ -145,11 +145,11 @@ impl ApplicationHandler for ClientWindow {
                 // }
             }
             WindowEvent::CursorLeft { .. } => {
-                info!("Cursor left Window={window_id:?}");
+                //info!("Cursor left Window={window_id:?}");
                 //window.cursor_left();
             }
             WindowEvent::CursorMoved { position, .. } => {
-                info!("Moved cursor to {position:?}");
+                //info!("Moved cursor to {position:?}");
                 //window.cursor_moved(position);
             }
             WindowEvent::ActivationTokenDone { token: _token, .. } => {
