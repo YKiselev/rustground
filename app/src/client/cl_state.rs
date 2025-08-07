@@ -104,7 +104,7 @@ impl ApplicationHandler for ClientState {
             } => {
                 match event.physical_key {
                     PhysicalKey::Code(ref key_code) => if *key_code == KeyCode::Space {
-                        info!("fps: {}", self.frame_stats.calc_fps());
+                        info!("fps: {:.2}", self.frame_stats.calc_fps());
                     },
                     PhysicalKey::Unidentified(_) => {},
                 }

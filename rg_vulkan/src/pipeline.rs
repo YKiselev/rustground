@@ -1,9 +1,10 @@
 use vulkanalia::{
-    Device, bytecode::Bytecode,
+    Device,
+    bytecode::Bytecode,
     vk::{self, DeviceV1_0, Format, Handle, HasBuilder, RenderPass},
 };
 
-use crate::error::VkError;
+use crate::{error::VkError, instance::Vertex};
 
 #[derive(Debug, Default)]
 pub struct Pipeline {
@@ -37,7 +38,11 @@ impl Pipeline {
 
         // Vertex Input State
 
-        let vertex_input_state = vk::PipelineVertexInputStateCreateInfo::builder();
+        let binding_descriptions = &[Vertex::binding_description()];
+        let attribute_descriptions = Vertex::attribute_descriptions();
+        let vertex_input_state = vk::PipelineVertexInputStateCreateInfo::builder()
+            .vertex_binding_descriptions(binding_descriptions)
+            .vertex_attribute_descriptions(&attribute_descriptions);
 
         // Input Assembly State
 

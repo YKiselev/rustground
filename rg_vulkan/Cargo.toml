@@ -9,3 +9,4 @@ vulkanalia = { version="0.29.0", features = ["libloading", "provisional", "windo
 winit = "0.30.12"
 snafu = "0.8.4"
 log = "0.4.21"
+cgmath = "0.18.0"

@@ -3,6 +3,7 @@ use std::{
     ffi::{CStr, c_void},
 };
 
+use cgmath::{vec2, vec3};
 use log::{debug, error, info, trace, warn};
 use vulkanalia::{
     Device, Entry, Instance, Version,
@@ -31,6 +32,55 @@ const DEVICE_EXTENSIONS: &[vk::ExtensionName] = &[vk::KHR_SWAPCHAIN_EXTENSION.na
 
 const MAX_FRAMES_IN_FLIGHT: usize = 2;
 
+type Vec2 = cgmath::Vector2<f32>;
+type Vec3 = cgmath::Vector3<f32>;
+
+#[rustfmt::skip]
+static VERTICES: [Vertex; 4] = [
+    Vertex::new(vec2(-0.5, -0.5), vec3(1.0, 0.0, 0.0)),
+    Vertex::new(vec2(0.5, -0.5), vec3(0.0, 1.0, 0.0)),
+    Vertex::new(vec2(0.5, 0.5), vec3(0.0, 0.0, 1.0)),
+    Vertex::new(vec2(-0.5, 0.5), vec3(1.0, 1.0, 1.0)),
+];
+const INDICES: &[u16] = &[0, 1, 2, 2, 3, 0];
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct Vertex {
+    pos: Vec2,
+    color: Vec3,
+}
+
+impl Vertex {
+    const fn new(pos: Vec2, color: Vec3) -> Self {
+        Self { pos, color }
+    }
+
+    pub fn binding_description() -> vk::VertexInputBindingDescription {
+        vk::VertexInputBindingDescription::builder()
+            .binding(0)
+            .stride(size_of::<Vertex>() as u32)
+            .input_rate(vk::VertexInputRate::VERTEX)
+            .build()
+    }
+
+    pub fn attribute_descriptions() -> [vk::VertexInputAttributeDescription; 2] {
+        let pos = vk::VertexInputAttributeDescription::builder()
+            .binding(0)
+            .location(0)
+            .format(vk::Format::R32G32_SFLOAT)
+            .offset(0)
+            .build();
+        let color = vk::VertexInputAttributeDescription::builder()
+            .binding(0)
+            .location(1)
+            .format(vk::Format::R32G32B32_SFLOAT)
+            .offset(size_of::<Vec2>() as u32)
+            .build();
+        [pos, color]
+    }
+}
+
 #[derive(Debug)]
 pub struct VkInstance {
     instance: Instance,
@@ -40,12 +90,17 @@ pub struct VkInstance {
     device: Device,
     graphics_queue: Queue,
     present_queue: Queue,
+    //
     swapchain: Swapchain,
     swapchain_image_views: Vec<vk::ImageView>,
     render_pass: vk::RenderPass,
     pipeline: Pipeline,
     framebuffers: Vec<vk::Framebuffer>,
     command_pool: vk::CommandPool,
+    vertex_buffer: vk::Buffer,
+    vertex_buffer_memory: vk::DeviceMemory,
+    index_buffer: vk::Buffer,
+    index_buffer_memory: vk::DeviceMemory,
     command_buffers: Vec<vk::CommandBuffer>,
     image_available_semaphores: Vec<vk::Semaphore>,
     render_finished_semaphores: Vec<vk::Semaphore>,
@@ -84,6 +139,10 @@ impl VkInstance {
             pipeline: Pipeline::default(),
             framebuffers: vec![],
             command_pool: Default::default(),
+            vertex_buffer: Default::default(),
+            vertex_buffer_memory: Default::default(),
+            index_buffer: Default::default(),
+            index_buffer_memory: Default::default(),
             command_buffers: vec![],
             image_available_semaphores: vec![],
             render_finished_semaphores: vec![],
@@ -97,6 +156,8 @@ impl VkInstance {
         result.init_pipeline()?;
         result.init_framebuffers()?;
         result.init_command_pool()?;
+        result.init_vertex_buffer()?;
+        result.init_index_buffer()?;
         result.init_command_buffers()?;
         result.init_sync_objects()?;
         Ok(result)
@@ -105,28 +166,26 @@ impl VkInstance {
     pub fn destroy(&mut self) {
         unsafe {
             self.device.device_wait_idle().unwrap();
+
             self.destroy_swapchain();
+
+            let device = &self.device;
+            device.destroy_buffer(self.index_buffer, None);
+            device.free_memory(self.index_buffer_memory, None);
+            device.destroy_buffer(self.vertex_buffer, None);
+            device.free_memory(self.vertex_buffer_memory, None);
+
             self.in_flight_fences
                 .iter()
-                .for_each(|f| self.device.destroy_fence(*f, None));
+                .for_each(|f| device.destroy_fence(*f, None));
             self.render_finished_semaphores
                 .iter()
-                .for_each(|s| self.device.destroy_semaphore(*s, None));
+                .for_each(|s| device.destroy_semaphore(*s, None));
             self.image_available_semaphores
                 .iter()
-                .for_each(|s| self.device.destroy_semaphore(*s, None));
-            self.device.destroy_command_pool(self.command_pool, None);
-            self.framebuffers
-                .iter()
-                .for_each(|f| self.device.destroy_framebuffer(*f, None));
-            self.pipeline.destroy(&self.device);
-            self.device.destroy_render_pass(self.render_pass, None);
-            self.swapchain_image_views
-                .iter()
-                .for_each(|v| self.device.destroy_image_view(*v, None));
-            self.device
-                .destroy_swapchain_khr(self.swapchain.swapchain, None);
-            self.device.destroy_device(None);
+                .for_each(|s| device.destroy_semaphore(*s, None));
+            device.destroy_command_pool(self.command_pool, None);
+            device.destroy_device(None);
             self.instance.destroy_surface_khr(self.surface, None);
 
             if VALIDATION_ENABLED {
@@ -345,14 +404,15 @@ impl VkInstance {
             .level(vk::CommandBufferLevel::PRIMARY)
             .command_buffer_count(self.framebuffers.len() as u32);
 
-        let command_buffers = unsafe { self.device.allocate_command_buffers(&allocate_info) }?;
+        let device = &self.device;
+        let command_buffers = unsafe { device.allocate_command_buffers(&allocate_info) }?;
 
         // Commands
 
         for (i, command_buffer) in command_buffers.iter().enumerate() {
             let info = vk::CommandBufferBeginInfo::builder();
 
-            unsafe { self.device.begin_command_buffer(*command_buffer, &info) }?;
+            unsafe { device.begin_command_buffer(*command_buffer, &info) }?;
 
             let render_area = vk::Rect2D::builder()
                 .offset(vk::Offset2D::default())
@@ -372,24 +432,128 @@ impl VkInstance {
                 .clear_values(clear_values);
 
             unsafe {
-                self.device.cmd_begin_render_pass(
-                    *command_buffer,
-                    &info,
-                    vk::SubpassContents::INLINE,
-                );
-                self.device.cmd_bind_pipeline(
+                device.cmd_begin_render_pass(*command_buffer, &info, vk::SubpassContents::INLINE);
+                device.cmd_bind_pipeline(
                     *command_buffer,
                     vk::PipelineBindPoint::GRAPHICS,
                     self.pipeline.pipeline,
                 );
-                self.device.cmd_draw(*command_buffer, 3, 1, 0, 0);
-                self.device.cmd_end_render_pass(*command_buffer);
 
-                self.device.end_command_buffer(*command_buffer)?;
+                device.cmd_bind_vertex_buffers(*command_buffer, 0, &[self.vertex_buffer], &[0]);
+                device.cmd_bind_index_buffer(
+                    *command_buffer,
+                    self.index_buffer,
+                    0,
+                    vk::IndexType::UINT16,
+                );
+
+                device.cmd_draw_indexed(*command_buffer, INDICES.len() as u32, 1, 0, 0, 0);
+                //device.cmd_draw(*command_buffer, VERTICES.len() as u32, 1, 0, 0);
+
+                device.cmd_end_render_pass(*command_buffer);
+
+                device.end_command_buffer(*command_buffer)?;
             }
         }
 
         self.command_buffers = command_buffers;
+
+        Ok(())
+    }
+
+    fn init_vertex_buffer(&mut self) -> Result<(), VkError> {
+        let size = (size_of::<Vertex>() * VERTICES.len()) as u64;
+
+        let (staging_buffer, staging_buffer_memory) = self.create_buffer(
+            size,
+            vk::BufferUsageFlags::TRANSFER_SRC,
+            vk::MemoryPropertyFlags::HOST_COHERENT | vk::MemoryPropertyFlags::HOST_VISIBLE,
+        )?;
+
+        let device = &self.device;
+
+        // Copy (staging)
+
+        let memory = unsafe {
+            device.map_memory(staging_buffer_memory, 0, size, vk::MemoryMapFlags::empty())
+        }?;
+
+        unsafe {
+            std::ptr::copy_nonoverlapping(VERTICES.as_ptr(), memory.cast(), VERTICES.len());
+
+            device.unmap_memory(staging_buffer_memory);
+        }
+
+        // Create (vertex)
+
+        let (vertex_buffer, vertex_buffer_memory) = self.create_buffer(
+            size,
+            vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::VERTEX_BUFFER,
+            vk::MemoryPropertyFlags::DEVICE_LOCAL,
+        )?;
+
+        self.vertex_buffer = vertex_buffer;
+        self.vertex_buffer_memory = vertex_buffer_memory;
+
+        // Copy (vertex)
+
+        self.copy_buffer(staging_buffer, vertex_buffer, size)?;
+
+        // Cleanup
+
+        unsafe {
+            device.destroy_buffer(staging_buffer, None);
+            device.free_memory(staging_buffer_memory, None);
+        }
+
+        Ok(())
+    }
+
+    fn init_index_buffer(&mut self) -> Result<(), VkError> {
+        // Create (staging)
+
+        let size = (size_of::<u16>() * INDICES.len()) as u64;
+
+        let (staging_buffer, staging_buffer_memory) = self.create_buffer(
+            size,
+            vk::BufferUsageFlags::TRANSFER_SRC,
+            vk::MemoryPropertyFlags::HOST_COHERENT | vk::MemoryPropertyFlags::HOST_VISIBLE,
+        )?;
+
+        let device = &self.device;
+
+        // Copy (staging)
+
+        let memory = unsafe {
+            device.map_memory(staging_buffer_memory, 0, size, vk::MemoryMapFlags::empty())
+        }?;
+
+        unsafe {
+            std::ptr::copy_nonoverlapping(INDICES.as_ptr(), memory.cast(), INDICES.len());
+            device.unmap_memory(staging_buffer_memory);
+        };
+
+        // Create (index)
+
+        let (index_buffer, index_buffer_memory) = self.create_buffer(
+            size,
+            vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::INDEX_BUFFER,
+            vk::MemoryPropertyFlags::DEVICE_LOCAL,
+        )?;
+
+        self.index_buffer = index_buffer;
+        self.index_buffer_memory = index_buffer_memory;
+
+        // Copy (index)
+
+        self.copy_buffer(staging_buffer, index_buffer, size)?;
+
+        // Cleanup
+
+        unsafe {
+            device.destroy_buffer(staging_buffer, None);
+            device.free_memory(staging_buffer_memory, None);
+        }
 
         Ok(())
     }
@@ -402,6 +566,96 @@ impl VkInstance {
     fn init_pipeline(&mut self) -> Result<(), VkError> {
         self.pipeline = Pipeline::new(&self.device, self.swapchain.extent, self.render_pass)?;
         Ok(())
+    }
+
+    fn copy_buffer(
+        &self,
+        source: vk::Buffer,
+        destination: vk::Buffer,
+        size: vk::DeviceSize,
+    ) -> Result<(), VkError> {
+        // Allocate
+
+        let info = vk::CommandBufferAllocateInfo::builder()
+            .level(vk::CommandBufferLevel::PRIMARY)
+            .command_pool(self.command_pool)
+            .command_buffer_count(1);
+
+        let device = &self.device;
+        let command_buffer = unsafe { device.allocate_command_buffers(&info) }?[0];
+
+        // Commands
+
+        let info = vk::CommandBufferBeginInfo::builder()
+            .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+
+        unsafe { device.begin_command_buffer(command_buffer, &info) }?;
+
+        let regions = vk::BufferCopy::builder().size(size);
+        unsafe {
+            device.cmd_copy_buffer(command_buffer, source, destination, &[regions]);
+            device.end_command_buffer(command_buffer)?;
+        }
+
+        // Submit
+
+        let command_buffers = &[command_buffer];
+        let info = vk::SubmitInfo::builder().command_buffers(command_buffers);
+
+        unsafe {
+            device.queue_submit(self.graphics_queue, &[info], vk::Fence::null())?;
+            device.queue_wait_idle(self.graphics_queue)?;
+        }
+
+        // Cleanup
+
+        unsafe { device.free_command_buffers(self.command_pool, &[command_buffer]) };
+
+        Ok(())
+    }
+
+    fn get_memory_type_index(
+        &self,
+        properties: vk::MemoryPropertyFlags,
+        requirements: vk::MemoryRequirements,
+    ) -> Result<u32, VkError> {
+        let memory = unsafe {
+            self.instance
+                .get_physical_device_memory_properties(self.physical_device)
+        };
+        (0..memory.memory_type_count)
+            .find(|i| {
+                let suitable = (requirements.memory_type_bits & (1 << i)) != 0;
+                let memory_type = memory.memory_types[*i as usize];
+                suitable && memory_type.property_flags.contains(properties)
+            })
+            .ok_or_else(|| to_generic("Failed to find suitable memory type."))
+    }
+
+    fn create_buffer(
+        &self,
+        size: vk::DeviceSize,
+        usage: vk::BufferUsageFlags,
+        properties: vk::MemoryPropertyFlags,
+    ) -> Result<(vk::Buffer, vk::DeviceMemory), VkError> {
+        let buffer_info = vk::BufferCreateInfo::builder()
+            .size(size)
+            .usage(usage)
+            .sharing_mode(vk::SharingMode::EXCLUSIVE);
+
+        let buffer = unsafe { self.device.create_buffer(&buffer_info, None) }?;
+
+        let requirements = unsafe { self.device.get_buffer_memory_requirements(buffer) };
+
+        let memory_info = vk::MemoryAllocateInfo::builder()
+            .allocation_size(requirements.size)
+            .memory_type_index(self.get_memory_type_index(properties, requirements)?);
+
+        let buffer_memory = unsafe { self.device.allocate_memory(&memory_info, None) }?;
+
+        unsafe { self.device.bind_buffer_memory(buffer, buffer_memory, 0) }?;
+
+        Ok((buffer, buffer_memory))
     }
 
     fn destroy_swapchain(&mut self) {
