@@ -4,12 +4,17 @@ use log::{error, info};
 use rg_common::{App, Plugin};
 use rg_vulkan::renderer::VulkanRenderer;
 use winit::{
-    application::ApplicationHandler, event::WindowEvent, event_loop::ActiveEventLoop, keyboard::{KeyCode, PhysicalKey}, window::WindowId
+    application::ApplicationHandler,
+    event::WindowEvent,
+    event_loop::ActiveEventLoop,
+    keyboard::{KeyCode, PhysicalKey},
+    window::WindowId,
 };
 
 use crate::{
     client::{cl_net::ClientNetwork, cl_window::ClientWindow},
-    error::AppError, fps::{self, FrameStats},
+    error::AppError,
+    fps::{self, FrameStats},
 };
 
 #[derive(Debug)]
@@ -20,7 +25,7 @@ pub(super) struct ClientState {
     renderer: Option<VulkanRenderer>,
     renderer_failed: bool,
     max_fps: f32,
-    frame_stats: FrameStats
+    frame_stats: FrameStats,
 }
 
 impl ClientState {
@@ -34,8 +39,14 @@ impl ClientState {
             renderer: None,
             renderer_failed: false,
             max_fps: 60.0,
-            frame_stats: FrameStats::default()
+            frame_stats: FrameStats::default(),
         })
+    }
+
+    pub fn destroy(&mut self) {
+        if let Some(mut renderer) = self.renderer.take() {
+            renderer.destroy();
+        }
     }
 
     fn run_frame(&mut self) {
@@ -84,11 +95,6 @@ impl ApplicationHandler for ClientState {
         event: WindowEvent,
     ) {
         match event {
-            WindowEvent::Destroyed => {
-                if let Some(mut renderer) = self.renderer.take() {
-                    renderer.destroy();
-                }
-            }
             WindowEvent::Resized(_) => {
                 if let Some(renderer) = self.renderer.as_mut() {
                     renderer.mark_resized();
@@ -106,14 +112,14 @@ impl ApplicationHandler for ClientState {
                 ref event,
                 is_synthetic: false,
                 ..
-            } => {
-                match event.physical_key {
-                    PhysicalKey::Code(ref key_code) => if *key_code == KeyCode::Space {
+            } => match event.physical_key {
+                PhysicalKey::Code(ref key_code) => {
+                    if *key_code == KeyCode::Space {
                         info!("fps: {:.2}", self.frame_stats.calc_fps());
-                    },
-                    PhysicalKey::Unidentified(_) => {},
+                    }
                 }
-            }
+                PhysicalKey::Unidentified(_) => {}
+            },
             _ => (),
         }
 
