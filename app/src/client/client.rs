@@ -45,6 +45,9 @@ impl ApplicationHandler for Client {
         match event {
             WindowEvent::CloseRequested => {
                 self.app.exit_flag.store(true, Ordering::Relaxed);
+                if let Some(mut state) = self.state.take() {
+                    state.destroy();
+                }
                 event_loop.exit();
             }
             _ => (),

@@ -90,7 +90,6 @@ pub struct VkInstance {
     device: Device,
     graphics_queue: Queue,
     present_queue: Queue,
-    //
     swapchain: Swapchain,
     swapchain_image_views: Vec<vk::ImageView>,
     render_pass: vk::RenderPass,
@@ -223,8 +222,7 @@ impl VkInstance {
 
         unsafe {
             let fences = &[in_flight_fence];
-            self.device
-                .wait_for_fences(fences, true, u64::MAX)?;
+            self.device.wait_for_fences(fences, true, u64::MAX)?;
         }
 
         let wait_semaphore = self.image_available_semaphores[self.frame];
@@ -247,8 +245,7 @@ impl VkInstance {
         if !image_in_flight.is_null() {
             unsafe {
                 let fences = &[image_in_flight];
-                self.device
-                    .wait_for_fences(fences, true, u64::MAX)?;
+                self.device.wait_for_fences(fences, true, u64::MAX)?;
             }
         }
 
@@ -259,7 +256,7 @@ impl VkInstance {
         let wait_semaphores = &[wait_semaphore];
         let wait_stages = &[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
         let command_buffers = &[self.command_buffers[image_index]];
-        let signal_semaphores = &[self.render_finished_semaphores[self.frame]];
+        let signal_semaphores = &[self.render_finished_semaphores[image_index]];
         let submit_info = vk::SubmitInfo::builder()
             .wait_semaphores(wait_semaphores)
             .wait_dst_stage_mask(wait_stages)
@@ -364,13 +361,13 @@ impl VkInstance {
         for _ in 0..MAX_FRAMES_IN_FLIGHT {
             self.image_available_semaphores
                 .push(unsafe { self.device.create_semaphore(&semaphore_info, None) }?);
-            self.render_finished_semaphores
-                .push(unsafe { self.device.create_semaphore(&semaphore_info, None) }?);
-
             self.in_flight_fences
                 .push(unsafe { self.device.create_fence(&fence_info, None) }?);
         }
-
+        for _ in self.swapchain.images.iter() {
+            self.render_finished_semaphores
+                .push(unsafe { self.device.create_semaphore(&semaphore_info, None) }?);
+        }
         self.images_in_flight = self
             .swapchain
             .images
