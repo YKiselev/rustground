@@ -222,15 +222,17 @@ impl VkInstance {
         let in_flight_fence = self.in_flight_fences[self.frame];
 
         unsafe {
+            let fences = &[in_flight_fence];
             self.device
-                .wait_for_fences(&[in_flight_fence], true, u64::MAX)
-        }?;
+                .wait_for_fences(fences, true, u64::MAX)?;
+        }
 
+        let wait_semaphore = self.image_available_semaphores[self.frame];
         let result = unsafe {
             self.device.acquire_next_image_khr(
                 self.swapchain.swapchain,
                 u64::MAX,
-                self.image_available_semaphores[self.frame],
+                wait_semaphore,
                 vk::Fence::null(),
             )
         };
@@ -244,16 +246,17 @@ impl VkInstance {
         let image_in_flight = self.images_in_flight[image_index];
         if !image_in_flight.is_null() {
             unsafe {
+                let fences = &[image_in_flight];
                 self.device
-                    .wait_for_fences(&[image_in_flight], true, u64::MAX)
-            }?;
+                    .wait_for_fences(fences, true, u64::MAX)?;
+            }
         }
 
         self.images_in_flight[image_index] = in_flight_fence;
 
         self.update_uniform_buffer(image_index)?;
 
-        let wait_semaphores = &[self.image_available_semaphores[self.frame]];
+        let wait_semaphores = &[wait_semaphore];
         let wait_stages = &[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
         let command_buffers = &[self.command_buffers[image_index]];
         let signal_semaphores = &[self.render_finished_semaphores[self.frame]];
@@ -263,12 +266,13 @@ impl VkInstance {
             .command_buffers(command_buffers)
             .signal_semaphores(signal_semaphores);
 
-        unsafe { self.device.reset_fences(&[in_flight_fence]) }?;
-
         unsafe {
+            let fences = &[in_flight_fence];
+            self.device.reset_fences(fences)?;
+            let infos = &[submit_info];
             self.device
-                .queue_submit(self.graphics_queue, &[submit_info], in_flight_fence)
-        }?;
+                .queue_submit(self.graphics_queue, infos, in_flight_fence)?;
+        }
 
         let swapchains = &[self.swapchain.swapchain];
         let image_indices = &[image_index as u32];
@@ -295,8 +299,6 @@ impl VkInstance {
     }
 
     fn update_uniform_buffer(&self, image_index: usize) -> Result<(), VkError> {
-        // MVP
-
         let time = self.start.elapsed().as_secs_f32();
 
         let model = Mat4::from_axis_angle(vec3(0.0, 0.0, 1.0), Deg(90.0) * time);
@@ -317,8 +319,6 @@ impl VkInstance {
         proj[1][1] *= -1.0; // OGL legacy)
 
         let ubo = UniformBufferObject { model, view, proj };
-
-        // Copy
 
         let memory = unsafe {
             self.device.map_memory(
@@ -348,6 +348,7 @@ impl VkInstance {
         self.init_framebuffers()?;
         self.init_uniform_buffers()?;
         self.init_descriptor_pool()?;
+        self.init_descriptor_sets()?;
         self.init_command_buffers()?;
 
         self.images_in_flight
@@ -465,9 +466,6 @@ impl VkInstance {
     }
 
     fn init_command_buffers(&mut self) -> Result<(), VkError> {
-        info!("Init command buffers");
-        // Allocate
-
         let allocate_info = vk::CommandBufferAllocateInfo::builder()
             .command_pool(self.command_pool)
             .level(vk::CommandBufferLevel::PRIMARY)
@@ -674,7 +672,12 @@ impl VkInstance {
 
     fn init_pipeline(&mut self) -> Result<(), VkError> {
         info!("Init pipeline");
-        self.pipeline = Pipeline::new(&self.device, self.swapchain.extent, self.render_pass, self.descriptor_set_layout)?;
+        self.pipeline = Pipeline::new(
+            &self.device,
+            self.swapchain.extent,
+            self.render_pass,
+            self.descriptor_set_layout,
+        )?;
         info!("End of pipeline init");
         Ok(())
     }
