@@ -381,6 +381,7 @@ impl VkInstance {
     }
 
     fn init_swapchain(&mut self, window: &Window) -> Result<(), VkError> {
+        info!("Initializing swapchain");
         let indices = QueueFamilyIndices::get(&self.instance, self.surface, self.physical_device)?;
         let support = SwapchainSupport::get(&self.instance, self.surface, self.physical_device)?;
 
@@ -433,6 +434,7 @@ impl VkInstance {
     }
 
     fn init_framebuffers(&mut self) -> Result<(), VkError> {
+        info!("Init framebuffers");
         self.framebuffers = self
             .swapchain_image_views
             .iter()
@@ -453,6 +455,7 @@ impl VkInstance {
     }
 
     fn init_command_pool(&mut self) -> Result<(), VkError> {
+        info!("Init command pool");
         let indices = QueueFamilyIndices::get(&self.instance, self.surface, self.physical_device)?;
 
         let info = vk::CommandPoolCreateInfo::builder().queue_family_index(indices.graphics);
@@ -462,6 +465,7 @@ impl VkInstance {
     }
 
     fn init_command_buffers(&mut self) -> Result<(), VkError> {
+        info!("Init command buffers");
         // Allocate
 
         let allocate_info = vk::CommandBufferAllocateInfo::builder()
@@ -648,6 +652,7 @@ impl VkInstance {
     }
 
     fn init_descriptor_pool(&mut self) -> Result<(), VkError> {
+        info!("Init descriptor pool");
         let ubo_size = vk::DescriptorPoolSize::builder()
             .type_(vk::DescriptorType::UNIFORM_BUFFER)
             .descriptor_count(self.swapchain.images.len() as u32);
@@ -668,11 +673,14 @@ impl VkInstance {
     }
 
     fn init_pipeline(&mut self) -> Result<(), VkError> {
-        self.pipeline = Pipeline::new(&self.device, self.swapchain.extent, self.render_pass)?;
+        info!("Init pipeline");
+        self.pipeline = Pipeline::new(&self.device, self.swapchain.extent, self.render_pass, self.descriptor_set_layout)?;
+        info!("End of pipeline init");
         Ok(())
     }
 
     fn init_descriptor_set_layout(&mut self) -> Result<(), VkError> {
+        info!("Init descriptor set layout");
         let ubo_binding = vk::DescriptorSetLayoutBinding::builder()
             .binding(0)
             .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
@@ -689,6 +697,7 @@ impl VkInstance {
     }
 
     fn init_descriptor_sets(&mut self) -> Result<(), VkError> {
+        info!("Init descriptor sets");
         // Allocate
 
         let layouts = vec![self.descriptor_set_layout; self.swapchain.images.len()];

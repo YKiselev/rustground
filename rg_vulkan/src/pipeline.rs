@@ -1,10 +1,14 @@
+use log::{debug, error};
 use vulkanalia::{
     Device,
     bytecode::Bytecode,
     vk::{self, DeviceV1_0, Format, Handle, HasBuilder, RenderPass},
 };
 
-use crate::{error::VkError, instance::Vertex};
+use crate::{
+    error::{VkError, to_generic},
+    instance::Vertex,
+};
 
 #[derive(Debug, Default)]
 pub struct Pipeline {
@@ -17,9 +21,8 @@ impl Pipeline {
         device: &Device,
         extent: vk::Extent2D,
         render_pass: RenderPass,
+        descriptor_set_layout: vk::DescriptorSetLayout
     ) -> Result<Self, VkError> {
-        // Stages
-
         let vert = include_bytes!("../../base/resources/shaders/shader.vert.spv");
         let frag = include_bytes!("../../base/resources/shaders/shader.frag.spv");
 
@@ -36,21 +39,15 @@ impl Pipeline {
             .module(frag_shader_module)
             .name(b"main\0");
 
-        // Vertex Input State
-
         let binding_descriptions = &[Vertex::binding_description()];
         let attribute_descriptions = Vertex::attribute_descriptions();
         let vertex_input_state = vk::PipelineVertexInputStateCreateInfo::builder()
             .vertex_binding_descriptions(binding_descriptions)
             .vertex_attribute_descriptions(&attribute_descriptions);
 
-        // Input Assembly State
-
         let input_assembly_state = vk::PipelineInputAssemblyStateCreateInfo::builder()
             .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
             .primitive_restart_enable(false);
-
-        // Viewport State
 
         let viewport = vk::Viewport::builder()
             .x(0.0)
@@ -70,8 +67,6 @@ impl Pipeline {
             .viewports(viewports)
             .scissors(scissors);
 
-        // Rasterization State
-
         let rasterization_state = vk::PipelineRasterizationStateCreateInfo::builder()
             .depth_clamp_enable(false)
             .rasterizer_discard_enable(false)
@@ -81,13 +76,9 @@ impl Pipeline {
             .front_face(vk::FrontFace::COUNTER_CLOCKWISE)
             .depth_bias_enable(false);
 
-        // Multisample State
-
         let multisample_state = vk::PipelineMultisampleStateCreateInfo::builder()
             .sample_shading_enable(false)
             .rasterization_samples(vk::SampleCountFlags::_1);
-
-        // Color Blend State
 
         let attachment = vk::PipelineColorBlendAttachmentState::builder()
             .color_write_mask(vk::ColorComponentFlags::all())
@@ -100,13 +91,10 @@ impl Pipeline {
             .attachments(attachments)
             .blend_constants([0.0, 0.0, 0.0, 0.0]);
 
-        // Layout
-
-        let layout_info = vk::PipelineLayoutCreateInfo::builder();
+        let set_layouts = &[descriptor_set_layout];
+        let layout_info = vk::PipelineLayoutCreateInfo::builder().set_layouts(set_layouts);
 
         let layout = unsafe { device.create_pipeline_layout(&layout_info, None) }?;
-
-        // Create
 
         let stages = &[vert_stage, frag_stage];
         let info = vk::GraphicsPipelineCreateInfo::builder()
@@ -121,11 +109,15 @@ impl Pipeline {
             .render_pass(render_pass)
             .subpass(0);
 
-        let pipeline =
-            unsafe { device.create_graphics_pipelines(vk::PipelineCache::null(), &[info], None) }?
-                .0[0];
+        let result =
+            unsafe { device.create_graphics_pipelines(vk::PipelineCache::null(), &[info], None) }?;
 
-        // Cleanup
+        if result.0.is_empty() {
+            error!("No pipeline in result!");
+            return Err(to_generic("No pipeline in result!"));
+        }
+
+        let pipeline = result.0[0];
 
         unsafe { device.destroy_shader_module(vert_shader_module, None) };
         unsafe { device.destroy_shader_module(frag_shader_module, None) };
