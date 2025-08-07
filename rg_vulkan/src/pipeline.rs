@@ -8,7 +8,7 @@ use crate::{error::VkError, instance::Vertex};
 
 #[derive(Debug, Default)]
 pub struct Pipeline {
-    layout: vk::PipelineLayout,
+    pub layout: vk::PipelineLayout,
     pub pipeline: vk::Pipeline,
 }
 
@@ -78,7 +78,7 @@ impl Pipeline {
             .polygon_mode(vk::PolygonMode::FILL)
             .line_width(1.0)
             .cull_mode(vk::CullModeFlags::BACK)
-            .front_face(vk::FrontFace::CLOCKWISE)
+            .front_face(vk::FrontFace::COUNTER_CLOCKWISE)
             .depth_bias_enable(false);
 
         // Multisample State

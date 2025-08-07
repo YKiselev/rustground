@@ -1,4 +1,4 @@
-use log::warn;
+use log::{info, warn};
 use vulkanalia::{
     Entry,
     loader::{LIBRARY, LibloadingLoader},
@@ -22,6 +22,7 @@ impl VulkanRenderer {
             let loader = LibloadingLoader::new(LIBRARY).map_err(to_generic)?;
             let entry = Entry::new(loader).map_err(to_generic)?;
             let instance = VkInstance::new(window, &entry)?;
+            info!("Vulkan renderer initialzied");
             Ok(Self { entry, instance })
         }
     }
@@ -38,6 +39,7 @@ impl VulkanRenderer {
     }
 
     pub fn destroy(&mut self) {
+        info!("Destroing renderer");
         self.instance.destroy();
     }
 }

@@ -1,9 +1,10 @@
 use std::{
     collections::HashSet,
     ffi::{CStr, c_void},
+    time::Instant,
 };
 
-use cgmath::{vec2, vec3};
+use cgmath::{Deg, point3, vec2, vec3};
 use log::{debug, error, info, trace, warn};
 use vulkanalia::{
     Device, Entry, Instance, Version,
@@ -19,6 +20,8 @@ use winit::window::Window;
 use crate::{
     error::{VkError, to_generic, to_suitability},
     pipeline::{Pipeline, create_render_pass},
+    types::{Mat4, Vec2, Vec3},
+    uniform::UniformBufferObject,
 };
 
 pub(crate) const PORTABILITY_MACOS_VERSION: Version = Version::new(1, 3, 216);
@@ -31,9 +34,6 @@ pub(crate) const VALIDATION_LAYER: vk::ExtensionName =
 const DEVICE_EXTENSIONS: &[vk::ExtensionName] = &[vk::KHR_SWAPCHAIN_EXTENSION.name];
 
 const MAX_FRAMES_IN_FLIGHT: usize = 2;
-
-type Vec2 = cgmath::Vector2<f32>;
-type Vec3 = cgmath::Vector3<f32>;
 
 #[rustfmt::skip]
 static VERTICES: [Vertex; 4] = [
@@ -94,6 +94,7 @@ pub struct VkInstance {
     swapchain: Swapchain,
     swapchain_image_views: Vec<vk::ImageView>,
     render_pass: vk::RenderPass,
+    descriptor_set_layout: vk::DescriptorSetLayout,
     pipeline: Pipeline,
     framebuffers: Vec<vk::Framebuffer>,
     command_pool: vk::CommandPool,
@@ -101,6 +102,10 @@ pub struct VkInstance {
     vertex_buffer_memory: vk::DeviceMemory,
     index_buffer: vk::Buffer,
     index_buffer_memory: vk::DeviceMemory,
+    uniform_buffers: Vec<vk::Buffer>,
+    uniform_buffers_memory: Vec<vk::DeviceMemory>,
+    descriptor_pool: vk::DescriptorPool,
+    descriptor_sets: Vec<vk::DescriptorSet>,
     command_buffers: Vec<vk::CommandBuffer>,
     image_available_semaphores: Vec<vk::Semaphore>,
     render_finished_semaphores: Vec<vk::Semaphore>,
@@ -108,6 +113,7 @@ pub struct VkInstance {
     images_in_flight: Vec<vk::Fence>,
     frame: usize,
     resized: bool,
+    start: Instant,
 }
 
 #[derive(Debug, Default)]
@@ -136,6 +142,7 @@ impl VkInstance {
             swapchain: Swapchain::default(),
             swapchain_image_views: vec![],
             render_pass: Default::default(),
+            descriptor_set_layout: Default::default(),
             pipeline: Pipeline::default(),
             framebuffers: vec![],
             command_pool: Default::default(),
@@ -143,6 +150,10 @@ impl VkInstance {
             vertex_buffer_memory: Default::default(),
             index_buffer: Default::default(),
             index_buffer_memory: Default::default(),
+            uniform_buffers: vec![],
+            uniform_buffers_memory: vec![],
+            descriptor_pool: Default::default(),
+            descriptor_sets: vec![],
             command_buffers: vec![],
             image_available_semaphores: vec![],
             render_finished_semaphores: vec![],
@@ -150,14 +161,19 @@ impl VkInstance {
             images_in_flight: vec![],
             frame: 0,
             resized: false,
+            start: Instant::now(),
         };
         result.init_swapchain(window)?;
         result.init_render_pass()?;
+        result.init_descriptor_set_layout()?;
         result.init_pipeline()?;
         result.init_framebuffers()?;
         result.init_command_pool()?;
         result.init_vertex_buffer()?;
         result.init_index_buffer()?;
+        result.init_uniform_buffers()?;
+        result.init_descriptor_pool()?;
+        result.init_descriptor_sets()?;
         result.init_command_buffers()?;
         result.init_sync_objects()?;
         Ok(result)
@@ -170,6 +186,7 @@ impl VkInstance {
             self.destroy_swapchain();
 
             let device = &self.device;
+            device.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
             device.destroy_buffer(self.index_buffer, None);
             device.free_memory(self.index_buffer_memory, None);
             device.destroy_buffer(self.vertex_buffer, None);
@@ -234,6 +251,8 @@ impl VkInstance {
 
         self.images_in_flight[image_index] = in_flight_fence;
 
+        self.update_uniform_buffer(image_index)?;
+
         let wait_semaphores = &[self.image_available_semaphores[self.frame]];
         let wait_stages = &[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
         let command_buffers = &[self.command_buffers[image_index]];
@@ -275,6 +294,50 @@ impl VkInstance {
         Ok(())
     }
 
+    fn update_uniform_buffer(&self, image_index: usize) -> Result<(), VkError> {
+        // MVP
+
+        let time = self.start.elapsed().as_secs_f32();
+
+        let model = Mat4::from_axis_angle(vec3(0.0, 0.0, 1.0), Deg(90.0) * time);
+
+        let view = Mat4::look_at_rh(
+            point3::<f32>(2.0, 2.0, 2.0),
+            point3::<f32>(0.0, 0.0, 0.0),
+            vec3(0.0, 0.0, 1.0),
+        );
+
+        let mut proj = cgmath::perspective(
+            Deg(45.0),
+            self.swapchain.extent.width as f32 / self.swapchain.extent.height as f32,
+            0.1,
+            10.0,
+        );
+
+        proj[1][1] *= -1.0; // OGL legacy)
+
+        let ubo = UniformBufferObject { model, view, proj };
+
+        // Copy
+
+        let memory = unsafe {
+            self.device.map_memory(
+                self.uniform_buffers_memory[image_index],
+                0,
+                size_of::<UniformBufferObject>() as u64,
+                vk::MemoryMapFlags::empty(),
+            )
+        }?;
+
+        unsafe {
+            std::ptr::copy_nonoverlapping(&ubo, memory.cast(), 1);
+            self.device
+                .unmap_memory(self.uniform_buffers_memory[image_index]);
+        }
+
+        Ok(())
+    }
+
     fn recreate_swapchain(&mut self, window: &Window) -> Result<(), VkError> {
         unsafe { self.device.device_wait_idle() }?;
         self.destroy_swapchain();
@@ -283,6 +346,8 @@ impl VkInstance {
         self.init_render_pass()?;
         self.init_pipeline()?;
         self.init_framebuffers()?;
+        self.init_uniform_buffers()?;
+        self.init_descriptor_pool()?;
         self.init_command_buffers()?;
 
         self.images_in_flight
@@ -446,12 +511,18 @@ impl VkInstance {
                     0,
                     vk::IndexType::UINT16,
                 );
+                device.cmd_bind_descriptor_sets(
+                    *command_buffer,
+                    vk::PipelineBindPoint::GRAPHICS,
+                    self.pipeline.layout,
+                    0,
+                    &[self.descriptor_sets[i]],
+                    &[],
+                );
 
                 device.cmd_draw_indexed(*command_buffer, INDICES.len() as u32, 1, 0, 0, 0);
-                //device.cmd_draw(*command_buffer, VERTICES.len() as u32, 1, 0, 0);
 
                 device.cmd_end_render_pass(*command_buffer);
-
                 device.end_command_buffer(*command_buffer)?;
             }
         }
@@ -558,6 +629,39 @@ impl VkInstance {
         Ok(())
     }
 
+    fn init_uniform_buffers(&mut self) -> Result<(), VkError> {
+        self.uniform_buffers.clear();
+        self.uniform_buffers_memory.clear();
+
+        for _ in 0..self.swapchain.images.len() {
+            let (uniform_buffer, uniform_buffer_memory) = self.create_buffer(
+                size_of::<UniformBufferObject>() as u64,
+                vk::BufferUsageFlags::UNIFORM_BUFFER,
+                vk::MemoryPropertyFlags::HOST_COHERENT | vk::MemoryPropertyFlags::HOST_VISIBLE,
+            )?;
+
+            self.uniform_buffers.push(uniform_buffer);
+            self.uniform_buffers_memory.push(uniform_buffer_memory);
+        }
+
+        Ok(())
+    }
+
+    fn init_descriptor_pool(&mut self) -> Result<(), VkError> {
+        let ubo_size = vk::DescriptorPoolSize::builder()
+            .type_(vk::DescriptorType::UNIFORM_BUFFER)
+            .descriptor_count(self.swapchain.images.len() as u32);
+
+        let pool_sizes = &[ubo_size];
+        let info = vk::DescriptorPoolCreateInfo::builder()
+            .pool_sizes(pool_sizes)
+            .max_sets(self.swapchain.images.len() as u32);
+
+        self.descriptor_pool = unsafe { self.device.create_descriptor_pool(&info, None) }?;
+
+        Ok(())
+    }
+
     fn init_render_pass(&mut self) -> Result<(), VkError> {
         self.render_pass = create_render_pass(&self.device, self.swapchain.format)?;
         Ok(())
@@ -565,6 +669,57 @@ impl VkInstance {
 
     fn init_pipeline(&mut self) -> Result<(), VkError> {
         self.pipeline = Pipeline::new(&self.device, self.swapchain.extent, self.render_pass)?;
+        Ok(())
+    }
+
+    fn init_descriptor_set_layout(&mut self) -> Result<(), VkError> {
+        let ubo_binding = vk::DescriptorSetLayoutBinding::builder()
+            .binding(0)
+            .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+            .descriptor_count(1)
+            .stage_flags(vk::ShaderStageFlags::VERTEX);
+
+        let bindings = &[ubo_binding];
+        let info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(bindings);
+
+        self.descriptor_set_layout =
+            unsafe { self.device.create_descriptor_set_layout(&info, None) }?;
+
+        Ok(())
+    }
+
+    fn init_descriptor_sets(&mut self) -> Result<(), VkError> {
+        // Allocate
+
+        let layouts = vec![self.descriptor_set_layout; self.swapchain.images.len()];
+        let info = vk::DescriptorSetAllocateInfo::builder()
+            .descriptor_pool(self.descriptor_pool)
+            .set_layouts(&layouts);
+
+        self.descriptor_sets = unsafe { self.device.allocate_descriptor_sets(&info) }?;
+
+        // Update
+
+        for i in 0..self.swapchain.images.len() {
+            let info = vk::DescriptorBufferInfo::builder()
+                .buffer(self.uniform_buffers[i])
+                .offset(0)
+                .range(size_of::<UniformBufferObject>() as u64);
+
+            let buffer_info = &[info];
+            let ubo_write = vk::WriteDescriptorSet::builder()
+                .dst_set(self.descriptor_sets[i])
+                .dst_binding(0)
+                .dst_array_element(0)
+                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+                .buffer_info(buffer_info);
+
+            unsafe {
+                self.device
+                    .update_descriptor_sets(&[ubo_write], &[] as &[vk::CopyDescriptorSet])
+            };
+        }
+
         Ok(())
     }
 
@@ -660,6 +815,14 @@ impl VkInstance {
 
     fn destroy_swapchain(&mut self) {
         unsafe {
+            self.device
+                .destroy_descriptor_pool(self.descriptor_pool, None);
+            self.uniform_buffers
+                .iter()
+                .for_each(|b| self.device.destroy_buffer(*b, None));
+            self.uniform_buffers_memory
+                .iter()
+                .for_each(|m| self.device.free_memory(*m, None));
             self.device
                 .free_command_buffers(self.command_pool, &self.command_buffers);
             self.framebuffers

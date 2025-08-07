@@ -84,6 +84,11 @@ impl ApplicationHandler for ClientState {
         event: WindowEvent,
     ) {
         match event {
+            WindowEvent::Destroyed => {
+                if let Some(mut renderer) = self.renderer.take() {
+                    renderer.destroy();
+                }
+            }
             WindowEvent::Resized(_) => {
                 if let Some(renderer) = self.renderer.as_mut() {
                     renderer.mark_resized();
