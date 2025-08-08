@@ -6,8 +6,7 @@ use vulkanalia::{
 };
 
 use crate::{
-    error::{VkError, to_generic},
-    instance::Vertex,
+    error::{to_generic, VkError}, vertex::Vertex,
 };
 
 #[derive(Debug, Default)]
@@ -142,8 +141,6 @@ fn create_shader_module(device: &Device, bytecode: &[u8]) -> Result<vk::ShaderMo
 }
 
 pub(crate) fn create_render_pass(device: &Device, format: Format) -> Result<RenderPass, VkError> {
-    // Attachments
-
     let color_attachment = vk::AttachmentDescription::builder()
         .format(format)
         .samples(vk::SampleCountFlags::_1)
@@ -154,8 +151,6 @@ pub(crate) fn create_render_pass(device: &Device, format: Format) -> Result<Rend
         .initial_layout(vk::ImageLayout::UNDEFINED)
         .final_layout(vk::ImageLayout::PRESENT_SRC_KHR);
 
-    // Subpasses
-
     let color_attachment_ref = vk::AttachmentReference::builder()
         .attachment(0)
         .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL);
@@ -164,8 +159,6 @@ pub(crate) fn create_render_pass(device: &Device, format: Format) -> Result<Rend
     let subpass = vk::SubpassDescription::builder()
         .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
         .color_attachments(color_attachments);
-
-    // Create
 
     let attachments = &[color_attachment];
     let subpasses = &[subpass];

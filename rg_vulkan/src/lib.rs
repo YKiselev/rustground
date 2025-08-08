@@ -4,3 +4,8 @@ mod types;
 mod instance;
 mod pipeline;
 mod uniform;
+mod vertex;
+mod swapchain;
+mod queue_family;
+mod device;
+mod create_instance;
