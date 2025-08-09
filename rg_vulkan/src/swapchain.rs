@@ -1,19 +1,138 @@
 use vulkanalia::{
-    Device, Instance,
-    vk::{self, DeviceV1_0, Format, HasBuilder, Image, ImageView, KhrSurfaceExtension, SurfaceKHR},
+    Device, Instance, VkResult,
+    vk::{
+        self, DeviceV1_0, Extent2D, Fence, Format, Framebuffer, Handle, HasBuilder, Image,
+        ImageView, KhrSurfaceExtension, KhrSwapchainExtension, PhysicalDevice, RenderPass,
+        Semaphore, SurfaceKHR, SwapchainKHR,
+    },
 };
 use winit::window::Window;
 
-use crate::error::VkError;
+use crate::{error::VkError, pipeline::create_render_pass, queue_family::QueueFamilyIndices};
 
 #[derive(Debug, Default)]
 pub(crate) struct Swapchain {
-    pub format: vk::Format,
-    pub extent: vk::Extent2D,
-    pub swapchain: vk::SwapchainKHR,
-    pub images: Vec<vk::Image>,
-    pub views: Vec<vk::ImageView>,
-    pub render_pass: vk::RenderPass,
+    pub format: Format,
+    pub extent: Extent2D,
+    pub swapchain: SwapchainKHR,
+    pub images: Vec<Image>,
+    pub views: Vec<ImageView>,
+    pub render_pass: RenderPass,
+    pub framebuffers: Vec<Framebuffer>,
+    pub images_in_flight: Vec<vk::Fence>,
+    pub render_finished: Vec<vk::Semaphore>,
+}
+
+impl Swapchain {
+    pub fn new(
+        instance: &Instance,
+        surface: SurfaceKHR,
+        device: &Device,
+        physical_device: PhysicalDevice,
+        window: &Window,
+    ) -> Result<Swapchain, VkError> {
+        let indices = QueueFamilyIndices::get(instance, surface, physical_device)?;
+        let support = SwapchainSupport::get(instance, surface, physical_device)?;
+
+        let surface_format = get_swapchain_surface_format(&support.formats);
+        let present_mode = get_swapchain_present_mode(&support.present_modes);
+        let extent = get_swapchain_extent(window, support.capabilities);
+
+        let image_count = support.get_optimal_image_count();
+        let mut queue_family_indices = vec![];
+        let image_sharing_mode = if indices.graphics != indices.present {
+            queue_family_indices.push(indices.graphics);
+            queue_family_indices.push(indices.present);
+            vk::SharingMode::CONCURRENT
+        } else {
+            vk::SharingMode::EXCLUSIVE
+        };
+
+        let info = vk::SwapchainCreateInfoKHR::builder()
+            .surface(surface)
+            .min_image_count(image_count)
+            .image_format(surface_format.format)
+            .image_color_space(surface_format.color_space)
+            .image_extent(extent)
+            .image_array_layers(1)
+            .image_usage(vk::ImageUsageFlags::COLOR_ATTACHMENT)
+            .image_sharing_mode(image_sharing_mode)
+            .queue_family_indices(&queue_family_indices)
+            .pre_transform(support.capabilities.current_transform)
+            .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE)
+            .present_mode(present_mode)
+            .clipped(true)
+            .old_swapchain(vk::SwapchainKHR::null());
+
+        let swapchain = unsafe { device.create_swapchain_khr(&info, None) }?;
+        let images = unsafe { device.get_swapchain_images_khr(swapchain) }?;
+        let views = create_swapchain_image_views(&images, surface_format.format, device)?;
+        let render_pass = create_render_pass(device, surface_format.format)?;
+        let framebuffers = create_framebuffers(&views, render_pass, &extent, device)?;
+        let fence_info = vk::FenceCreateInfo::builder().flags(vk::FenceCreateFlags::SIGNALED);
+        let images_in_flight = images
+            .iter()
+            .map(|_| unsafe { device.create_fence(&fence_info, None) })
+            .collect::<Result<Vec<Fence>, _>>()?;
+        let semaphore_info = vk::SemaphoreCreateInfo::builder();
+        let render_finished = images
+            .iter()
+            .map(|i| unsafe { device.create_semaphore(&semaphore_info, None) })
+            .collect::<Result<Vec<vk::Semaphore>, _>>()?;
+
+        Ok(Swapchain {
+            format: surface_format.format,
+            extent,
+            swapchain,
+            images,
+            views,
+            render_pass,
+            framebuffers,
+            images_in_flight,
+            render_finished,
+        })
+    }
+
+    pub fn destroy(&mut self, device: &Device) {
+        unsafe {
+            self.images_in_flight
+                .iter()
+                .for_each(|f| device.destroy_fence(*f, None));
+            self.render_finished
+                .iter()
+                .for_each(|s| device.destroy_semaphore(*s, None));
+
+            self.framebuffers
+                .iter()
+                .for_each(|f| device.destroy_framebuffer(*f, None));
+            device.destroy_render_pass(self.render_pass, None);
+            self.views
+                .iter()
+                .for_each(|v| device.destroy_image_view(*v, None));
+            device.destroy_swapchain_khr(self.swapchain, None);
+        }
+    }
+
+    pub fn aquire_next_image(&self, device: &Device, wait_semaphore: Semaphore) -> VkResult<u32> {
+        let (image_index, _) = unsafe {
+            device.acquire_next_image_khr(
+                self.swapchain,
+                u64::MAX,
+                wait_semaphore,
+                vk::Fence::null(),
+            )
+        }?;
+
+        let image_in_flight = self.images_in_flight[image_index as usize];
+        // Wait for current image's command submission from previous frame?
+        if !image_in_flight.is_null() {
+            unsafe {
+                let fences = &[image_in_flight];
+                device.wait_for_fences(fences, true, u64::MAX)?;
+            }
+        }
+        Ok(image_index)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -40,11 +159,18 @@ impl SwapchainSupport {
             })
         }
     }
+
+    pub fn get_optimal_image_count(&self) -> u32 {
+        let mut image_count = self.capabilities.min_image_count + 1;
+        if self.capabilities.max_image_count != 0 && image_count > self.capabilities.max_image_count
+        {
+            image_count = self.capabilities.max_image_count;
+        }
+        image_count
+    }
 }
 
-pub(crate) fn get_swapchain_surface_format(
-    formats: &[vk::SurfaceFormatKHR],
-) -> vk::SurfaceFormatKHR {
+fn get_swapchain_surface_format(formats: &[vk::SurfaceFormatKHR]) -> vk::SurfaceFormatKHR {
     formats
         .iter()
         .cloned()
@@ -55,9 +181,7 @@ pub(crate) fn get_swapchain_surface_format(
         .unwrap_or_else(|| formats[0])
 }
 
-pub(crate) fn get_swapchain_present_mode(
-    present_modes: &[vk::PresentModeKHR],
-) -> vk::PresentModeKHR {
+fn get_swapchain_present_mode(present_modes: &[vk::PresentModeKHR]) -> vk::PresentModeKHR {
     present_modes
         .iter()
         .cloned()
@@ -65,10 +189,7 @@ pub(crate) fn get_swapchain_present_mode(
         .unwrap_or(vk::PresentModeKHR::FIFO)
 }
 
-pub(crate) fn get_swapchain_extent(
-    window: &Window,
-    capabilities: vk::SurfaceCapabilitiesKHR,
-) -> vk::Extent2D {
+fn get_swapchain_extent(window: &Window, capabilities: vk::SurfaceCapabilitiesKHR) -> vk::Extent2D {
     if capabilities.current_extent.width != u32::MAX {
         capabilities.current_extent
     } else {
@@ -85,7 +206,7 @@ pub(crate) fn get_swapchain_extent(
     }
 }
 
-pub fn create_swapchain_image_views(
+fn create_swapchain_image_views(
     images: &Vec<Image>,
     format: Format,
     device: &Device,
@@ -118,4 +239,28 @@ pub fn create_swapchain_image_views(
         .collect::<Result<Vec<_>, _>>()?;
 
     Ok(image_views)
+}
+
+fn create_framebuffers(
+    views: &Vec<ImageView>,
+    render_pass: RenderPass,
+    extent: &Extent2D,
+    device: &Device,
+) -> Result<Vec<Framebuffer>, VkError> {
+    let result = views
+        .iter()
+        .map(|i| {
+            let attachments = &[*i];
+            let create_info = vk::FramebufferCreateInfo::builder()
+                .render_pass(render_pass)
+                .attachments(attachments)
+                .width(extent.width)
+                .height(extent.height)
+                .layers(1);
+
+            unsafe { device.create_framebuffer(&create_info, None) }
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(result)
 }

@@ -5,9 +5,9 @@ use log::info;
 use vulkanalia::{
     Device, Entry, Instance,
     vk::{
-        self, DeviceMemory, DeviceSize, DeviceV1_0, ExtDebugUtilsExtension, Handle, HasBuilder,
-        ImageView, InstanceV1_0, KhrSurfaceExtension, KhrSwapchainExtension, MemoryMapFlags,
-        PhysicalDevice, Queue, SurfaceKHR,
+        self, DeviceMemory, DeviceSize, DeviceV1_0, ExtDebugUtilsExtension, Fence, Handle,
+        HasBuilder, ImageView, InstanceV1_0, KhrSurfaceExtension, KhrSwapchainExtension,
+        MemoryMapFlags, PhysicalDevice, Queue, SurfaceKHR,
     },
     window,
 };
@@ -17,12 +17,9 @@ use crate::{
     create_instance::create_instance,
     device::{VALIDATION_ENABLED, create_logical_device, pick_physical_device},
     error::{VkError, to_generic},
-    pipeline::{Pipeline, create_render_pass},
+    pipeline::Pipeline,
     queue_family::QueueFamilyIndices,
-    swapchain::{
-        Swapchain, SwapchainSupport, create_swapchain_image_views, get_swapchain_extent,
-        get_swapchain_present_mode, get_swapchain_surface_format,
-    },
+    swapchain::Swapchain,
     types::Mat4,
     uniform::UniformBufferObject,
     vertex::Vertex,
@@ -53,7 +50,6 @@ pub struct VkInstance {
     swapchain: Swapchain,
     descriptor_set_layout: vk::DescriptorSetLayout,
     pipeline: Pipeline,
-    framebuffers: Vec<vk::Framebuffer>,
     command_pool: vk::CommandPool,
     vertex_buffer: vk::Buffer,
     vertex_buffer_memory: vk::DeviceMemory,
@@ -65,9 +61,6 @@ pub struct VkInstance {
     descriptor_sets: Vec<vk::DescriptorSet>,
     command_buffers: Vec<vk::CommandBuffer>,
     image_available_semaphores: Vec<vk::Semaphore>,
-    render_finished_semaphores: Vec<vk::Semaphore>,
-    in_flight_fences: Vec<vk::Fence>,
-    images_in_flight: Vec<vk::Fence>,
     frame: usize,
     resized: bool,
     start: Instant,
@@ -91,7 +84,6 @@ impl VkInstance {
             swapchain: Swapchain::default(),
             descriptor_set_layout: Default::default(),
             pipeline: Pipeline::default(),
-            framebuffers: vec![],
             command_pool: Default::default(),
             vertex_buffer: Default::default(),
             vertex_buffer_memory: Default::default(),
@@ -103,9 +95,6 @@ impl VkInstance {
             descriptor_sets: vec![],
             command_buffers: vec![],
             image_available_semaphores: vec![],
-            render_finished_semaphores: vec![],
-            in_flight_fences: vec![],
-            images_in_flight: vec![],
             frame: 0,
             resized: false,
             start: Instant::now(),
@@ -113,7 +102,6 @@ impl VkInstance {
         result.init_swapchain(window)?;
         result.init_descriptor_set_layout()?;
         result.init_pipeline()?;
-        result.init_framebuffers()?;
         result.init_command_pool()?;
         result.init_vertex_buffer()?;
         result.init_index_buffer()?;
@@ -138,12 +126,6 @@ impl VkInstance {
             device.destroy_buffer(self.vertex_buffer, None);
             device.free_memory(self.vertex_buffer_memory, None);
 
-            self.in_flight_fences
-                .iter()
-                .for_each(|f| device.destroy_fence(*f, None));
-            self.render_finished_semaphores
-                .iter()
-                .for_each(|s| device.destroy_semaphore(*s, None));
             self.image_available_semaphores
                 .iter()
                 .for_each(|s| device.destroy_semaphore(*s, None));
@@ -165,45 +147,39 @@ impl VkInstance {
     }
 
     pub fn render(&mut self, window: &Window) -> Result<(), VkError> {
-        let in_flight_fence = self.in_flight_fences[self.frame];
-
-        unsafe {
-            let fences = &[in_flight_fence];
-            self.device.wait_for_fences(fences, true, u64::MAX)?;
-        }
+        //let in_flight_fence = self.in_flight_fences[self.frame];
+        // Wait for previous (or pre-previous?) frame submitting commands? Why?
+        //self.wait_for_fence(in_flight_fence)?;
 
         let wait_semaphore = self.image_available_semaphores[self.frame];
-        let result = unsafe {
-            self.device.acquire_next_image_khr(
-                self.swapchain.swapchain,
-                u64::MAX,
-                wait_semaphore,
-                vk::Fence::null(),
-            )
-        };
+        let result = self.swapchain.aquire_next_image(&self.device, wait_semaphore);
+        // let result = unsafe {
+        //     self.device.acquire_next_image_khr(
+        //         self.swapchain.swapchain,
+        //         u64::MAX,
+        //         wait_semaphore,
+        //         vk::Fence::null(),
+        //     )
+        // };
 
         let image_index = match result {
-            Ok((image_index, _)) => image_index as usize,
+            Ok(image_index) => image_index as usize,
             Err(vk::ErrorCode::OUT_OF_DATE_KHR) => return self.recreate_swapchain(window),
             Err(e) => return Err(to_generic(e.to_string())),
         };
 
-        let image_in_flight = self.images_in_flight[image_index];
-        if !image_in_flight.is_null() {
-            unsafe {
-                let fences = &[image_in_flight];
-                self.device.wait_for_fences(fences, true, u64::MAX)?;
-            }
-        }
+        // let image_in_flight = self.images_in_flight[image_index];
+        // Wait for current image's command submission from previous frame?
+        // self.wait_for_fence(image_in_flight)?;
 
-        self.images_in_flight[image_index] = in_flight_fence;
+        let in_flight_fence = self.swapchain.images_in_flight[image_index];// = in_flight_fence;
 
         self.update_uniform_buffer(image_index)?;
 
         let wait_semaphores = &[wait_semaphore];
         let wait_stages = &[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
         let command_buffers = &[self.command_buffers[image_index]];
-        let signal_semaphores = &[self.render_finished_semaphores[image_index]];
+        let signal_semaphores = &[self.swapchain.render_finished[image_index]];
         let submit_info = vk::SubmitInfo::builder()
             .wait_semaphores(wait_semaphores)
             .wait_dst_stage_mask(wait_stages)
@@ -239,6 +215,16 @@ impl VkInstance {
         }
         self.frame = (self.frame + 1) % MAX_FRAMES_IN_FLIGHT;
 
+        Ok(())
+    }
+
+    fn wait_for_fence(&self, fence: Fence) -> Result<(), VkError> {
+        if !fence.is_null() {
+            unsafe {
+                let fences = &[fence];
+                self.device.wait_for_fences(fences, true, u64::MAX)?;
+            }
+        }
         Ok(())
     }
 
@@ -283,14 +269,10 @@ impl VkInstance {
 
         self.init_swapchain(window)?;
         self.init_pipeline()?;
-        self.init_framebuffers()?;
         self.init_uniform_buffers()?;
         self.init_descriptor_pool()?;
         self.init_descriptor_sets()?;
         self.init_command_buffers()?;
-
-        self.images_in_flight
-            .resize(self.swapchain.images.len(), vk::Fence::null());
 
         Ok(())
     }
@@ -302,96 +284,19 @@ impl VkInstance {
         for _ in 0..MAX_FRAMES_IN_FLIGHT {
             self.image_available_semaphores
                 .push(unsafe { self.device.create_semaphore(&semaphore_info, None) }?);
-            self.in_flight_fences
-                .push(unsafe { self.device.create_fence(&fence_info, None) }?);
         }
-        for _ in self.swapchain.images.iter() {
-            self.render_finished_semaphores
-                .push(unsafe { self.device.create_semaphore(&semaphore_info, None) }?);
-        }
-        self.images_in_flight = self
-            .swapchain
-            .images
-            .iter()
-            .map(|_| vk::Fence::null())
-            .collect();
 
         Ok(())
     }
 
     fn init_swapchain(&mut self, window: &Window) -> Result<(), VkError> {
-        let indices = QueueFamilyIndices::get(&self.instance, self.surface, self.physical_device)?;
-        let support = SwapchainSupport::get(&self.instance, self.surface, self.physical_device)?;
-
-        let surface_format = get_swapchain_surface_format(&support.formats);
-        let present_mode = get_swapchain_present_mode(&support.present_modes);
-        let extent = get_swapchain_extent(window, support.capabilities);
-
-        let mut image_count = support.capabilities.min_image_count + 1;
-        if support.capabilities.max_image_count != 0
-            && image_count > support.capabilities.max_image_count
-        {
-            image_count = support.capabilities.max_image_count;
-        }
-        let mut queue_family_indices = vec![];
-        let image_sharing_mode = if indices.graphics != indices.present {
-            queue_family_indices.push(indices.graphics);
-            queue_family_indices.push(indices.present);
-            vk::SharingMode::CONCURRENT
-        } else {
-            vk::SharingMode::EXCLUSIVE
-        };
-
-        let info = vk::SwapchainCreateInfoKHR::builder()
-            .surface(self.surface)
-            .min_image_count(image_count)
-            .image_format(surface_format.format)
-            .image_color_space(surface_format.color_space)
-            .image_extent(extent)
-            .image_array_layers(1)
-            .image_usage(vk::ImageUsageFlags::COLOR_ATTACHMENT)
-            .image_sharing_mode(image_sharing_mode)
-            .queue_family_indices(&queue_family_indices)
-            .pre_transform(support.capabilities.current_transform)
-            .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE)
-            .present_mode(present_mode)
-            .clipped(true)
-            .old_swapchain(vk::SwapchainKHR::null());
-
-        let swapchain = unsafe { self.device.create_swapchain_khr(&info, None) }?;
-        let images = unsafe { self.device.get_swapchain_images_khr(swapchain) }?;
-        let views = create_swapchain_image_views(&images, surface_format.format, &self.device)?;
-        let render_pass = create_render_pass(&self.device, surface_format.format)?;
-
-        self.swapchain = Swapchain {
-            format: surface_format.format,
-            extent,
-            swapchain,
-            images,
-            views,
-            render_pass,
-        };
-
-        Ok(())
-    }
-
-    fn init_framebuffers(&mut self) -> Result<(), VkError> {
-        self.framebuffers = self
-            .swapchain
-            .views
-            .iter()
-            .map(|i| {
-                let attachments = &[*i];
-                let create_info = vk::FramebufferCreateInfo::builder()
-                    .render_pass(self.swapchain.render_pass)
-                    .attachments(attachments)
-                    .width(self.swapchain.extent.width)
-                    .height(self.swapchain.extent.height)
-                    .layers(1);
-
-                unsafe { self.device.create_framebuffer(&create_info, None) }
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+        self.swapchain = Swapchain::new(
+            &self.instance,
+            self.surface,
+            &self.device,
+            self.physical_device,
+            window,
+        )?;
 
         Ok(())
     }
@@ -406,10 +311,11 @@ impl VkInstance {
     }
 
     fn init_command_buffers(&mut self) -> Result<(), VkError> {
+        let framebuffers = &self.swapchain.framebuffers;
         let allocate_info = vk::CommandBufferAllocateInfo::builder()
             .command_pool(self.command_pool)
             .level(vk::CommandBufferLevel::PRIMARY)
-            .command_buffer_count(self.framebuffers.len() as u32);
+            .command_buffer_count(framebuffers.len() as u32);
 
         let device = &self.device;
         let command_buffers = unsafe { device.allocate_command_buffers(&allocate_info) }?;
@@ -427,14 +333,14 @@ impl VkInstance {
 
             let color_clear_value = vk::ClearValue {
                 color: vk::ClearColorValue {
-                    float32: [0.0, 0.0, 0.0, 1.0],
+                    float32: [0.0, 0.0, 0.1, 1.0],
                 },
             };
 
             let clear_values = &[color_clear_value];
             let info = vk::RenderPassBeginInfo::builder()
                 .render_pass(self.swapchain.render_pass)
-                .framebuffer(self.framebuffers[i])
+                .framebuffer(framebuffers[i])
                 .render_area(render_area)
                 .clear_values(clear_values);
 
@@ -896,18 +802,8 @@ impl VkInstance {
                 .for_each(|m| self.device.free_memory(*m, None));
             self.device
                 .free_command_buffers(self.command_pool, &self.command_buffers);
-            self.framebuffers
-                .iter()
-                .for_each(|f| self.device.destroy_framebuffer(*f, None));
             self.pipeline.destroy(&self.device);
-            self.device
-                .destroy_render_pass(self.swapchain.render_pass, None);
-            self.swapchain
-                .views
-                .iter()
-                .for_each(|v| self.device.destroy_image_view(*v, None));
-            self.device
-                .destroy_swapchain_khr(self.swapchain.swapchain, None);
+            self.swapchain.destroy(&self.device);
         }
     }
 }
