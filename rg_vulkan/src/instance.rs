@@ -1,12 +1,9 @@
-use std::time::Instant;
 
-use cgmath::{Deg, point3, vec2, vec3};
-use log::info;
 use vulkanalia::{
     Device, Entry, Instance,
     vk::{
         self, DeviceMemory, DeviceSize, DeviceV1_0, ExtDebugUtilsExtension, Fence, Handle,
-        HasBuilder, ImageView, InstanceV1_0, KhrSurfaceExtension, KhrSwapchainExtension,
+        HasBuilder, InstanceV1_0, KhrSurfaceExtension, KhrSwapchainExtension,
         MemoryMapFlags, PhysicalDevice, Queue, SurfaceKHR,
     },
     window,
@@ -17,53 +14,31 @@ use crate::{
     create_instance::create_instance,
     device::{VALIDATION_ENABLED, create_logical_device, pick_physical_device},
     error::{VkError, to_generic},
-    pipeline::Pipeline,
     queue_family::QueueFamilyIndices,
     swapchain::Swapchain,
-    types::Mat4,
-    uniform::UniformBufferObject,
-    vertex::Vertex,
 };
 
 pub(crate) const DEVICE_EXTENSIONS: &[vk::ExtensionName] = &[vk::KHR_SWAPCHAIN_EXTENSION.name];
 
 pub(crate) const MAX_FRAMES_IN_FLIGHT: usize = 2;
 
-#[rustfmt::skip]
-static VERTICES: [Vertex; 4] = [
-    Vertex::new(vec2(-0.5, -0.5), vec3(1.0, 0.0, 0.0)),
-    Vertex::new(vec2(0.5, -0.5), vec3(0.0, 1.0, 0.0)),
-    Vertex::new(vec2(0.5, 0.5), vec3(0.0, 0.0, 1.0)),
-    Vertex::new(vec2(-0.5, 0.5), vec3(1.0, 1.0, 1.0)),
-];
-const INDICES: &[u16] = &[0, 1, 2, 2, 3, 0];
-
 #[derive(Debug)]
 pub struct VkInstance {
-    instance: Instance,
+    pub instance: Instance,
     messenger: vk::DebugUtilsMessengerEXT,
-    surface: SurfaceKHR,
-    physical_device: PhysicalDevice,
-    device: Device,
-    graphics_queue: Queue,
-    present_queue: Queue,
-    swapchain: Swapchain,
-    descriptor_set_layout: vk::DescriptorSetLayout,
-    pipeline: Pipeline,
-    command_pool: vk::CommandPool,
-    vertex_buffer: vk::Buffer,
-    vertex_buffer_memory: vk::DeviceMemory,
-    index_buffer: vk::Buffer,
-    index_buffer_memory: vk::DeviceMemory,
-    uniform_buffers: Vec<vk::Buffer>,
-    uniform_buffers_memory: Vec<vk::DeviceMemory>,
-    descriptor_pool: vk::DescriptorPool,
-    descriptor_sets: Vec<vk::DescriptorSet>,
-    command_buffers: Vec<vk::CommandBuffer>,
+    pub surface: SurfaceKHR,
+    pub physical_device: PhysicalDevice,
+    pub device: Device,
+    pub graphics_queue: Queue,
+    pub present_queue: Queue,
+    pub swapchain: Swapchain,
+    pub descriptor_set_layout: vk::DescriptorSetLayout,
+    pub command_pool: vk::CommandPool,
+    pub descriptor_pool: vk::DescriptorPool,
+    pub descriptor_sets: Vec<vk::DescriptorSet>,
+    pub command_buffers: Vec<vk::CommandBuffer>,
     image_available_semaphores: Vec<vk::Semaphore>,
     frame: usize,
-    resized: bool,
-    start: Instant,
 }
 
 impl VkInstance {
@@ -83,29 +58,16 @@ impl VkInstance {
             present_queue,
             swapchain: Swapchain::default(),
             descriptor_set_layout: Default::default(),
-            pipeline: Pipeline::default(),
             command_pool: Default::default(),
-            vertex_buffer: Default::default(),
-            vertex_buffer_memory: Default::default(),
-            index_buffer: Default::default(),
-            index_buffer_memory: Default::default(),
-            uniform_buffers: vec![],
-            uniform_buffers_memory: vec![],
             descriptor_pool: Default::default(),
             descriptor_sets: vec![],
             command_buffers: vec![],
             image_available_semaphores: vec![],
             frame: 0,
-            resized: false,
-            start: Instant::now(),
         };
         result.init_swapchain(window)?;
         result.init_descriptor_set_layout()?;
-        result.init_pipeline()?;
         result.init_command_pool()?;
-        result.init_vertex_buffer()?;
-        result.init_index_buffer()?;
-        result.init_uniform_buffers()?;
         result.init_descriptor_pool()?;
         result.init_descriptor_sets()?;
         result.init_command_buffers()?;
@@ -121,10 +83,6 @@ impl VkInstance {
 
             let device = &self.device;
             device.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
-            device.destroy_buffer(self.index_buffer, None);
-            device.free_memory(self.index_buffer_memory, None);
-            device.destroy_buffer(self.vertex_buffer, None);
-            device.free_memory(self.vertex_buffer_memory, None);
 
             self.image_available_semaphores
                 .iter()
@@ -142,39 +100,27 @@ impl VkInstance {
         }
     }
 
-    pub fn mark_resized(&mut self) {
-        self.resized = true;
-    }
-
-    pub fn render(&mut self, window: &Window) -> Result<(), VkError> {
-        //let in_flight_fence = self.in_flight_fences[self.frame];
-        // Wait for previous (or pre-previous?) frame submitting commands? Why?
-        //self.wait_for_fence(in_flight_fence)?;
-
+    pub fn begin_frame(&mut self) -> Result<usize, VkError> {
         let wait_semaphore = self.image_available_semaphores[self.frame];
-        let result = self.swapchain.aquire_next_image(&self.device, wait_semaphore);
-        // let result = unsafe {
-        //     self.device.acquire_next_image_khr(
-        //         self.swapchain.swapchain,
-        //         u64::MAX,
-        //         wait_semaphore,
-        //         vk::Fence::null(),
-        //     )
-        // };
+        let result = self
+            .swapchain
+            .aquire_next_image(&self.device, wait_semaphore);
 
         let image_index = match result {
             Ok(image_index) => image_index as usize,
-            Err(vk::ErrorCode::OUT_OF_DATE_KHR) => return self.recreate_swapchain(window),
+            Err(vk::ErrorCode::OUT_OF_DATE_KHR) => return Err(VkError::SwapchainChanged),
             Err(e) => return Err(to_generic(e.to_string())),
         };
 
-        // let image_in_flight = self.images_in_flight[image_index];
-        // Wait for current image's command submission from previous frame?
-        // self.wait_for_fence(image_in_flight)?;
+        let in_flight_fence = self.swapchain.images_in_flight[image_index];
+        self.wait_for_fence(in_flight_fence)?;
 
-        let in_flight_fence = self.swapchain.images_in_flight[image_index];// = in_flight_fence;
+        Ok(image_index)
+    }
 
-        self.update_uniform_buffer(image_index)?;
+    pub fn end_frame(&mut self, image_index: usize) -> Result<bool, VkError> {
+        let wait_semaphore = self.image_available_semaphores[self.frame];
+        let in_flight_fence = self.swapchain.images_in_flight[image_index];
 
         let wait_semaphores = &[wait_semaphore];
         let wait_stages = &[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
@@ -207,15 +153,14 @@ impl VkInstance {
         };
         let changed = result == Ok(vk::SuccessCode::SUBOPTIMAL_KHR)
             || result == Err(vk::ErrorCode::OUT_OF_DATE_KHR);
-        if self.resized || changed {
-            self.resized = false;
-            self.recreate_swapchain(window)?;
-        } else if let Err(e) = result {
-            return Err(to_generic(e.to_string()));
+        if !changed {
+            if let Err(e) = result {
+                return Err(to_generic(e.to_string()));
+            }
         }
         self.frame = (self.frame + 1) % MAX_FRAMES_IN_FLIGHT;
 
-        Ok(())
+        Ok(changed)
     }
 
     fn wait_for_fence(&self, fence: Fence) -> Result<(), VkError> {
@@ -228,48 +173,11 @@ impl VkInstance {
         Ok(())
     }
 
-    fn update_uniform_buffer(&self, image_index: usize) -> Result<(), VkError> {
-        let time = self.start.elapsed().as_secs_f32();
-
-        let model = Mat4::from_axis_angle(vec3(0.0, 0.0, 1.0), Deg(90.0) * time);
-
-        let view = Mat4::look_at_rh(
-            point3::<f32>(2.0, 2.0, 2.0),
-            point3::<f32>(0.0, 0.0, 0.0),
-            vec3(0.0, 0.0, 1.0),
-        );
-
-        let mut proj = cgmath::perspective(
-            Deg(45.0),
-            self.swapchain.extent.width as f32 / self.swapchain.extent.height as f32,
-            0.1,
-            10.0,
-        );
-
-        proj[1][1] *= -1.0; // OGL legacy)
-
-        let ubo = UniformBufferObject { model, view, proj };
-        let buf_memory = self.uniform_buffers_memory[image_index];
-
-        self.copy_memory(
-            buf_memory,
-            0,
-            size_of::<UniformBufferObject>() as DeviceSize,
-            vk::MemoryMapFlags::empty(),
-            &ubo,
-            1,
-        )?;
-
-        Ok(())
-    }
-
-    fn recreate_swapchain(&mut self, window: &Window) -> Result<(), VkError> {
+    pub fn recreate_swapchain(&mut self, window: &Window) -> Result<(), VkError> {
         unsafe { self.device.device_wait_idle() }?;
         self.destroy_swapchain();
 
         self.init_swapchain(window)?;
-        self.init_pipeline()?;
-        self.init_uniform_buffers()?;
         self.init_descriptor_pool()?;
         self.init_descriptor_sets()?;
         self.init_command_buffers()?;
@@ -279,7 +187,6 @@ impl VkInstance {
 
     fn init_sync_objects(&mut self) -> Result<(), VkError> {
         let semaphore_info = vk::SemaphoreCreateInfo::builder();
-        let fence_info = vk::FenceCreateInfo::builder().flags(vk::FenceCreateFlags::SIGNALED);
 
         for _ in 0..MAX_FRAMES_IN_FLIGHT {
             self.image_available_semaphores
@@ -320,163 +227,7 @@ impl VkInstance {
         let device = &self.device;
         let command_buffers = unsafe { device.allocate_command_buffers(&allocate_info) }?;
 
-        // Commands
-
-        for (i, command_buffer) in command_buffers.iter().enumerate() {
-            let info = vk::CommandBufferBeginInfo::builder();
-
-            unsafe { device.begin_command_buffer(*command_buffer, &info) }?;
-
-            let render_area = vk::Rect2D::builder()
-                .offset(vk::Offset2D::default())
-                .extent(self.swapchain.extent);
-
-            let color_clear_value = vk::ClearValue {
-                color: vk::ClearColorValue {
-                    float32: [0.0, 0.0, 0.1, 1.0],
-                },
-            };
-
-            let clear_values = &[color_clear_value];
-            let info = vk::RenderPassBeginInfo::builder()
-                .render_pass(self.swapchain.render_pass)
-                .framebuffer(framebuffers[i])
-                .render_area(render_area)
-                .clear_values(clear_values);
-
-            unsafe {
-                device.cmd_begin_render_pass(*command_buffer, &info, vk::SubpassContents::INLINE);
-                device.cmd_bind_pipeline(
-                    *command_buffer,
-                    vk::PipelineBindPoint::GRAPHICS,
-                    self.pipeline.pipeline,
-                );
-
-                device.cmd_bind_vertex_buffers(*command_buffer, 0, &[self.vertex_buffer], &[0]);
-                device.cmd_bind_index_buffer(
-                    *command_buffer,
-                    self.index_buffer,
-                    0,
-                    vk::IndexType::UINT16,
-                );
-                device.cmd_bind_descriptor_sets(
-                    *command_buffer,
-                    vk::PipelineBindPoint::GRAPHICS,
-                    self.pipeline.layout,
-                    0,
-                    &[self.descriptor_sets[i]],
-                    &[],
-                );
-
-                device.cmd_draw_indexed(*command_buffer, INDICES.len() as u32, 1, 0, 0, 0);
-
-                device.cmd_end_render_pass(*command_buffer);
-                device.end_command_buffer(*command_buffer)?;
-            }
-        }
-
         self.command_buffers = command_buffers;
-
-        Ok(())
-    }
-
-    fn init_vertex_buffer(&mut self) -> Result<(), VkError> {
-        let size = (size_of::<Vertex>() * VERTICES.len()) as u64;
-
-        let (staging_buffer, staging_buffer_memory) = self.create_buffer(
-            size,
-            vk::BufferUsageFlags::TRANSFER_SRC,
-            vk::MemoryPropertyFlags::HOST_COHERENT | vk::MemoryPropertyFlags::HOST_VISIBLE,
-        )?;
-
-        let device = &self.device;
-
-        self.copy_memory(
-            staging_buffer_memory,
-            0,
-            size,
-            vk::MemoryMapFlags::empty(),
-            VERTICES.as_ptr(),
-            VERTICES.len(),
-        )?;
-
-        let (vertex_buffer, vertex_buffer_memory) = self.create_buffer(
-            size,
-            vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::VERTEX_BUFFER,
-            vk::MemoryPropertyFlags::DEVICE_LOCAL,
-        )?;
-
-        self.vertex_buffer = vertex_buffer;
-        self.vertex_buffer_memory = vertex_buffer_memory;
-
-        self.copy_buffer(staging_buffer, vertex_buffer, size)?;
-
-        unsafe {
-            device.destroy_buffer(staging_buffer, None);
-            device.free_memory(staging_buffer_memory, None);
-        }
-
-        Ok(())
-    }
-
-    fn init_index_buffer(&mut self) -> Result<(), VkError> {
-        // Create (staging)
-
-        let size = (size_of::<u16>() * INDICES.len()) as u64;
-
-        let (staging_buffer, staging_buffer_memory) = self.create_buffer(
-            size,
-            vk::BufferUsageFlags::TRANSFER_SRC,
-            vk::MemoryPropertyFlags::HOST_COHERENT | vk::MemoryPropertyFlags::HOST_VISIBLE,
-        )?;
-
-        let device = &self.device;
-
-        // Copy (staging)
-        self.copy_memory(
-            staging_buffer_memory,
-            0,
-            size,
-            vk::MemoryMapFlags::empty(),
-            INDICES.as_ptr(),
-            INDICES.len(),
-        )?;
-
-        // Create (index)
-
-        let (index_buffer, index_buffer_memory) = self.create_buffer(
-            size,
-            vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::INDEX_BUFFER,
-            vk::MemoryPropertyFlags::DEVICE_LOCAL,
-        )?;
-
-        self.index_buffer = index_buffer;
-        self.index_buffer_memory = index_buffer_memory;
-
-        self.copy_buffer(staging_buffer, index_buffer, size)?;
-
-        unsafe {
-            device.destroy_buffer(staging_buffer, None);
-            device.free_memory(staging_buffer_memory, None);
-        }
-
-        Ok(())
-    }
-
-    fn init_uniform_buffers(&mut self) -> Result<(), VkError> {
-        self.uniform_buffers.clear();
-        self.uniform_buffers_memory.clear();
-
-        for _ in 0..self.swapchain.images.len() {
-            let (uniform_buffer, uniform_buffer_memory) = self.create_buffer(
-                size_of::<UniformBufferObject>() as u64,
-                vk::BufferUsageFlags::UNIFORM_BUFFER,
-                vk::MemoryPropertyFlags::HOST_COHERENT | vk::MemoryPropertyFlags::HOST_VISIBLE,
-            )?;
-
-            self.uniform_buffers.push(uniform_buffer);
-            self.uniform_buffers_memory.push(uniform_buffer_memory);
-        }
 
         Ok(())
     }
@@ -493,16 +244,6 @@ impl VkInstance {
 
         self.descriptor_pool = unsafe { self.device.create_descriptor_pool(&info, None) }?;
 
-        Ok(())
-    }
-
-    fn init_pipeline(&mut self) -> Result<(), VkError> {
-        self.pipeline = Pipeline::new(
-            &self.device,
-            self.swapchain.extent,
-            self.swapchain.render_pass,
-            self.descriptor_set_layout,
-        )?;
         Ok(())
     }
 
@@ -523,8 +264,6 @@ impl VkInstance {
     }
 
     fn init_descriptor_sets(&mut self) -> Result<(), VkError> {
-        // Allocate
-
         let layouts = vec![self.descriptor_set_layout; self.swapchain.images.len()];
         let info = vk::DescriptorSetAllocateInfo::builder()
             .descriptor_pool(self.descriptor_pool)
@@ -532,32 +271,10 @@ impl VkInstance {
 
         self.descriptor_sets = unsafe { self.device.allocate_descriptor_sets(&info) }?;
 
-        // Update
-
-        for i in 0..self.swapchain.images.len() {
-            let info = vk::DescriptorBufferInfo::builder()
-                .buffer(self.uniform_buffers[i])
-                .offset(0)
-                .range(size_of::<UniformBufferObject>() as u64);
-
-            let buffer_info = &[info];
-            let ubo_write = vk::WriteDescriptorSet::builder()
-                .dst_set(self.descriptor_sets[i])
-                .dst_binding(0)
-                .dst_array_element(0)
-                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-                .buffer_info(buffer_info);
-
-            unsafe {
-                self.device
-                    .update_descriptor_sets(&[ubo_write], &[] as &[vk::CopyDescriptorSet])
-            };
-        }
-
         Ok(())
     }
 
-    fn copy_buffer(
+    pub fn copy_buffer(
         &self,
         source: vk::Buffer,
         destination: vk::Buffer,
@@ -620,7 +337,7 @@ impl VkInstance {
             .ok_or_else(|| to_generic("Failed to find suitable memory type."))
     }
 
-    fn create_buffer(
+    pub fn create_buffer(
         &self,
         size: vk::DeviceSize,
         usage: vk::BufferUsageFlags,
@@ -730,7 +447,7 @@ impl VkInstance {
         Ok(())
     }
 
-    fn copy_memory<T>(
+    pub fn copy_memory<T>(
         &self,
         dest: DeviceMemory,
         dest_offset: DeviceSize,
@@ -794,15 +511,8 @@ impl VkInstance {
         unsafe {
             self.device
                 .destroy_descriptor_pool(self.descriptor_pool, None);
-            self.uniform_buffers
-                .iter()
-                .for_each(|b| self.device.destroy_buffer(*b, None));
-            self.uniform_buffers_memory
-                .iter()
-                .for_each(|m| self.device.free_memory(*m, None));
             self.device
                 .free_command_buffers(self.command_pool, &self.command_buffers);
-            self.pipeline.destroy(&self.device);
             self.swapchain.destroy(&self.device);
         }
     }

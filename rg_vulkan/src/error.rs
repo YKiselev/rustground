@@ -1,7 +1,7 @@
 use snafu::Snafu;
 use vulkanalia::vk;
 
-#[derive(Debug, Snafu)]
+#[derive(Debug, Snafu, PartialEq)]
 pub enum VkError {
     #[snafu(display("Vulkan error code: {code}"))]
     VkErrorCode { code: i32 },
@@ -9,6 +9,8 @@ pub enum VkError {
     GenericError { cause: String },
     #[snafu(display("Suitability error: {cause}"))]
     SuitabilityError { cause: &'static str },
+    #[snafu(display("Swapchain has changed!"))]
+    SwapchainChanged,
 }
 
 impl From<vk::ErrorCode> for VkError {
