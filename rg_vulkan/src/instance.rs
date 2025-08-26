@@ -1,10 +1,13 @@
+use std::u64;
 
+use log::warn;
 use vulkanalia::{
     Device, Entry, Instance,
     vk::{
-        self, DeviceMemory, DeviceSize, DeviceV1_0, ExtDebugUtilsExtension, Fence, Handle,
-        HasBuilder, InstanceV1_0, KhrSurfaceExtension, KhrSwapchainExtension,
-        MemoryMapFlags, PhysicalDevice, Queue, SurfaceKHR,
+        self, CommandBuffer, CommandPoolCreateFlags, DeviceMemory, DeviceSize, DeviceV1_0,
+        ExtDebugUtilsExtension, Fence, FenceCreateFlags, Handle, HasBuilder, InstanceV1_0,
+        KhrSurfaceExtension, KhrSwapchainExtension, MemoryMapFlags, PhysicalDevice, Queue,
+        SurfaceKHR,
     },
     window,
 };
@@ -12,7 +15,7 @@ use winit::window::Window;
 
 use crate::{
     create_instance::create_instance,
-    device::{VALIDATION_ENABLED, create_logical_device, pick_physical_device},
+    device::{self, VALIDATION_ENABLED, create_logical_device, pick_physical_device},
     error::{VkError, to_generic},
     queue_family::QueueFamilyIndices,
     swapchain::Swapchain,
@@ -37,7 +40,8 @@ pub struct VkInstance {
     pub descriptor_pool: vk::DescriptorPool,
     pub descriptor_sets: Vec<vk::DescriptorSet>,
     pub command_buffers: Vec<vk::CommandBuffer>,
-    image_available_semaphores: Vec<vk::Semaphore>,
+    acquire_semaphores: Vec<vk::Semaphore>,
+    frame_fences: Vec<Fence>,
     frame: usize,
 }
 
@@ -62,7 +66,8 @@ impl VkInstance {
             descriptor_pool: Default::default(),
             descriptor_sets: vec![],
             command_buffers: vec![],
-            image_available_semaphores: vec![],
+            acquire_semaphores: vec![],
+            frame_fences: vec![],
             frame: 0,
         };
         result.init_swapchain(window)?;
@@ -78,15 +83,22 @@ impl VkInstance {
     pub fn destroy(&mut self) {
         unsafe {
             self.device.device_wait_idle().unwrap();
+            let _ = self.device
+                .wait_for_fences(&self.frame_fences, true, 1_000_000_000)
+                .inspect_err(|e| warn!("Failed to wait for all fences: {:?}", e));
 
             self.destroy_swapchain();
-
             let device = &self.device;
+
             device.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
 
-            self.image_available_semaphores
+            self.frame_fences
+                .iter()
+                .for_each(|f| device.destroy_fence(*f, None));
+            self.acquire_semaphores
                 .iter()
                 .for_each(|s| device.destroy_semaphore(*s, None));
+
             device.destroy_command_pool(self.command_pool, None);
             device.destroy_device(None);
             self.instance.destroy_surface_khr(self.surface, None);
@@ -101,31 +113,32 @@ impl VkInstance {
     }
 
     pub fn begin_frame(&mut self) -> Result<usize, VkError> {
-        let wait_semaphore = self.image_available_semaphores[self.frame];
+        let fence = self.frame_fences[self.frame];
+        let fences = &[fence];
+        unsafe {
+            self.device.wait_for_fences(fences, true, u64::MAX)?;
+            self.device.reset_fences(fences)?;
+        };
+
+        let acquire_semaphore = self.acquire_semaphores[self.frame];
         let result = self
             .swapchain
-            .aquire_next_image(&self.device, wait_semaphore);
+            .aquire_next_image(&self.device, acquire_semaphore);
 
         let image_index = match result {
             Ok(image_index) => image_index as usize,
             Err(vk::ErrorCode::OUT_OF_DATE_KHR) => return Err(VkError::SwapchainChanged),
             Err(e) => return Err(to_generic(e.to_string())),
         };
-
-        let in_flight_fence = self.swapchain.images_in_flight[image_index];
-        self.wait_for_fence(in_flight_fence)?;
-
         Ok(image_index)
     }
 
     pub fn end_frame(&mut self, image_index: usize) -> Result<bool, VkError> {
-        let wait_semaphore = self.image_available_semaphores[self.frame];
-        let in_flight_fence = self.swapchain.images_in_flight[image_index];
-
-        let wait_semaphores = &[wait_semaphore];
+        let acquire_semaphore = self.acquire_semaphores[self.frame];
+        let wait_semaphores = &[acquire_semaphore];
         let wait_stages = &[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
         let command_buffers = &[self.command_buffers[image_index]];
-        let signal_semaphores = &[self.swapchain.render_finished[image_index]];
+        let signal_semaphores = &[self.swapchain.submit_semaphores[image_index]];
         let submit_info = vk::SubmitInfo::builder()
             .wait_semaphores(wait_semaphores)
             .wait_dst_stage_mask(wait_stages)
@@ -133,11 +146,10 @@ impl VkInstance {
             .signal_semaphores(signal_semaphores);
 
         unsafe {
-            let fences = &[in_flight_fence];
-            self.device.reset_fences(fences)?;
+            let fence = self.frame_fences[self.frame];
             let infos = &[submit_info];
             self.device
-                .queue_submit(self.graphics_queue, infos, in_flight_fence)?;
+                .queue_submit(self.graphics_queue, infos, fence)?;
         }
 
         let swapchains = &[self.swapchain.swapchain];
@@ -151,6 +163,8 @@ impl VkInstance {
             self.device
                 .queue_present_khr(self.present_queue, &present_info)
         };
+        self.frame = (self.frame + 1) % MAX_FRAMES_IN_FLIGHT;
+
         let changed = result == Ok(vk::SuccessCode::SUBOPTIMAL_KHR)
             || result == Err(vk::ErrorCode::OUT_OF_DATE_KHR);
         if !changed {
@@ -158,19 +172,8 @@ impl VkInstance {
                 return Err(to_generic(e.to_string()));
             }
         }
-        self.frame = (self.frame + 1) % MAX_FRAMES_IN_FLIGHT;
 
         Ok(changed)
-    }
-
-    fn wait_for_fence(&self, fence: Fence) -> Result<(), VkError> {
-        if !fence.is_null() {
-            unsafe {
-                let fences = &[fence];
-                self.device.wait_for_fences(fences, true, u64::MAX)?;
-            }
-        }
-        Ok(())
     }
 
     pub fn recreate_swapchain(&mut self, window: &Window) -> Result<(), VkError> {
@@ -187,10 +190,13 @@ impl VkInstance {
 
     fn init_sync_objects(&mut self) -> Result<(), VkError> {
         let semaphore_info = vk::SemaphoreCreateInfo::builder();
+        let fence_info = vk::FenceCreateInfo::builder().flags(FenceCreateFlags::SIGNALED);
 
         for _ in 0..MAX_FRAMES_IN_FLIGHT {
-            self.image_available_semaphores
+            self.acquire_semaphores
                 .push(unsafe { self.device.create_semaphore(&semaphore_info, None) }?);
+            self.frame_fences
+                .push(unsafe { self.device.create_fence(&fence_info, None) }?);
         }
 
         Ok(())
@@ -211,7 +217,9 @@ impl VkInstance {
     fn init_command_pool(&mut self) -> Result<(), VkError> {
         let indices = QueueFamilyIndices::get(&self.instance, self.surface, self.physical_device)?;
 
-        let info = vk::CommandPoolCreateInfo::builder().queue_family_index(indices.graphics);
+        let info = vk::CommandPoolCreateInfo::builder()
+            .queue_family_index(indices.graphics)
+            .flags(CommandPoolCreateFlags::RESET_COMMAND_BUFFER);
 
         self.command_pool = unsafe { self.device.create_command_pool(&info, None) }?;
         Ok(())

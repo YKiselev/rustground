@@ -103,16 +103,17 @@ extern "system" fn debug_callback(
     _: *mut c_void,
 ) -> vk::Bool32 {
     let data = unsafe { *data };
+    let id_name = unsafe { CStr::from_ptr(data.message_id_name).to_string_lossy() };
     let message = unsafe { CStr::from_ptr(data.message) }.to_string_lossy();
 
     if severity >= vk::DebugUtilsMessageSeverityFlagsEXT::ERROR {
-        error!("({:?}) {}", type_, message);
+        error!("({:?}, {:?}) {}", type_, id_name, message);
     } else if severity >= vk::DebugUtilsMessageSeverityFlagsEXT::WARNING {
-        warn!("({:?}) {}", type_, message);
+        warn!("({:?}, {:?}) {}", type_, id_name, message);
     } else if severity >= vk::DebugUtilsMessageSeverityFlagsEXT::INFO {
-        debug!("({:?}) {}", type_, message);
+        debug!("({:?}, {:?}) {}", type_, id_name, message);
     } else {
-        trace!("({:?}) {}", type_, message);
+        trace!("({:?}, {:?}) {}", type_, id_name, message);
     }
 
     vk::FALSE

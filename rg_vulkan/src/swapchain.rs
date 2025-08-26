@@ -19,8 +19,7 @@ pub(crate) struct Swapchain {
     pub views: Vec<ImageView>,
     pub render_pass: RenderPass,
     pub framebuffers: Vec<Framebuffer>,
-    pub images_in_flight: Vec<vk::Fence>,
-    pub render_finished: Vec<vk::Semaphore>,
+    pub submit_semaphores: Vec<vk::Semaphore>,
 }
 
 impl Swapchain {
@@ -88,17 +87,13 @@ impl Swapchain {
             views,
             render_pass,
             framebuffers,
-            images_in_flight,
-            render_finished,
+            submit_semaphores: render_finished,
         })
     }
 
     pub fn destroy(&mut self, device: &Device) {
         unsafe {
-            self.images_in_flight
-                .iter()
-                .for_each(|f| device.destroy_fence(*f, None));
-            self.render_finished
+            self.submit_semaphores
                 .iter()
                 .for_each(|s| device.destroy_semaphore(*s, None));
 
@@ -113,24 +108,15 @@ impl Swapchain {
         }
     }
 
-    pub fn aquire_next_image(&self, device: &Device, wait_semaphore: Semaphore) -> VkResult<u32> {
+    pub fn aquire_next_image(&self, device: &Device, acquire_semaphore: Semaphore) -> VkResult<u32> {
         let (image_index, _) = unsafe {
             device.acquire_next_image_khr(
                 self.swapchain,
                 u64::MAX,
-                wait_semaphore,
+                acquire_semaphore,
                 vk::Fence::null(),
             )
         }?;
-
-        let image_in_flight = self.images_in_flight[image_index as usize];
-        // Wait for current image's command submission from previous frame?
-        if !image_in_flight.is_null() {
-            unsafe {
-                let fences = &[image_in_flight];
-                device.wait_for_fences(fences, true, u64::MAX)?;
-            }
-        }
         Ok(image_index)
     }
 }
