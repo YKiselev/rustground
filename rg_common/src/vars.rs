@@ -33,21 +33,21 @@ pub trait FromStrMutator {
     fn set_from_str(&mut self, sp: &mut Split<&str>, value: &str) -> Result<(), VariableError>;
 }
 
+type VarBagLock = RwLock<Box<dyn VarBag + Send + Sync>>;
+type VarBagRef = Weak<VarBagLock>;
+type VarBagMap = HashMap<String, VarBagRef>;
+
 #[derive(Debug)]
-pub struct VarRegistry {
-    root: Mutex<HashMap<String, Weak<RwLock<Box<dyn VarBag>>>>>,
-}
+pub struct VarRegistry(Mutex<VarBagMap>);
 
 impl VarRegistry {
     pub const DELIMITER: &'static str = "::";
 
     pub fn new() -> Self {
-        Self {
-            root: Mutex::new(Default::default()),
-        }
+        Self(Mutex::new(Default::default()))
     }
 
-    pub fn add(&self, name: String, part: &Arc<RwLock<Box<dyn VarBag>>>) -> Result<(), VarRegistryError> {
+    pub fn add(&self, name: String, part: &Arc<VarBagLock>) -> Result<(), VarRegistryError> {
         let mut guard = self.lock().ok_or(VarRegistryError::LockFailed)?;
         match guard.entry(name) {
             Entry::Occupied(_) => Err(VarRegistryError::AlreadyExists),
@@ -58,8 +58,8 @@ impl VarRegistry {
         }
     }
 
-    fn lock(&self) -> Option<MutexGuard<HashMap<String, Weak<RwLock<Box<dyn VarBag>>>>>> {
-        self.root.lock().ok()
+    fn lock(&self) -> Option<MutexGuard<VarBagMap>> {
+        self.0.lock().ok()
     }
 
     pub fn try_get_value<S>(&self, name: S) -> Option<String>
@@ -70,7 +70,7 @@ impl VarRegistry {
         let guard = self.lock()?;
         let arc = guard.get(sp.next()?)?.upgrade()?;
         let v_guard = arc.read().ok()?;
-        let mut v = Variable::from(v_guard.deref().deref());
+        let mut v = Variable::from(v_guard.deref());
 
         loop {
             match v {
@@ -302,7 +302,7 @@ mod test {
             speed: 234.567,
             sub: MoreTestVars { speed: 220.0 },
         };
-        let root: Box<dyn VarBag> = Box::new(root);
+        let root: Box<dyn VarBag + Send + Sync> = Box::new(root);
         let arc = Arc::new(RwLock::new(root));
         reg.add("root".to_owned(), &arc).unwrap();
         assert_eq!("my name", reg.try_get_value("root::name").unwrap());

@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 use std::fmt::{Display, Formatter};
+use std::ops::Deref;
 
 use crate::vars::Variable;
 use crate::VarBag;
@@ -107,15 +108,9 @@ impl<'a, T: VarBag> From<&'a mut T> for Variable<'a> {
     }
 }
 
-impl<'a> From<&'a dyn VarBag> for Variable<'a> {
-    fn from(value: &'a dyn VarBag) -> Self {
-        Variable::VarBag(value)
-    }
-}
-
-impl<'a> From<&'a mut dyn VarBag> for Variable<'a> {
-    fn from(value: &'a mut dyn VarBag) -> Self {
-        Variable::VarBag(value)
+impl<'a> From<&'a Box<dyn VarBag + Send + Sync>> for Variable<'a> {
+    fn from(value: &'a Box<dyn VarBag + Send + Sync>) -> Self {
+        Variable::VarBag(value.deref())
     }
 }
 

@@ -1,4 +1,4 @@
-use std::{env, fmt::Error, process::Command};
+use std::{env, process::Command};
 
 fn main() {
     if let Some(mut vulkan_sdk) = env::var_os("VULKAN_SDK") {
