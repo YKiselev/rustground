@@ -1,5 +1,4 @@
 use std::{
-    any::Any,
     collections::HashMap,
     str::FromStr,
     sync::{Arc, Mutex, PoisonError, Weak},
@@ -380,8 +379,11 @@ mod test {
             Ok(())
         })
         .unwrap();
-        b.add("wow3", |a: bool, b: String| {
-            println!("It works: {a},{b}");
+        let counter = Arc::new(Mutex::new(0));
+        let cloned = Arc::clone(&counter);
+        b.add("wow3", move |a: bool, b: String| {
+            println!("It works: {a}, {b}, {}", cloned.lock().unwrap());
+            *cloned.lock().unwrap() += 1;
             Ok(())
         })
         .unwrap();

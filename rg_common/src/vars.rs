@@ -1,15 +1,16 @@
 use std::borrow::Cow;
+use std::collections::hash_map::Entry;
+use std::collections::HashMap;
 use std::error::Error;
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::iter::Peekable;
 use std::ops::Deref;
 use std::str::Split;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, RwLock, Weak};
 
 use snafu::Snafu;
 
 use crate::vars::VarRegistryError::VarError;
-use crate::VariableError::NotFound;
 
 pub enum Variable<'a> {
     VarBag(&'a dyn VarBag),
@@ -32,33 +33,45 @@ pub trait FromStrMutator {
     fn set_from_str(&mut self, sp: &mut Split<&str>, value: &str) -> Result<(), VariableError>;
 }
 
-#[derive(Default, Debug)]
-pub struct VarRegistry<T>
-where
-    T: VarBag,
-{
-    data: Option<Arc<Mutex<T>>>,
+#[derive(Debug)]
+pub struct VarRegistry {
+    root: Mutex<HashMap<String, Weak<RwLock<Box<dyn VarBag>>>>>,
 }
 
-impl<T: VarBag> VarRegistry<T> {
+impl VarRegistry {
     pub const DELIMITER: &'static str = "::";
 
-    pub fn new(data: Arc<Mutex<T>>) -> Self {
-        VarRegistry { data: Some(data) }
+    pub fn new() -> Self {
+        Self {
+            root: Mutex::new(Default::default()),
+        }
     }
 
-    pub fn set_data(&mut self, config: Arc<Mutex<T>>) {
-        self.data = Some(config);
+    pub fn add(&self, name: String, part: &Arc<RwLock<Box<dyn VarBag>>>) -> Result<(), VarRegistryError> {
+        let mut guard = self.lock().ok_or(VarRegistryError::LockFailed)?;
+        match guard.entry(name) {
+            Entry::Occupied(_) => Err(VarRegistryError::AlreadyExists),
+            Entry::Vacant(entry) => {
+                entry.insert(Arc::downgrade(part));
+                Ok(())
+            }
+        }
     }
 
-    fn lock_data(&self) -> Option<MutexGuard<T>> {
-        self.data.as_ref()?.lock().ok()
+    fn lock(&self) -> Option<MutexGuard<HashMap<String, Weak<RwLock<Box<dyn VarBag>>>>>> {
+        self.root.lock().ok()
     }
 
-    pub fn try_get_value(&self, name: &str) -> Option<String> {
-        let guard = self.lock_data()?;
-        let mut v = Variable::from(guard.deref());
-        let mut sp = name.split(Self::DELIMITER);
+    pub fn try_get_value<S>(&self, name: S) -> Option<String>
+    where
+        S: AsRef<str>,
+    {
+        let mut sp = name.as_ref().split(Self::DELIMITER);
+        let guard = self.lock()?;
+        let arc = guard.get(sp.next()?)?.upgrade()?;
+        let v_guard = arc.read().ok()?;
+        let mut v = Variable::from(v_guard.deref().deref());
+
         loop {
             match v {
                 Variable::VarBag(bag) => {
@@ -105,58 +118,84 @@ impl<T: VarBag> VarRegistry<T> {
 
     pub fn try_set_value(&self, name: &str, value: &str) -> Result<(), VarRegistryError> {
         let mut sp = name.split(Self::DELIMITER);
-        let mut guard = self.lock_data().ok_or(VarRegistryError::LockFailed)?;
-        guard.try_set_var(&mut sp, value)?;
+        let guard = self.lock().ok_or(VarRegistryError::LockFailed)?;
+        let key = sp.next().ok_or(not_found())?;
+        let arc = guard
+            .get(key)
+            .ok_or(not_found())?
+            .upgrade()
+            .ok_or(not_found())?;
+        arc.write()
+            .map_err(|_| VarRegistryError::LockFailed)?
+            .try_set_var(&mut sp, value)?;
         Ok(())
-    }
-
-    fn filter_names(
-        owner: &dyn VarBag,
-        sp: &mut Peekable<Split<&str>>,
-        prefix: &str,
-        result: &mut Vec<String>,
-    ) {
-        if let Some(part) = sp.next() {
-            if part.is_empty() {
-                return;
-            }
-            for var_name in owner.get_vars() {
-                if !var_name.starts_with(part) {
-                    continue;
-                }
-                if let Some(v) = owner.try_get_var(&var_name) {
-                    let local_prefix = if !prefix.is_empty() {
-                        prefix.to_string() + Self::DELIMITER + &var_name
-                    } else {
-                        var_name.clone()
-                    };
-                    if sp.peek().is_none() {
-                        result.push(local_prefix.clone());
-                    }
-                    match v {
-                        Variable::VarBag(value) => {
-                            Self::filter_names(value, sp, local_prefix.as_str(), result)
-                        }
-                        _ => {}
-                    }
-                }
-            }
-        }
     }
 
     pub fn complete(&self, part: &str) -> Option<Vec<String>> {
         let mut sp = part.split(Self::DELIMITER).peekable();
-        self.lock_data().map(|guard| {
-            let mut result = Vec::new();
-            Self::filter_names(guard.deref(), &mut sp, "", &mut result);
-            result
-        })
+        let bag_name = sp.next()?;
+        let guard = self.lock()?;
+        let mut result = Vec::new();
+        for (key, value) in guard.iter() {
+            if !bag_name.is_empty() && !key.starts_with(bag_name) {
+                continue;
+            }
+            if let Some(arc) = value.upgrade() {
+                if let Ok(lr) = arc.read() {
+                    let start = result.len();
+                    filter_names(lr.deref().deref(), &mut sp, "", &mut result);
+                    for v in result[start..].iter_mut() {
+                        *v = key.clone() + VarRegistry::DELIMITER + v;
+                    }
+                }
+            }
+        }
+        Some(result)
+    }
+}
+
+fn not_found() -> VarRegistryError {
+    VarRegistryError::VarError(VariableError::NotFound)
+}
+
+fn filter_names(
+    owner: &dyn VarBag,
+    sp: &mut Peekable<Split<&str>>,
+    prefix: &str,
+    result: &mut Vec<String>,
+) {
+    if let Some(part) = sp.next() {
+        if part.is_empty() {
+            return;
+        }
+        for var_name in owner.get_vars() {
+            if !var_name.starts_with(part) {
+                continue;
+            }
+            if let Some(v) = owner.try_get_var(&var_name) {
+                let local_prefix = if !prefix.is_empty() {
+                    prefix.to_string() + VarRegistry::DELIMITER + &var_name
+                } else {
+                    var_name.clone()
+                };
+                if sp.peek().is_none() {
+                    result.push(local_prefix.clone());
+                }
+                match v {
+                    Variable::VarBag(value) => {
+                        filter_names(value, sp, local_prefix.as_str(), result)
+                    }
+                    _ => {}
+                }
+            }
+        }
     }
 }
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum VarRegistryError {
     VarError(VariableError),
+    AlreadyExists,
     LockFailed,
 }
 
@@ -169,6 +208,7 @@ impl Display for VarRegistryError {
             VarRegistryError::LockFailed => {
                 write!(f, "Lock failed!")
             }
+            VarRegistryError::AlreadyExists => write!(f, "Already exists!"),
         }
     }
 }
@@ -189,13 +229,26 @@ pub enum VariableError {
     NotFound,
 }
 
+impl Debug for dyn VarBag {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let mut ds = f.debug_struct("VarBag");
+        for name in self.get_vars() {
+            ds.field(
+                &name,
+                &self.try_get_var(&name)
+                    .map(|v| v.to_string())
+                    .unwrap_or("".to_owned()),
+            );
+        }
+        ds.finish()
+    }
+}
 
 #[cfg(test)]
 mod test {
-    use std::collections::HashSet;
     use std::fmt::Debug;
     use std::str::Split;
-    use std::sync::{Arc, Mutex};
+    use std::sync::{Arc, RwLock};
 
     use rg_macros::VarBag;
 
@@ -224,11 +277,6 @@ mod test {
             speed: 345.466,
             sub: MoreTestVars { speed: 330.0 },
         };
-        let infos = v
-            .get_vars()
-            .into_iter()
-            //.map(|v| (v.name, true))
-            .collect::<HashSet<_>>();
 
         assert_eq!("false", v.try_get_var("flag").unwrap().to_string());
         assert_eq!("123", v.try_get_var("counter").unwrap().to_string());
@@ -246,29 +294,31 @@ mod test {
 
     #[test]
     fn var_registry() {
-        let mut reg = VarRegistry::default();
-        let root = Arc::new(Mutex::new(TestVars {
+        let reg = VarRegistry::new();
+        let root = TestVars {
             counter: 123,
             flag: false,
             name: "my name".to_string(),
             speed: 234.567,
             sub: MoreTestVars { speed: 220.0 },
-        }));
-        reg.set_data(root);
-        assert_eq!("my name", reg.try_get_value("name").unwrap());
-        assert_eq!("123", reg.try_get_value("counter").unwrap());
-        assert_eq!("234.567", reg.try_get_value("speed").unwrap());
-        assert_eq!("false", reg.try_get_value("flag").unwrap());
-        assert_eq!("220", reg.try_get_value("sub::speed").unwrap());
+        };
+        let root: Box<dyn VarBag> = Box::new(root);
+        let arc = Arc::new(RwLock::new(root));
+        reg.add("root".to_owned(), &arc).unwrap();
+        assert_eq!("my name", reg.try_get_value("root::name").unwrap());
+        assert_eq!("123", reg.try_get_value("root::counter").unwrap());
+        assert_eq!("234.567", reg.try_get_value("root::speed").unwrap());
+        assert_eq!("false", reg.try_get_value("root::flag").unwrap());
+        assert_eq!("220", reg.try_get_value("root::sub::speed").unwrap());
 
-        reg.try_set_value("sub::speed", "5").unwrap();
-        assert_eq!("5", reg.try_get_value("sub::speed").unwrap());
+        reg.try_set_value("root::sub::speed", "5").unwrap();
+        assert_eq!("5", reg.try_get_value("root::sub::speed").unwrap());
 
-        let v = reg.complete("s").unwrap();
-        assert_eq!(v, ["speed", "sub"]);
+        let v = reg.complete("::s").unwrap();
+        assert_eq!(v, ["root::speed", "root::sub"]);
 
-        let v = reg.complete("s::s").unwrap();
-        assert_eq!(v, ["sub::speed"]);
+        let v = reg.complete("::s::s").unwrap();
+        assert_eq!(v, ["root::sub::speed"]);
     }
 
     #[derive(Debug, VarBag)]

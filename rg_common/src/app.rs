@@ -16,7 +16,7 @@ pub struct App {
     pub started_at: Instant,
     pub config: Arc<Mutex<Config>>,
     pub files: Arc<Mutex<AppFiles>>,
-    pub vars: VarRegistry<Config>,
+    pub vars: VarRegistry,
     pub commands: CommandRegistry,
 }
 
@@ -31,7 +31,7 @@ impl App {
             started_at: Instant::now(),
             config: cfg.clone(),
             files: Arc::new(Mutex::new(files)),
-            vars: VarRegistry::new(cfg),
+            vars: VarRegistry::new(),
             commands: CommandRegistry::default(),
         }
     }

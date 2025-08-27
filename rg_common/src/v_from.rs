@@ -107,6 +107,18 @@ impl<'a, T: VarBag> From<&'a mut T> for Variable<'a> {
     }
 }
 
+impl<'a> From<&'a dyn VarBag> for Variable<'a> {
+    fn from(value: &'a dyn VarBag) -> Self {
+        Variable::VarBag(value)
+    }
+}
+
+impl<'a> From<&'a mut dyn VarBag> for Variable<'a> {
+    fn from(value: &'a mut dyn VarBag) -> Self {
+        Variable::VarBag(value)
+    }
+}
+
 impl From<&f64> for Variable<'_> {
     fn from(value: &f64) -> Self {
         Variable::Float(*value)

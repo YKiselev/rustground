@@ -4,7 +4,7 @@ use log::warn;
 use vulkanalia::{
     Device, Entry, Instance,
     vk::{
-        self, CommandBuffer, CommandPoolCreateFlags, DeviceMemory, DeviceSize, DeviceV1_0,
+        self, CommandPoolCreateFlags, DeviceMemory, DeviceSize, DeviceV1_0,
         ExtDebugUtilsExtension, Fence, FenceCreateFlags, Handle, HasBuilder, InstanceV1_0,
         KhrSurfaceExtension, KhrSwapchainExtension, MemoryMapFlags, PhysicalDevice, Queue,
         SurfaceKHR,
@@ -15,7 +15,7 @@ use winit::window::Window;
 
 use crate::{
     create_instance::create_instance,
-    device::{self, VALIDATION_ENABLED, create_logical_device, pick_physical_device},
+    device::{VALIDATION_ENABLED, create_logical_device, pick_physical_device},
     error::{VkError, to_generic},
     queue_family::QueueFamilyIndices,
     swapchain::Swapchain,
