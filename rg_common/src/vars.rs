@@ -33,8 +33,8 @@ pub trait FromStrMutator {
     fn set_from_str(&mut self, sp: &mut Split<&str>, value: &str) -> Result<(), VariableError>;
 }
 
-type VarBagLock = RwLock<Box<dyn VarBag + Send + Sync>>;
-type VarBagRef = Weak<VarBagLock>;
+type VarBagBox = Box<dyn VarBag + Send + Sync>;
+type VarBagRef = Weak<RwLock<VarBagBox>>;
 type VarBagMap = HashMap<String, VarBagRef>;
 
 #[derive(Debug)]
@@ -47,10 +47,17 @@ impl VarRegistry {
         Self(Mutex::new(Default::default()))
     }
 
-    pub fn add(&self, name: String, part: &Arc<VarBagLock>) -> Result<(), VarRegistryError> {
+    pub fn add(&self, name: String, part: &Arc<RwLock<VarBagBox>>) -> Result<(), VarRegistryError> {
         let mut guard = self.lock().ok_or(VarRegistryError::LockFailed)?;
         match guard.entry(name) {
-            Entry::Occupied(_) => Err(VarRegistryError::AlreadyExists),
+            Entry::Occupied(mut entry) => {
+                if entry.get().upgrade().is_some() {
+                    Err(VarRegistryError::AlreadyExists)
+                } else {
+                    entry.insert(Arc::downgrade(part));
+                    Ok(())
+                }
+            }
             Entry::Vacant(entry) => {
                 entry.insert(Arc::downgrade(part));
                 Ok(())
@@ -235,13 +242,22 @@ impl Debug for dyn VarBag {
         for name in self.get_vars() {
             ds.field(
                 &name,
-                &self.try_get_var(&name)
+                &self
+                    .try_get_var(&name)
                     .map(|v| v.to_string())
                     .unwrap_or("".to_owned()),
             );
         }
         ds.finish()
     }
+}
+
+pub fn wrap_var_bag<T>(value: T) -> Arc<RwLock<VarBagBox>>
+where
+    T: VarBag + Send + Sync + 'static,
+{
+    let boxed: VarBagBox = Box::new(value);
+    Arc::new(RwLock::new(boxed))
 }
 
 #[cfg(test)]
@@ -252,7 +268,7 @@ mod test {
 
     use rg_macros::VarBag;
 
-    use crate::vars::{FromStrMutator, VarBag, VarRegistry, Variable};
+    use super::*;
 
     #[derive(VarBag, Default)]
     struct TestVars {
@@ -295,15 +311,13 @@ mod test {
     #[test]
     fn var_registry() {
         let reg = VarRegistry::new();
-        let root = TestVars {
+        let arc = wrap_var_bag(TestVars {
             counter: 123,
             flag: false,
             name: "my name".to_string(),
             speed: 234.567,
             sub: MoreTestVars { speed: 220.0 },
-        };
-        let root: Box<dyn VarBag + Send + Sync> = Box::new(root);
-        let arc = Arc::new(RwLock::new(root));
+        });
         reg.add("root".to_owned(), &arc).unwrap();
         assert_eq!("my name", reg.try_get_value("root::name").unwrap());
         assert_eq!("123", reg.try_get_value("root::counter").unwrap());
@@ -319,6 +333,44 @@ mod test {
 
         let v = reg.complete("::s::s").unwrap();
         assert_eq!(v, ["root::sub::speed"]);
+
+        assert_eq!(
+            Err(VarRegistryError::AlreadyExists),
+            reg.add("root".to_owned(), &arc)
+        );
+    }
+
+    #[test]
+    fn var_registry_weak_refs() {
+        let reg = VarRegistry::new();
+        {
+            let arc = wrap_var_bag(TestVars {
+                counter: 123,
+                flag: false,
+                name: "my name".to_string(),
+                speed: 234.567,
+                sub: MoreTestVars { speed: 220.0 },
+            });
+            reg.add("root".to_owned(), &arc).unwrap();
+            assert_eq!("my name", reg.try_get_value("root::name").unwrap());
+            assert_eq!(
+                Err(VarRegistryError::AlreadyExists),
+                reg.add("root".to_owned(), &arc)
+            );
+        }
+        let arc = wrap_var_bag(TestVars {
+            counter: 123,
+            flag: false,
+            name: "new name".to_string(),
+            speed: 234.567,
+            sub: MoreTestVars { speed: 220.0 },
+        });
+        reg.add("root".to_owned(), &arc).unwrap();
+        assert_eq!("new name", reg.try_get_value("root::name").unwrap());
+        assert_eq!(
+            Err(VarRegistryError::AlreadyExists),
+            reg.add("root".to_owned(), &arc)
+        );
     }
 
     #[derive(Debug, VarBag)]
