@@ -1,6 +1,7 @@
 use std::borrow::Cow;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::convert::Infallible;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 use std::iter::Peekable;
@@ -9,6 +10,7 @@ use std::str::Split;
 use std::sync::{Arc, Mutex, MutexGuard, RwLock, Weak};
 
 use snafu::Snafu;
+use toml::{Table, Value};
 
 use crate::vars::VarRegistryError::VarError;
 
@@ -27,29 +29,48 @@ pub trait VarBag {
     fn try_get_var(&self, name: &str) -> Option<Variable<'_>>;
 
     fn try_set_var(&mut self, sp: &mut Split<&str>, value: &str) -> Result<(), VariableError>;
+
+    fn populate(&mut self, value: Value) -> Result<(), VariableError>;
 }
 
 pub trait FromStrMutator {
     fn set_from_str(&mut self, sp: &mut Split<&str>, value: &str) -> Result<(), VariableError>;
 }
 
+pub trait FromValue : Sized {
+    fn from_value(value: Value) -> Result<Self, VariableError>;
+}
+
 type VarBagBox = Box<dyn VarBag + Send + Sync>;
 type VarBagRef = Weak<RwLock<VarBagBox>>;
 type VarBagMap = HashMap<String, VarBagRef>;
 
+#[derive(Debug, Default)]
+struct InnerData {
+    vars: VarBagMap,
+    table: Table,
+}
+
 #[derive(Debug)]
-pub struct VarRegistry(Mutex<VarBagMap>);
+pub struct VarRegistry(Mutex<InnerData>);
 
 impl VarRegistry {
     pub const DELIMITER: &'static str = "::";
 
     pub fn new() -> Self {
-        Self(Mutex::new(Default::default()))
+        Self(Mutex::new(InnerData::default()))
+    }
+
+    pub fn set_table(&self, table: Table) -> Result<(), VarRegistryError> {
+        let mut guard = self.lock().ok_or(VarRegistryError::LockFailed)?;
+        guard.table = table;
+        Ok(())
     }
 
     pub fn add(&self, name: String, part: &Arc<RwLock<VarBagBox>>) -> Result<(), VarRegistryError> {
         let mut guard = self.lock().ok_or(VarRegistryError::LockFailed)?;
-        match guard.entry(name) {
+        sync_with_table(&guard.table, name.as_str(), part)?;
+        match guard.vars.entry(name) {
             Entry::Occupied(mut entry) => {
                 if entry.get().upgrade().is_some() {
                     Err(VarRegistryError::AlreadyExists)
@@ -65,7 +86,7 @@ impl VarRegistry {
         }
     }
 
-    fn lock(&self) -> Option<MutexGuard<VarBagMap>> {
+    fn lock(&self) -> Option<MutexGuard<InnerData>> {
         self.0.lock().ok()
     }
 
@@ -75,7 +96,7 @@ impl VarRegistry {
     {
         let mut sp = name.as_ref().split(Self::DELIMITER);
         let guard = self.lock()?;
-        let arc = guard.get(sp.next()?)?.upgrade()?;
+        let arc = guard.vars.get(sp.next()?)?.upgrade()?;
         let v_guard = arc.read().ok()?;
         let mut v = Variable::from(v_guard.deref());
 
@@ -128,6 +149,7 @@ impl VarRegistry {
         let guard = self.lock().ok_or(VarRegistryError::LockFailed)?;
         let key = sp.next().ok_or(not_found())?;
         let arc = guard
+            .vars
             .get(key)
             .ok_or(not_found())?
             .upgrade()
@@ -143,7 +165,7 @@ impl VarRegistry {
         let bag_name = sp.next()?;
         let guard = self.lock()?;
         let mut result = Vec::new();
-        for (key, value) in guard.iter() {
+        for (key, value) in guard.vars.iter() {
             if !bag_name.is_empty() && !key.starts_with(bag_name) {
                 continue;
             }
@@ -159,6 +181,18 @@ impl VarRegistry {
         }
         Some(result)
     }
+}
+
+fn sync_with_table(
+    table: &Table,
+    name: &str,
+    part: &Arc<RwLock<VarBagBox>>,
+) -> Result<(), VarRegistryError> {
+    if let Some(sub_table) = table.get(name) {
+        let s = toml::to_string(sub_table)
+            .map_err(|_| VarRegistryError::VarError(VariableError::ParsingError))?;
+    }
+    Ok(())
 }
 
 fn not_found() -> VarRegistryError {
@@ -236,6 +270,12 @@ pub enum VariableError {
     NotFound,
 }
 
+impl From<Infallible> for VariableError {
+    fn from(value: Infallible) -> Self {
+        VariableError::NotFound
+    }
+}
+
 impl Debug for dyn VarBag {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let mut ds = f.debug_struct("VarBag");
@@ -267,10 +307,11 @@ mod test {
     use std::sync::{Arc, RwLock};
 
     use rg_macros::VarBag;
+    use serde::Deserialize;
 
     use super::*;
 
-    #[derive(VarBag, Default)]
+    #[derive(VarBag, Default, Deserialize)]
     struct TestVars {
         counter: i32,
         flag: bool,
@@ -279,7 +320,7 @@ mod test {
         sub: MoreTestVars,
     }
 
-    #[derive(VarBag, Default)]
+    #[derive(VarBag, Default, Deserialize)]
     struct MoreTestVars {
         speed: f32,
     }
@@ -306,6 +347,32 @@ mod test {
         assert_eq!("true", v.try_get_var("flag").unwrap().to_string());
         assert_eq!("321", v.try_get_var("counter").unwrap().to_string());
         assert_eq!("New name", v.try_get_var("name").unwrap().to_string());
+    }
+
+    #[test]
+    fn var_bag_populate() {
+        let mut v = TestVars {
+            flag: false,
+            counter: 123,
+            name: "some name".to_string(),
+            speed: 345.466,
+            sub: MoreTestVars { speed: 330.0 },
+        };
+
+        let value = toml::from_str::<Value>(r#"
+        flag = true
+        counter = 10
+        name = "Void"
+        speed = 1.5
+        sub.speed = 8.7
+        "#).unwrap();
+        v.populate(value).unwrap();
+
+        assert_eq!("true", v.try_get_var("flag").unwrap().to_string());
+        assert_eq!("10", v.try_get_var("counter").unwrap().to_string());
+        assert_eq!("Void", v.try_get_var("name").unwrap().to_string());
+        assert_eq!("1.5", v.try_get_var("speed").unwrap().to_string());
+        assert_eq!("8.7", v.try_get_var("sub::speed").unwrap().to_string());
     }
 
     #[test]
@@ -373,13 +440,46 @@ mod test {
         );
     }
 
-    #[derive(Debug, VarBag)]
+    #[test]
+    fn var_registry_table() {
+        let reg = VarRegistry::new();
+        let arc = wrap_var_bag(TestVars {
+            counter: 123,
+            flag: false,
+            name: "new name".to_string(),
+            speed: 234.567,
+            sub: MoreTestVars { speed: 220.0 },
+        });
+        let table = toml::from_str(
+            r#"
+[root]
+counter = 777
+flag = true
+name = "from table!"
+speed = 3.555
+
+[root.sub]
+speed = 110.0
+        "#,
+        )
+        .unwrap();
+        reg.set_table(table).unwrap();
+        reg.add("root".to_owned(), &arc).unwrap();
+
+        assert_eq!("777", reg.try_get_value("root::counter").unwrap());
+        assert_eq!("true", reg.try_get_value("root::flag").unwrap());
+        assert_eq!("from table!", reg.try_get_value("root::name").unwrap());
+        assert_eq!("3.555", reg.try_get_value("root::speed").unwrap());
+        assert_eq!("110.0", reg.try_get_value("root::sub::speed").unwrap());
+    }
+
+    #[derive(Debug, VarBag, Deserialize)]
     struct Sub {
         name: String,
         counter: i32,
     }
 
-    #[derive(VarBag)]
+    #[derive(VarBag, Deserialize)]
     struct Outer {
         sub: Sub,
         speed: f32,

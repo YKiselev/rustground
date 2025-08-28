@@ -16,6 +16,10 @@ pub(crate) fn define_var_bag(input: DeriveInput) -> TokenStream {
     match &input.data {
         Data::Struct(syn::DataStruct { fields, .. }) => {
             let ids = fields.iter().map(|f| f.ident.as_ref().unwrap()).collect::<Vec<_>>();
+            let types = fields.iter().map(|f| {
+                let ty = &f.ty;
+                quote!(#ty)
+            }).collect::<Vec<_>>();
             quote! {
                 #[automatically_derived]
                 impl rg_common::VarBag for #struct_identifier {
@@ -39,12 +43,30 @@ pub(crate) fn define_var_bag(input: DeriveInput) -> TokenStream {
                         use rg_common::FromStrMutator;
 
                         let part = sp.next().ok_or(rg_common::VariableError::NotFound)?;
+
                         match part {
                             #(stringify!(#ids) => {
                                 self.#ids.set_from_str(sp, value)?;
                                 Ok(())
                             },)*
                             _ => Err(rg_common::VariableError::NotFound)
+                        }
+                    }
+
+                    fn populate(&mut self, value: toml::Value) -> Result<(), rg_common::VariableError> {
+                        use toml::Value;
+                        use rg_common::FromValue;
+
+                        match value {
+                            Value::Table(map) => {
+                                #(
+                                if let Some(v) = map.get(stringify!(#ids)) {
+                                    self.#ids = <#types as FromValue>::from_value(v.clone())?;
+                                }
+                                )*
+                                Ok(())
+                            },
+                            _ => Err(rg_common::VariableError::ParsingError)
                         }
                     }
                 }

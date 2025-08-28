@@ -11,7 +11,7 @@ pub fn var_bag(input: TokenStream) -> TokenStream {
     define_var_bag(syn::parse_macro_input!(input as syn::DeriveInput))
 }
 
-#[proc_macro_derive(SliceAdapter)]
-pub fn slice_adapter(input: TokenStream) -> TokenStream {
-    define_slice_adapter(syn::parse_macro_input!(input as syn::DeriveInput))
-}
+// #[proc_macro_derive(SliceAdapter)]
+// pub fn slice_adapter(input: TokenStream) -> TokenStream {
+//     define_slice_adapter(syn::parse_macro_input!(input as syn::DeriveInput))
+// }
