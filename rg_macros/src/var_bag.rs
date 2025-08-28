@@ -32,9 +32,15 @@ pub(crate) fn define_var_bag(input: DeriveInput) -> TokenStream {
                         result
                     }
 
-                    fn try_get_var(&self, name: &str) -> Option<rg_common::Variable<'_>> {
-                        match name {
-                            #(stringify!(#ids) => Some(rg_common::Variable::from(&self.#ids)),)*
+                    fn try_get_var(&self, sp: &mut std::str::Split<&str>) -> Option<rg_common::Variable<'_>> {
+                        let name = sp.next();
+                        if name.is_none() {
+                            return Some(rg_common::Variable::from(self));
+                        }
+                        match name.unwrap() {
+                            #(
+                                stringify!(#ids) => rg_common::Variable::from(&self.#ids).try_get_var(sp),
+                            )*
                             _ => None
                         }
                     }

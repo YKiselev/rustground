@@ -23,10 +23,25 @@ pub enum Variable<'a> {
     None,
 }
 
+impl<'a> Variable<'a> {
+    pub fn try_get_var(self, sp: &mut Split<&str>) -> Option<Variable<'a>> {
+        match &self {
+            Variable::VarBag(bag) => bag.try_get_var(sp),
+            _ => {
+                if sp.next().is_some() {
+                    None
+                } else {
+                    Some(self)
+                }
+            }
+        }
+    }
+}
+
 pub trait VarBag {
     fn get_vars(&self) -> Vec<String>;
 
-    fn try_get_var(&self, name: &str) -> Option<Variable<'_>>;
+    fn try_get_var(&self, sp: &mut Split<&str>) -> Option<Variable<'_>>;
 
     fn try_set_var(&mut self, sp: &mut Split<&str>, value: &str) -> Result<(), VariableError>;
 
@@ -37,7 +52,7 @@ pub trait FromStrMutator {
     fn set_from_str(&mut self, sp: &mut Split<&str>, value: &str) -> Result<(), VariableError>;
 }
 
-pub trait FromValue : Sized {
+pub trait FromValue: Sized {
     fn from_value(value: Value) -> Result<Self, VariableError>;
 }
 
@@ -98,47 +113,45 @@ impl VarRegistry {
         let guard = self.lock()?;
         let arc = guard.vars.get(sp.next()?)?.upgrade()?;
         let v_guard = arc.read().ok()?;
-        let mut v = Variable::from(v_guard.deref());
+        let v = Variable::from(v_guard.deref()).try_get_var(&mut sp)?;
 
-        loop {
-            match v {
-                Variable::VarBag(bag) => {
-                    v = bag.try_get_var(sp.next()?)?;
+        match v {
+            Variable::VarBag(_) => {
+                None
+            }
+            Variable::String(s) => {
+                return if sp.next().is_none() {
+                    Some(s.to_string())
+                } else {
+                    None
                 }
-                Variable::String(s) => {
-                    return if sp.next().is_none() {
-                        Some(s.to_string())
-                    } else {
-                        None
-                    };
+            }
+            Variable::Integer(i) => {
+                if sp.next().is_none() {
+                    Some(i.to_string())
+                } else {
+                    None
                 }
-                Variable::Integer(i) => {
-                    return if sp.next().is_none() {
-                        Some(i.to_string())
-                    } else {
-                        None
-                    };
+            }
+            Variable::Float(f) => {
+                if sp.next().is_none() {
+                    Some(f.to_string())
+                } else {
+                    None
                 }
-                Variable::Float(f) => {
-                    return if sp.next().is_none() {
-                        Some(f.to_string())
-                    } else {
-                        None
-                    };
+            }
+            Variable::Boolean(b) => {
+                if sp.next().is_none() {
+                    Some(b.to_string())
+                } else {
+                    None
                 }
-                Variable::Boolean(b) => {
-                    return if sp.next().is_none() {
-                        Some(b.to_string())
-                    } else {
-                        None
-                    };
-                }
-                Variable::None => {
-                    return if sp.next().is_none() {
-                        Some("None".to_string())
-                    } else {
-                        None
-                    };
+            }
+            Variable::None => {
+                if sp.next().is_none() {
+                    Some("None".to_string())
+                } else {
+                    None
                 }
             }
         }
@@ -189,8 +202,8 @@ fn sync_with_table(
     part: &Arc<RwLock<VarBagBox>>,
 ) -> Result<(), VarRegistryError> {
     if let Some(sub_table) = table.get(name) {
-        let s = toml::to_string(sub_table)
-            .map_err(|_| VarRegistryError::VarError(VariableError::ParsingError))?;
+        let mut guard = part.write().map_err(|_| VarRegistryError::LockFailed)?;
+        guard.populate(sub_table.clone())?;
     }
     Ok(())
 }
@@ -213,7 +226,7 @@ fn filter_names(
             if !var_name.starts_with(part) {
                 continue;
             }
-            if let Some(v) = owner.try_get_var(&var_name) {
+            if let Some(v) = owner.try_get_var(&mut var_name.split(VarRegistry::DELIMITER)) {
                 let local_prefix = if !prefix.is_empty() {
                     prefix.to_string() + VarRegistry::DELIMITER + &var_name
                 } else {
@@ -271,26 +284,26 @@ pub enum VariableError {
 }
 
 impl From<Infallible> for VariableError {
-    fn from(value: Infallible) -> Self {
+    fn from(_: Infallible) -> Self {
         VariableError::NotFound
     }
 }
 
-impl Debug for dyn VarBag {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let mut ds = f.debug_struct("VarBag");
-        for name in self.get_vars() {
-            ds.field(
-                &name,
-                &self
-                    .try_get_var(&name)
-                    .map(|v| v.to_string())
-                    .unwrap_or("".to_owned()),
-            );
-        }
-        ds.finish()
-    }
-}
+// impl Debug for dyn VarBag {
+//     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+//         let mut ds = f.debug_struct("VarBag");
+//         for name in self.get_vars() {
+//             ds.field(
+//                 &name,
+//                 &self
+//                     .try_get_var(&name)
+//                     .map(|v| v.to_string())
+//                     .unwrap_or("".to_owned()),
+//             );
+//         }
+//         ds.finish()
+//     }
+// }
 
 pub fn wrap_var_bag<T>(value: T) -> Arc<RwLock<VarBagBox>>
 where
@@ -325,6 +338,10 @@ mod test {
         speed: f32,
     }
 
+    fn sp(value: &str) -> Split<'_, &str> {
+        value.split(VarRegistry::DELIMITER)
+    }
+
     #[test]
     fn var_bag() {
         let mut v = TestVars {
@@ -335,18 +352,18 @@ mod test {
             sub: MoreTestVars { speed: 330.0 },
         };
 
-        assert_eq!("false", v.try_get_var("flag").unwrap().to_string());
-        assert_eq!("123", v.try_get_var("counter").unwrap().to_string());
-        assert_eq!("some name", v.try_get_var("name").unwrap().to_string());
-        assert!(v.try_get_var("unknown").is_none());
+        assert_eq!("false", v.try_get_var(&mut sp("flag")).unwrap().to_string());
+        assert_eq!("123", v.try_get_var(&mut sp("counter")).unwrap().to_string());
+        assert_eq!("some name", v.try_get_var(&mut sp("name")).unwrap().to_string());
+        assert!(v.try_get_var(&mut sp("unknown")).is_none());
 
-        v.try_set_var(&mut "flag".split("::"), "true").unwrap();
-        v.try_set_var(&mut "name".split("::"), "New name").unwrap();
-        v.try_set_var(&mut "counter".split("::"), "321").unwrap();
+        v.try_set_var(&mut sp("flag"), "true").unwrap();
+        v.try_set_var(&mut sp("name"), "New name").unwrap();
+        v.try_set_var(&mut sp("counter"), "321").unwrap();
 
-        assert_eq!("true", v.try_get_var("flag").unwrap().to_string());
-        assert_eq!("321", v.try_get_var("counter").unwrap().to_string());
-        assert_eq!("New name", v.try_get_var("name").unwrap().to_string());
+        assert_eq!("true", v.try_get_var(&mut sp("flag")).unwrap().to_string());
+        assert_eq!("321", v.try_get_var(&mut sp("counter")).unwrap().to_string());
+        assert_eq!("New name", v.try_get_var(&mut sp("name")).unwrap().to_string());
     }
 
     #[test]
@@ -359,20 +376,23 @@ mod test {
             sub: MoreTestVars { speed: 330.0 },
         };
 
-        let value = toml::from_str::<Value>(r#"
+        let value = toml::from_str::<Value>(
+            r#"
         flag = true
         counter = 10
         name = "Void"
         speed = 1.5
-        sub.speed = 8.7
-        "#).unwrap();
+        sub.speed = 8.5
+        "#,
+        )
+        .unwrap();
         v.populate(value).unwrap();
 
-        assert_eq!("true", v.try_get_var("flag").unwrap().to_string());
-        assert_eq!("10", v.try_get_var("counter").unwrap().to_string());
-        assert_eq!("Void", v.try_get_var("name").unwrap().to_string());
-        assert_eq!("1.5", v.try_get_var("speed").unwrap().to_string());
-        assert_eq!("8.7", v.try_get_var("sub::speed").unwrap().to_string());
+        assert_eq!("true", v.try_get_var(&mut sp("flag")).unwrap().to_string());
+        assert_eq!("10", v.try_get_var(&mut sp("counter")).unwrap().to_string());
+        assert_eq!("Void", v.try_get_var(&mut sp("name")).unwrap().to_string());
+        assert_eq!("1.5", v.try_get_var(&mut sp("speed")).unwrap().to_string());
+        assert_eq!("8.5", v.try_get_var(&mut sp("sub::speed")).unwrap().to_string());
     }
 
     #[test]
@@ -459,7 +479,7 @@ name = "from table!"
 speed = 3.555
 
 [root.sub]
-speed = 110.0
+speed = 110.5
         "#,
         )
         .unwrap();
@@ -470,7 +490,7 @@ speed = 110.0
         assert_eq!("true", reg.try_get_value("root::flag").unwrap());
         assert_eq!("from table!", reg.try_get_value("root::name").unwrap());
         assert_eq!("3.555", reg.try_get_value("root::speed").unwrap());
-        assert_eq!("110.0", reg.try_get_value("root::sub::speed").unwrap());
+        assert_eq!("110.5", reg.try_get_value("root::sub::speed").unwrap());
     }
 
     #[derive(Debug, VarBag, Deserialize)]
