@@ -1,5 +1,4 @@
 use std::num::{ParseFloatError, ParseIntError};
-use std::ops::DerefMut;
 use std::str::{FromStr, ParseBoolError, Split};
 
 use rg_common::VarBag;
@@ -14,7 +13,7 @@ macro_rules! impl_parsing_error_from {
     ( $($t:ty),* ) => {
         $(
             impl From<$t> for VariableError {
-                fn from(_: $t) -> Self {
+                fn from(e: $t) -> Self {
                     VariableError::ParsingError
                 }
             }
@@ -44,30 +43,6 @@ macro_rules! impl_from_str_mutator {
 }
 
 impl_from_str_mutator! { i32, i64, u32, u64, usize, f32, f64, bool, String }
-
-// impl FromStrMutator for String {
-//     fn set_from_str(&mut self, sp: &mut Split<&str>, value: &str) -> Result<(), VariableError> {
-//         if sp.next().is_some() {
-//             return Err(VariableError::NotFound);
-//         }
-//         *self = value.to_string();
-//         Ok(())
-//     }
-// }
-
-// impl FromStrMutator for Option<String> {
-//     fn set_from_str(&mut self, sp: &mut Split<&str>, value: &str) -> Result<(), VariableError> {
-//         if sp.next().is_some() {
-//             return Err(VariableError::NotFound);
-//         }
-//         *self = if "None" != value {
-//             Some(value.to_string())
-//         } else {
-//             None
-//         };
-//         Ok(())
-//     }
-// }
 
 impl<T: FromStr> FromStrMutator for Option<T> {
     fn set_from_str(&mut self, sp: &mut Split<&str>, value: &str) -> Result<(), VariableError> {

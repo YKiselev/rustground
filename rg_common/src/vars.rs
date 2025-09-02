@@ -9,6 +9,8 @@ use std::ops::Deref;
 use std::str::Split;
 use std::sync::{Arc, Mutex, MutexGuard, RwLock, Weak};
 
+use log::warn;
+use serde::Serialize;
 use snafu::Snafu;
 use toml::{Table, Value};
 
@@ -38,7 +40,25 @@ impl<'a> Variable<'a> {
     }
 }
 
-pub trait VarBag {
+pub trait ToToml {
+    fn to_toml(&self) -> Result<Value, VariableError>;
+}
+
+impl<T> ToToml for T
+where
+    T: Serialize,
+{
+    fn to_toml(&self) -> Result<Value, VariableError> {
+        let value = toml::to_string(self).map_err(|e| VariableError::TomlError {
+            cause: e.to_string(),
+        })?;
+        toml::from_str::<Value>(&value).map_err(|e| VariableError::TomlError {
+            cause: e.to_string(),
+        })
+    }
+}
+
+pub trait VarBag: ToToml {
     fn get_vars(&self) -> Vec<String>;
 
     fn try_get_var(&self, sp: &mut Split<&str>) -> Option<Variable<'_>>;
@@ -56,7 +76,7 @@ pub trait FromValue: Sized {
     fn from_value(value: Value) -> Result<Self, VariableError>;
 }
 
-type VarBagBox = Box<dyn VarBag + Send + Sync>;
+type VarBagBox = dyn VarBag + Send + Sync;
 type VarBagRef = Weak<RwLock<VarBagBox>>;
 type VarBagMap = HashMap<String, VarBagRef>;
 
@@ -66,20 +86,46 @@ struct InnerData {
     table: Table,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct VarRegistry(Mutex<InnerData>);
 
 impl VarRegistry {
     pub const DELIMITER: &'static str = "::";
 
-    pub fn new() -> Self {
-        Self(Mutex::new(InnerData::default()))
+    pub fn new(table: Option<Table>) -> Self {
+        if table.is_some() {
+            Self(Mutex::new(InnerData {
+                table: table.unwrap(),
+                ..Default::default()
+            }))
+        } else {
+            Self::default()
+        }
     }
 
     pub fn set_table(&self, table: Table) -> Result<(), VarRegistryError> {
         let mut guard = self.lock().ok_or(VarRegistryError::LockFailed)?;
         guard.table = table;
         Ok(())
+    }
+
+    pub fn to_toml(&self) -> Result<Table, VarRegistryError> {
+        let guard = self.lock().ok_or(VarRegistryError::LockFailed)?;
+        let mut table = Table::new();
+        for (name, part) in guard.vars.iter() {
+            if let Some(arc) = part.upgrade() {
+                let part_guard = arc.read().map_err(|_| VarRegistryError::LockFailed)?;
+                match part_guard.to_toml() {
+                    Ok(v) => {
+                        table.insert(name.clone(), v);
+                    }
+                    Err(e) => {
+                        warn!("Serialization failed: {}", e);
+                    }
+                }
+            }
+        }
+        Ok(table)
     }
 
     pub fn add(&self, name: String, part: &Arc<RwLock<VarBagBox>>) -> Result<(), VarRegistryError> {
@@ -116,9 +162,7 @@ impl VarRegistry {
         let v = Variable::from(v_guard.deref()).try_get_var(&mut sp)?;
 
         match v {
-            Variable::VarBag(_) => {
-                None
-            }
+            Variable::VarBag(_) => None,
             Variable::String(s) => {
                 return if sp.next().is_none() {
                     Some(s.to_string())
@@ -185,7 +229,7 @@ impl VarRegistry {
             if let Some(arc) = value.upgrade() {
                 if let Ok(lr) = arc.read() {
                     let start = result.len();
-                    filter_names(lr.deref().deref(), &mut sp, "", &mut result);
+                    filter_names(lr.deref(), &mut sp, "", &mut result);
                     for v in result[start..].iter_mut() {
                         *v = key.clone() + VarRegistry::DELIMITER + v;
                     }
@@ -251,6 +295,7 @@ pub enum VarRegistryError {
     VarError(VariableError),
     AlreadyExists,
     LockFailed,
+    TomlError(toml::ser::Error),
 }
 
 impl Display for VarRegistryError {
@@ -263,6 +308,7 @@ impl Display for VarRegistryError {
                 write!(f, "Lock failed!")
             }
             VarRegistryError::AlreadyExists => write!(f, "Already exists!"),
+            VarRegistryError::TomlError(error) => write!(f, "{}", error),
         }
     }
 }
@@ -275,12 +321,18 @@ impl From<VariableError> for VarRegistryError {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Ord, PartialOrd, Clone, Snafu)]
+#[derive(Debug, PartialEq, Eq, Clone, Snafu)]
 pub enum VariableError {
     #[snafu(display("Parsing failed"))]
     ParsingError,
+    #[snafu(display("Deserialization failed: {e}"))]
+    DeserializationError{ e: toml::de::Error },
     #[snafu(display("Not found"))]
     NotFound,
+    #[snafu(display("TOML error: {cause}"))]
+    TomlError { cause: String },
+    #[snafu(display("Expected Table got {value_kind}"))]
+    TableExpected { value_kind: String },
 }
 
 impl From<Infallible> for VariableError {
@@ -309,33 +361,39 @@ pub fn wrap_var_bag<T>(value: T) -> Arc<RwLock<VarBagBox>>
 where
     T: VarBag + Send + Sync + 'static,
 {
-    let boxed: VarBagBox = Box::new(value);
-    Arc::new(RwLock::new(boxed))
+    Arc::new(RwLock::new(value))
 }
 
 #[cfg(test)]
 mod test {
     use std::fmt::Debug;
     use std::str::Split;
-    use std::sync::{Arc, RwLock};
 
     use rg_macros::VarBag;
     use serde::Deserialize;
 
     use super::*;
 
-    #[derive(VarBag, Default, Deserialize)]
+    #[derive(VarBag, Default, Serialize, Deserialize)]
     struct TestVars {
         counter: i32,
         flag: bool,
         name: String,
         speed: f64,
+        #[serde(default)]
         sub: MoreTestVars,
     }
 
-    #[derive(VarBag, Default, Deserialize)]
+    #[derive(VarBag, Default, Serialize, Deserialize)]
     struct MoreTestVars {
         speed: f32,
+        #[serde(default)]
+        deep: DeepOne,
+    }
+
+    #[derive(VarBag, Default, Serialize, Deserialize)]
+    struct DeepOne {
+        key: String,
     }
 
     fn sp(value: &str) -> Split<'_, &str> {
@@ -349,12 +407,23 @@ mod test {
             counter: 123,
             name: "some name".to_string(),
             speed: 345.466,
-            sub: MoreTestVars { speed: 330.0 },
+            sub: MoreTestVars {
+                speed: 330.0,
+                deep: DeepOne {
+                    key: "()".to_owned(),
+                },
+            },
         };
 
         assert_eq!("false", v.try_get_var(&mut sp("flag")).unwrap().to_string());
-        assert_eq!("123", v.try_get_var(&mut sp("counter")).unwrap().to_string());
-        assert_eq!("some name", v.try_get_var(&mut sp("name")).unwrap().to_string());
+        assert_eq!(
+            "123",
+            v.try_get_var(&mut sp("counter")).unwrap().to_string()
+        );
+        assert_eq!(
+            "some name",
+            v.try_get_var(&mut sp("name")).unwrap().to_string()
+        );
         assert!(v.try_get_var(&mut sp("unknown")).is_none());
 
         v.try_set_var(&mut sp("flag"), "true").unwrap();
@@ -362,8 +431,14 @@ mod test {
         v.try_set_var(&mut sp("counter"), "321").unwrap();
 
         assert_eq!("true", v.try_get_var(&mut sp("flag")).unwrap().to_string());
-        assert_eq!("321", v.try_get_var(&mut sp("counter")).unwrap().to_string());
-        assert_eq!("New name", v.try_get_var(&mut sp("name")).unwrap().to_string());
+        assert_eq!(
+            "321",
+            v.try_get_var(&mut sp("counter")).unwrap().to_string()
+        );
+        assert_eq!(
+            "New name",
+            v.try_get_var(&mut sp("name")).unwrap().to_string()
+        );
     }
 
     #[test]
@@ -373,7 +448,10 @@ mod test {
             counter: 123,
             name: "some name".to_string(),
             speed: 345.466,
-            sub: MoreTestVars { speed: 330.0 },
+            sub: MoreTestVars {
+                speed: 330.0,
+                ..Default::default()
+            },
         };
 
         let value = toml::from_str::<Value>(
@@ -383,6 +461,7 @@ mod test {
         name = "Void"
         speed = 1.5
         sub.speed = 8.5
+        sub.deep.key = "Yep"
         "#,
         )
         .unwrap();
@@ -392,18 +471,24 @@ mod test {
         assert_eq!("10", v.try_get_var(&mut sp("counter")).unwrap().to_string());
         assert_eq!("Void", v.try_get_var(&mut sp("name")).unwrap().to_string());
         assert_eq!("1.5", v.try_get_var(&mut sp("speed")).unwrap().to_string());
-        assert_eq!("8.5", v.try_get_var(&mut sp("sub::speed")).unwrap().to_string());
+        assert_eq!(
+            "8.5",
+            v.try_get_var(&mut sp("sub::speed")).unwrap().to_string()
+        );
     }
 
     #[test]
     fn var_registry() {
-        let reg = VarRegistry::new();
+        let reg = VarRegistry::default();
         let arc = wrap_var_bag(TestVars {
             counter: 123,
             flag: false,
             name: "my name".to_string(),
             speed: 234.567,
-            sub: MoreTestVars { speed: 220.0 },
+            sub: MoreTestVars {
+                speed: 220.0,
+                ..Default::default()
+            },
         });
         reg.add("root".to_owned(), &arc).unwrap();
         assert_eq!("my name", reg.try_get_value("root::name").unwrap());
@@ -429,14 +514,17 @@ mod test {
 
     #[test]
     fn var_registry_weak_refs() {
-        let reg = VarRegistry::new();
+        let reg = VarRegistry::default();
         {
             let arc = wrap_var_bag(TestVars {
                 counter: 123,
                 flag: false,
                 name: "my name".to_string(),
                 speed: 234.567,
-                sub: MoreTestVars { speed: 220.0 },
+                sub: MoreTestVars {
+                    speed: 220.0,
+                    ..Default::default()
+                },
             });
             reg.add("root".to_owned(), &arc).unwrap();
             assert_eq!("my name", reg.try_get_value("root::name").unwrap());
@@ -450,7 +538,12 @@ mod test {
             flag: false,
             name: "new name".to_string(),
             speed: 234.567,
-            sub: MoreTestVars { speed: 220.0 },
+            sub: MoreTestVars {
+                speed: 220.0,
+                deep: DeepOne {
+                    key: "Key1".to_owned(),
+                },
+            },
         });
         reg.add("root".to_owned(), &arc).unwrap();
         assert_eq!("new name", reg.try_get_value("root::name").unwrap());
@@ -462,14 +555,18 @@ mod test {
 
     #[test]
     fn var_registry_table() {
-        let reg = VarRegistry::new();
+        let reg = VarRegistry::default();
         let arc = wrap_var_bag(TestVars {
             counter: 123,
             flag: false,
             name: "new name".to_string(),
             speed: 234.567,
-            sub: MoreTestVars { speed: 220.0 },
+            sub: MoreTestVars {
+                speed: 220.0,
+                ..Default::default()
+            },
         });
+
         let table = toml::from_str(
             r#"
 [root]
@@ -491,15 +588,18 @@ speed = 110.5
         assert_eq!("from table!", reg.try_get_value("root::name").unwrap());
         assert_eq!("3.555", reg.try_get_value("root::speed").unwrap());
         assert_eq!("110.5", reg.try_get_value("root::sub::speed").unwrap());
+
+        let toml = reg.to_toml().unwrap();
+        println!("Registry table looks like that:\n{}\n===", toml);
     }
 
-    #[derive(Debug, VarBag, Deserialize)]
+    #[derive(Debug, VarBag, Serialize, Deserialize)]
     struct Sub {
         name: String,
         counter: i32,
     }
 
-    #[derive(VarBag, Deserialize)]
+    #[derive(VarBag, Serialize, Deserialize)]
     struct Outer {
         sub: Sub,
         speed: f32,

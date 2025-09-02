@@ -7,14 +7,13 @@ use log::info;
 use rg_common::arguments::Arguments;
 use rg_common::{AppFiles, CommandRegistry, VarRegistry};
 
-use rg_common::config::Config;
+use crate::config::load_config;
 
 #[derive(Debug)]
 pub struct App {
     pub arguments: Arguments,
     pub exit_flag: AtomicBool,
     pub started_at: Instant,
-    pub config: Arc<Mutex<Config>>,
     pub files: Arc<Mutex<AppFiles>>,
     pub vars: VarRegistry,
     pub commands: CommandRegistry,
@@ -23,15 +22,14 @@ pub struct App {
 impl App {
     pub fn new(args: Arguments) -> Self {
         let mut files = AppFiles::new(&args);
-        let cfg = Arc::new(Mutex::new(Config::load("config.toml", &mut files)));
-        info!("Loaded config: {:?}", cfg.lock().unwrap());
+        let cfg = load_config("config.toml", &mut files);
+        info!("Loaded config: {:?}", &cfg);
         Self {
             arguments: args,
             exit_flag: AtomicBool::new(false),
             started_at: Instant::now(),
-            config: cfg.clone(),
             files: Arc::new(Mutex::new(files)),
-            vars: VarRegistry::new(),
+            vars: VarRegistry::new(cfg),
             commands: CommandRegistry::default(),
         }
     }
@@ -42,5 +40,9 @@ impl App {
 
     pub fn elapsed(&self) -> Duration {
         self.started_at.elapsed()
+    }
+
+    pub fn load_config() {
+        
     }
 }

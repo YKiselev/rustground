@@ -51,7 +51,6 @@ impl ClientNetwork {
         info!("Starting client...");
         let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0).into())
             .expect("Unable to create client socket!");
-        //let _ = app.config().lock()?;
         Ok(ClientNetwork {
             socket,
             send_bufs: VecDeque::new(),
@@ -203,30 +202,26 @@ impl Plugin for ClientNetwork {
                 let state = self.state;
                 match state {
                     ClientState::Disconnected => {
-                        match app.config.lock() { Ok(cfg_guard) => {
-                            if let Some(addr) = cfg_guard.server.bound_to.as_ref() {
-                                if let Ok(addr) = addr.parse::<SocketAddr>() {
-                                    match self.socket.connect(addr) {
-                                        Ok(_) => {
-                                            info!("Client socket connected to {}", addr);
-                                            self.state = ClientState::AwaitingAcceptance;
-                                            self.server_props.addr = Some(addr);
-                                            self.server_props.password =
-                                                cfg_guard.server.password.clone();
-                                        }
-                                        Err(e) => {
-                                            error!("Unable to connect socket: {}", e);
-                                        }
+                        if let Some(addr) = app.vars.try_get_value("server::bound_to") {
+                            if let Ok(addr) = addr.parse::<SocketAddr>() {
+                                match self.socket.connect(addr) {
+                                    Ok(_) => {
+                                        info!("Client socket connected to {}", addr);
+                                        self.state = ClientState::AwaitingAcceptance;
+                                        self.server_props.addr = Some(addr);
+                                        self.server_props.password =
+                                            app.vars.try_get_value("server::password");
                                     }
-                                } else {
-                                    warn!("Unable to parse socket address: {}", addr);
+                                    Err(e) => {
+                                        error!("Unable to connect socket: {}", e);
+                                    }
                                 }
                             } else {
-                                warn!("Server not bound yet?");
+                                warn!("Unable to parse socket address: {}", addr);
                             }
-                        } _ => {
-                            warn!("Unable to lock configuration!");
-                        }}
+                        } else {
+                            warn!("Server not bound yet?");
+                        }
                     }
                     ClientState::AwaitingAcceptance => {
                         let _ = if !self.server_props.key.is_some() {

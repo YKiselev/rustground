@@ -72,7 +72,7 @@ pub(crate) fn define_var_bag(input: DeriveInput) -> TokenStream {
                                 )*
                                 Ok(())
                             },
-                            _ => Err(rg_common::VariableError::ParsingError)
+                            _ => Err(rg_common::VariableError::TableExpected{ value_kind: value.to_string() })
                         }
                     }
                 }

@@ -1,14 +1,18 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::sync::RwLock;
 
 use log::{debug, info, warn};
 use rg_common::App;
+use rg_macros::VarBag;
 use rg_net::process_buf;
 use rg_net::read_connect;
 use rg_net::read_hello;
 use rg_net::read_ping;
 use rg_net::NetBufReader;
 use rg_net::PacketKind;
+use serde::Deserialize;
+use serde::Serialize;
 
 use crate::error::AppError;
 use crate::server::key_pair::KeyPair;
@@ -57,10 +61,10 @@ struct ServerState {
 }
 
 impl ServerState {
-    fn new(app: &App) -> Result<Self, AppError> {
+    fn new(app: &App, config: &Arc<RwLock<ServerConfig>>) -> Result<Self, AppError> {
         info!("Starting server...");
-        let mut cfg_guard = app.config.lock()?;
-        let cfg = &mut cfg_guard.server;
+        let mut cfg_guard = config.write()?;
+        let cfg = &mut cfg_guard;
         let addr: SocketAddr = cfg.address.parse()?;
         let poll_thread = ServerPoll::new(addr)?;
         let security = ServerSecurity::new(cfg.key_bits, &cfg.password)?;
@@ -133,25 +137,34 @@ impl ServerState {
     }
 }
 
-#[derive(Default)]
-pub(crate) struct Server(Option<ServerState>);
+#[derive(Debug, Serialize, Deserialize, VarBag, Default)]
+pub struct ServerConfig {
+    pub address: String,
+    #[serde(skip_serializing)]
+    pub bound_to: Option<String>,
+    pub key_bits: usize,
+    pub password: Option<String>,
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct Server(Arc<RwLock<ServerConfig>>, Option<ServerState>);
 
 impl Server {
     pub fn init(&mut self, app: &Arc<App>) -> Result<(), AppError> {
-        if self.0.is_none() {
-            self.0 = Some(ServerState::new(app)?);
+        if self.1.is_none() {
+            self.1 = Some(ServerState::new(app, &self.0)?);
         }
         Ok(())
     }
 
     pub fn shutdown(&mut self) {
-        if let Some(s) = self.0.take() {
+        if let Some(s) = self.1.take() {
             s.shutdow();
         }
     }
 
     pub(crate) fn update(&mut self) -> Result<(), AppError> {
-        self.0
+        self.1
             .as_mut()
             .map(|state| state.update())
             .unwrap_or(Ok(()))
