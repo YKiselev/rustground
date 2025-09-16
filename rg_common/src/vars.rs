@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex, MutexGuard, RwLock, Weak};
 use log::warn;
 use serde::Serialize;
 use snafu::Snafu;
+use toml::ser::Buffer;
 use toml::{Table, Value};
 
 use crate::vars::VarRegistryError::VarError;
@@ -58,7 +59,7 @@ where
     }
 }
 
-pub trait VarBag: ToToml {
+pub trait VarBag: ToToml + erased_serde::Serialize {
     fn get_vars(&self) -> Vec<String>;
 
     fn try_get_var(&self, sp: &mut Split<&str>) -> Option<Variable<'_>>;
@@ -67,6 +68,8 @@ pub trait VarBag: ToToml {
 
     fn populate(&mut self, value: Value) -> Result<(), VariableError>;
 }
+
+erased_serde::serialize_trait_object!(VarBag);
 
 pub trait FromStrMutator {
     fn set_from_str(&mut self, sp: &mut Split<&str>, value: &str) -> Result<(), VariableError>;
@@ -109,23 +112,29 @@ impl VarRegistry {
         Ok(())
     }
 
-    pub fn to_toml(&self) -> Result<Table, VarRegistryError> {
+    pub fn to_toml(&self) -> Result<String, VarRegistryError> {
         let guard = self.lock().ok_or(VarRegistryError::LockFailed)?;
-        let mut table = Table::new();
-        for (name, part) in guard.vars.iter() {
-            if let Some(arc) = part.upgrade() {
-                let part_guard = arc.read().map_err(|_| VarRegistryError::LockFailed)?;
-                match part_guard.to_toml() {
-                    Ok(v) => {
-                        table.insert(name.clone(), v);
-                    }
-                    Err(e) => {
-                        warn!("Serialization failed: {}", e);
-                    }
-                }
-            }
-        }
-        Ok(table)
+        let mut buf = Buffer::new();
+        //erased_serde::Serialize::erased_serialize(&guard.vars);
+        let _ = erased_serde::serialize(&guard.vars, toml::Serializer::pretty(&mut buf))
+            .map_err(|e| VarRegistryError::TomlError(e))?;
+        Ok(buf.to_string())
+        //toml::to_string(&guard.vars).map_err(|e| VarRegistryError::TomlError(e))
+        // let mut table = Table::new();
+        // for (name, part) in guard.vars.iter() {
+        //     if let Some(arc) = part.upgrade() {
+        //         let part_guard = arc.read().map_err(|_| VarRegistryError::LockFailed)?;
+        //         match part_guard.to_toml() {
+        //             Ok(v) => {
+        //                 table.insert(name.clone(), v);
+        //             }
+        //             Err(e) => {
+        //                 warn!("Serialization failed: {}", e);
+        //             }
+        //         }
+        //     }
+        // }
+        // Ok(table)
     }
 
     pub fn add(&self, name: String, part: &Arc<RwLock<VarBagBox>>) -> Result<(), VarRegistryError> {
@@ -326,7 +335,7 @@ pub enum VariableError {
     #[snafu(display("Parsing failed"))]
     ParsingError,
     #[snafu(display("Deserialization failed: {e}"))]
-    DeserializationError{ e: toml::de::Error },
+    DeserializationError { e: toml::de::Error },
     #[snafu(display("Not found"))]
     NotFound,
     #[snafu(display("TOML error: {cause}"))]
@@ -340,22 +349,6 @@ impl From<Infallible> for VariableError {
         VariableError::NotFound
     }
 }
-
-// impl Debug for dyn VarBag {
-//     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-//         let mut ds = f.debug_struct("VarBag");
-//         for name in self.get_vars() {
-//             ds.field(
-//                 &name,
-//                 &self
-//                     .try_get_var(&name)
-//                     .map(|v| v.to_string())
-//                     .unwrap_or("".to_owned()),
-//             );
-//         }
-//         ds.finish()
-//     }
-// }
 
 pub fn wrap_var_bag<T>(value: T) -> Arc<RwLock<VarBagBox>>
 where
@@ -642,5 +635,25 @@ speed = 110.5
         assert_eq!(c.sub.counter, 321);
         c.speed.set_from_str(&mut empty_split(), "3.33").unwrap();
         assert_eq!(c.speed, 3.33);
+    }
+
+    #[derive(Debug, Serialize)]
+    struct A {
+        speed: f32,
+        name: String,
+    }
+
+    #[test]
+    fn toml() {
+        let mut c = A {
+            speed: 3.22,
+            name: "John".to_owned(),
+        };
+        let mut map: HashMap<String, RwLock<Arc<_>>> = HashMap::default();
+        map.insert("A".to_owned(), RwLock::new(Arc::new(c)));
+
+        let r = dbg!(toml::to_string(&map).unwrap());
+
+        let r2: Table = dbg!(toml::from_str(&r).unwrap());
     }
 }
