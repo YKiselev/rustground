@@ -11,7 +11,7 @@ use crate::{
 
 pub(crate) fn run_client_server(args: Arguments) -> Result<(), AppError> {
     let (handle, log_buf) = app_logger::init(&args)?;
-    info!("=== App started ===");
+    info!("========= App started =========");
 
     let host = AppHost::new(args);
     let app = host.app.clone();

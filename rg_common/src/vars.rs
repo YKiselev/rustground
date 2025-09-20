@@ -41,25 +41,7 @@ impl<'a> Variable<'a> {
     }
 }
 
-pub trait ToToml {
-    fn to_toml(&self) -> Result<Value, VariableError>;
-}
-
-impl<T> ToToml for T
-where
-    T: Serialize,
-{
-    fn to_toml(&self) -> Result<Value, VariableError> {
-        let value = toml::to_string(self).map_err(|e| VariableError::TomlError {
-            cause: e.to_string(),
-        })?;
-        toml::from_str::<Value>(&value).map_err(|e| VariableError::TomlError {
-            cause: e.to_string(),
-        })
-    }
-}
-
-pub trait VarBag: ToToml + erased_serde::Serialize {
+pub trait VarBag: erased_serde::Serialize {
     fn get_vars(&self) -> Vec<String>;
 
     fn try_get_var(&self, sp: &mut Split<&str>) -> Option<Variable<'_>>;
@@ -115,42 +97,29 @@ impl VarRegistry {
     pub fn to_toml(&self) -> Result<String, VarRegistryError> {
         let guard = self.lock().ok_or(VarRegistryError::LockFailed)?;
         let mut buf = Buffer::new();
-        //erased_serde::Serialize::erased_serialize(&guard.vars);
         let _ = erased_serde::serialize(&guard.vars, toml::Serializer::pretty(&mut buf))
             .map_err(|e| VarRegistryError::TomlError(e))?;
         Ok(buf.to_string())
-        //toml::to_string(&guard.vars).map_err(|e| VarRegistryError::TomlError(e))
-        // let mut table = Table::new();
-        // for (name, part) in guard.vars.iter() {
-        //     if let Some(arc) = part.upgrade() {
-        //         let part_guard = arc.read().map_err(|_| VarRegistryError::LockFailed)?;
-        //         match part_guard.to_toml() {
-        //             Ok(v) => {
-        //                 table.insert(name.clone(), v);
-        //             }
-        //             Err(e) => {
-        //                 warn!("Serialization failed: {}", e);
-        //             }
-        //         }
-        //     }
-        // }
-        // Ok(table)
     }
 
-    pub fn add(&self, name: String, part: &Arc<RwLock<VarBagBox>>) -> Result<(), VarRegistryError> {
+    pub fn add<T>(&self, name: String, part: &Arc<RwLock<T>>) -> Result<(), VarRegistryError>
+    where
+        T: VarBag + Send + Sync + 'static,
+    {
         let mut guard = self.lock().ok_or(VarRegistryError::LockFailed)?;
-        sync_with_table(&guard.table, name.as_str(), part)?;
+        let vb: Arc<RwLock<VarBagBox>> = part.clone();
+        sync_with_table(&guard.table, name.as_str(), &vb)?;
         match guard.vars.entry(name) {
             Entry::Occupied(mut entry) => {
                 if entry.get().upgrade().is_some() {
                     Err(VarRegistryError::AlreadyExists)
                 } else {
-                    entry.insert(Arc::downgrade(part));
+                    entry.insert(Arc::downgrade(&vb));
                     Ok(())
                 }
             }
             Entry::Vacant(entry) => {
-                entry.insert(Arc::downgrade(part));
+                entry.insert(Arc::downgrade(&vb));
                 Ok(())
             }
         }
@@ -350,7 +319,7 @@ impl From<Infallible> for VariableError {
     }
 }
 
-pub fn wrap_var_bag<T>(value: T) -> Arc<RwLock<VarBagBox>>
+pub fn wrap_var_bag<T>(value: T) -> Arc<RwLock<T>>
 where
     T: VarBag + Send + Sync + 'static,
 {
@@ -643,11 +612,20 @@ speed = 110.5
         name: String,
     }
 
+    #[derive(Debug, Serialize)]
+    struct B {
+        flags: usize,
+        inner: A,
+    }
+
     #[test]
     fn toml() {
-        let mut c = A {
-            speed: 3.22,
-            name: "John".to_owned(),
+        let mut c = B {
+            flags: 123456789,
+            inner: A {
+                speed: 3.22,
+                name: "John".to_owned(),
+            },
         };
         let mut map: HashMap<String, RwLock<Arc<_>>> = HashMap::default();
         map.insert("A".to_owned(), RwLock::new(Arc::new(c)));

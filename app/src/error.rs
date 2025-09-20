@@ -1,10 +1,10 @@
 use std::{net::AddrParseError, sync::PoisonError};
 
 use log::SetLoggerError;
-use rg_common::commands::CmdError;
+use rg_common::{commands::CmdError, VarRegistryError};
 use rg_net::ProtocolError;
 use snafu::Snafu;
-use winit::{error::EventLoopError};
+use winit::error::EventLoopError;
 
 #[derive(Debug, Snafu)]
 pub enum AppError {
@@ -26,6 +26,8 @@ pub enum AppError {
     CmdError { cause: CmdError },
     #[snafu(display("Event loop error: {error:?}"))]
     EventLoopError { error: EventLoopError },
+    #[snafu(display("Variable regsitry error: {error:?}"))]
+    VarRegistryError { error: VarRegistryError },
 }
 
 impl From<ProtocolError> for AppError {
@@ -81,5 +83,11 @@ impl From<CmdError> for AppError {
 impl From<EventLoopError> for AppError {
     fn from(value: EventLoopError) -> Self {
         AppError::EventLoopError { error: value }
+    }
+}
+
+impl From<VarRegistryError> for AppError {
+    fn from(value: VarRegistryError) -> Self {
+        AppError::VarRegistryError { error: value }
     }
 }

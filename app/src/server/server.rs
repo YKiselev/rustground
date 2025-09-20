@@ -1,8 +1,10 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::sync::LazyLock;
 use std::sync::RwLock;
 
 use log::{debug, info, warn};
+use rg_common::wrap_var_bag;
 use rg_common::App;
 use rg_macros::VarBag;
 use rg_net::process_buf;
@@ -63,13 +65,16 @@ struct ServerState {
 impl ServerState {
     fn new(app: &App, config: &Arc<RwLock<ServerConfig>>) -> Result<Self, AppError> {
         info!("Starting server...");
-        let mut cfg_guard = config.write()?;
-        let cfg = &mut cfg_guard;
+        let cfg_guard = config.read()?;
+        let cfg = &cfg_guard;
         let addr: SocketAddr = cfg.address.parse()?;
         let poll_thread = ServerPoll::new(addr)?;
         let security = ServerSecurity::new(cfg.key_bits, &cfg.password)?;
         let server_address = poll_thread.local_addr()?;
         info!("Server bound to {:?}", server_address);
+        drop(cfg_guard);
+        let mut cfg_guard = config.write()?;
+        let cfg = &mut cfg_guard;
         cfg.bound_to = Some(server_address.to_string());
         Ok(ServerState {
             poll_thread,
@@ -150,6 +155,12 @@ pub struct ServerConfig {
 pub(crate) struct Server(Arc<RwLock<ServerConfig>>, Option<ServerState>);
 
 impl Server {
+    pub fn new(app: &Arc<App>) -> Result<Self, AppError> {
+        let cfg = wrap_var_bag(ServerConfig::default());
+        let _ = app.vars.add("server".to_owned(), &cfg)?;
+        Ok(Self(cfg, None))
+    }
+
     pub fn init(&mut self, app: &Arc<App>) -> Result<(), AppError> {
         if self.1.is_none() {
             self.1 = Some(ServerState::new(app, &self.0)?);

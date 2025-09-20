@@ -9,6 +9,8 @@ pub use vars::VarBag;
 pub use vars::VarRegistry;
 pub use vars::Variable;
 pub use vars::VariableError;
+pub use vars::VarRegistryError;
+pub use vars::wrap_var_bag;
 pub use plugin::Plugin;
 pub use app::App;
 
