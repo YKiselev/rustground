@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Instant};
+use std::{sync::{atomic::Ordering, Arc}, time::Instant};
 
 use log::{error, info};
 use rg_common::{App, Plugin};
@@ -14,12 +14,12 @@ use winit::{
 use crate::{
     client::{cl_net::ClientNetwork, cl_window::ClientWindow},
     error::AppError,
-    fps::{self, FrameStats},
+    fps::FrameStats,
 };
 
 #[derive(Debug)]
 pub(super) struct ClientState {
-    app: Arc<App>,
+    pub app: Arc<App>,
     net: ClientNetwork,
     window: ClientWindow,
     renderer: Option<VulkanRenderer>,

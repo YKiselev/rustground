@@ -13,6 +13,7 @@ pub use vars::VarRegistryError;
 pub use vars::wrap_var_bag;
 pub use plugin::Plugin;
 pub use app::App;
+pub use config::save_config;
 
 mod arguments;
 mod app;

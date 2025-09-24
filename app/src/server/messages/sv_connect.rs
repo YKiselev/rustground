@@ -4,9 +4,8 @@ use rg_net::{Connect, RejectionReason};
 use crate::{
     error::AppError,
     server::{
-        server::ServerSecurity,
         sv_clients::{ClientId, Clients},
-        sv_guests::Guests,
+        sv_guests::Guests, sv_security::ServerSecurity,
     },
 };
 

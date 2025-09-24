@@ -41,8 +41,4 @@ impl App {
     pub fn elapsed(&self) -> Duration {
         self.started_at.elapsed()
     }
-
-    pub fn load_config() {
-        
-    }
 }

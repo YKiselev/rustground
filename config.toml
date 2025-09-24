@@ -1,0 +1,7 @@
+---.[client]
+name = "player"
+
+[server]
+address = "127.0.0.1:0"
+key_bits = 512
+password = "123456"

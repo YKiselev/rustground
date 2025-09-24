@@ -10,6 +10,7 @@ use crate::arguments::Arguments;
 
 pub trait Files {
     fn open<S: AsRef<str>>(&mut self, path: S) -> Option<File>;
+    fn create<S: AsRef<str>>(&mut self, path: S) -> Option<File>;
 }
 
 #[derive(Debug)]
@@ -35,12 +36,30 @@ impl FileRoot {
     fn open(&mut self, path: &str) -> Option<File> {
         let mut buf = self.path.clone();
         buf.push(path);
-        match File::open(buf.clone()) {
-            Ok(file) => Some(file),
+        match File::open(&buf) {
+            Ok(file) => {
+                debug!("open({:?})", &buf);
+                Some(file)
+            }
             Err(e) => {
                 debug!("File not found: {:?}, {:?}", buf, e);
                 None
             }
+        }
+    }
+
+    fn create(&mut self, path: &str) -> Option<File> {
+        let mut buf = self.path.clone();
+        buf.push(path);
+        match File::create(&buf) {
+            Ok(file) => {
+                debug!("create({:?})={:?}", &buf, &file);
+                Some(file)
+            }
+            Err(e) => {
+                warn!("Unable to create file: {:?}, {:?}", buf, e);
+                None
+            },
         }
     }
 }
@@ -101,5 +120,9 @@ impl AppFiles {
 impl Files for AppFiles {
     fn open<S: AsRef<str>>(&mut self, path: S) -> Option<File> {
         self.roots.iter_mut().find_map(|r| r.open(path.as_ref()))
+    }
+
+    fn create<S: AsRef<str>>(&mut self, path: S) -> Option<File> {
+        self.roots.iter_mut().find_map(|r| r.create(path.as_ref()))
     }
 }
