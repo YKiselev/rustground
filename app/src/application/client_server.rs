@@ -1,7 +1,6 @@
-use std::{thread, time::Duration};
 
 use log::{debug, info, warn};
-use rg_common::{Arguments, Plugin};
+use rg_common::Arguments;
 use winit::event_loop::{ControlFlow, EventLoop};
 
 use crate::{

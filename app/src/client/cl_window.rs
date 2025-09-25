@@ -30,7 +30,7 @@ impl ClientWindow {
     }
 
     fn create_window_attributes(&mut self, event_loop: &ActiveEventLoop) -> WindowAttributes {
-        let mut attrs = Window::default_attributes()
+        let attrs = Window::default_attributes()
             .with_inner_size(PhysicalSize::new(800, 600))
             .with_title("Rust Ground")
             .with_decorations(true)
@@ -133,7 +133,7 @@ impl ApplicationHandler for ClientWindow {
                 //     // }
                 // }
             }
-            WindowEvent::MouseInput { state, button, .. } => {
+            WindowEvent::MouseInput {   .. } => {
                 //info!("Pointer button {button:?} {state:?}");
                 let mods = self.modifiers;
                 // if let Some(action) = state
@@ -148,7 +148,7 @@ impl ApplicationHandler for ClientWindow {
                 //info!("Cursor left Window={window_id:?}");
                 //window.cursor_left();
             }
-            WindowEvent::CursorMoved { position, .. } => {
+            WindowEvent::CursorMoved {  .. } => {
                 //info!("Moved cursor to {position:?}");
                 //window.cursor_moved(position);
             }

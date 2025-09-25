@@ -1,4 +1,4 @@
-use std::{sync::{atomic::Ordering, Arc}, time::Instant};
+use std::sync::Arc;
 
 use log::{error, info};
 use rg_common::{App, Plugin};

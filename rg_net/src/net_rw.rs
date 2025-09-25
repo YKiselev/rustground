@@ -1,6 +1,6 @@
 use std::fmt::Write;
 
-use log::{error, info, warn};
+use log::{error, info};
 use num_enum::TryFromPrimitive;
 
 use crate::{
