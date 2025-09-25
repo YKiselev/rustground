@@ -1,8 +1,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use log::info;
+use log::{info, warn};
 
 use rg_common::arguments::Arguments;
 use rg_common::{AppFiles, CommandRegistry, VarRegistry};
@@ -22,15 +21,13 @@ pub struct App {
 
 impl App {
     pub fn new(args: Arguments) -> Self {
-        let mut files = AppFiles::new(&args);
-        let cfg = load_config("config.toml", &mut files);
-        info!("Loaded config: {:?}", &cfg);
+        let files = AppFiles::new(&args);
         Self {
             arguments: args,
             exit_flag: AtomicBool::new(false),
             started_at: Instant::now(),
             files: files,
-            vars: VarRegistry::new(cfg),
+            vars: VarRegistry::new(None),
             commands: CommandRegistry::default(),
         }
     }
@@ -41,6 +38,19 @@ impl App {
 
     pub fn elapsed(&self) -> Duration {
         self.started_at.elapsed()
+    }
+
+    pub fn load_config<S>(&self, name: S)
+    where
+        S: AsRef<str>,
+    {
+        if let Some(cfg) = load_config(name.as_ref(), &self.files) {
+            info!("Loaded config: {:?}", &cfg);
+            let _ = self
+                .vars
+                .set_table(cfg)
+                .inspect_err(|e| warn!("Unable to load {}: {:?}", name.as_ref(), e));
+        }
     }
 
     pub fn save_config(&self, name: &str, value: String) {

@@ -10,10 +10,11 @@ use crate::{
 
 pub(crate) fn run_client_server(args: Arguments) -> Result<(), AppError> {
     let (handle, log_buf) = app_logger::init(&args)?;
-    info!("========= App started =========");
+    info!("========= Starting =========");
 
     let host = AppHost::new(args);
     let app = host.app.clone();
+    app.load_config("config.toml");
     let (server, sv_handle) = server_init(&app)?;
     let event_loop = EventLoop::new()?;
     let mut client = Client::new(&app)?;
