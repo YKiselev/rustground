@@ -8,6 +8,7 @@ use rg_common::arguments::Arguments;
 use rg_common::{AppFiles, CommandRegistry, VarRegistry};
 
 use crate::config::load_config;
+use crate::save_config;
 
 #[derive(Debug)]
 pub struct App {
@@ -40,5 +41,9 @@ impl App {
 
     pub fn elapsed(&self) -> Duration {
         self.started_at.elapsed()
+    }
+
+    pub fn save_config(&self, name: &str, value: String) {
+        save_config(name, &self.files, value);
     }
 }

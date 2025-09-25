@@ -1,6 +1,6 @@
 use std::fmt::{Display, Formatter};
 use std::fs::File;
-use std::io::Error;
+use std::io::{Error, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;
 use std::{env, fs};
@@ -9,10 +9,10 @@ use log::{debug, error, info, warn};
 
 use crate::arguments::Arguments;
 
-pub trait Files {
-    fn read<S: AsRef<str>>(&self, path: S) -> Option<File>;
-    fn write<S: AsRef<str>>(&self, path: S) -> Option<File>;
-}
+// pub trait Files {
+//     fn read<S: AsRef<str>>(&self, path: S) -> Option<File>;
+//     fn write<S: AsRef<str>>(&self, path: S) -> Option<File>;
+// }
 
 #[derive(Debug)]
 struct FileRoot {
@@ -118,16 +118,52 @@ impl AppFiles {
             roots: RwLock::new(roots),
         }
     }
-}
 
-impl Files for AppFiles {
-    fn read<S: AsRef<str>>(&self, path: S) -> Option<File> {
+    pub fn read<S>(&self, path: S) -> Option<File>
+    where
+        S: AsRef<str>,
+    {
         let guard = self.roots.read().ok()?;
         guard.iter().find_map(|r| r.read(path.as_ref()))
     }
 
-    fn write<S: AsRef<str>>(&self, path: S) -> Option<File> {
+    pub fn write<S>(&self, path: S) -> Option<File>
+    where
+        S: AsRef<str>,
+    {
         let guard = self.roots.read().ok()?;
         guard.iter().find_map(|r| r.write(path.as_ref()))
+    }
+
+    ///
+    /// Reads small file into string
+    /// 
+    pub fn read_file<S>(&self, name: S) -> Option<String>
+    where
+        S: AsRef<str>,
+    {
+        let mut cfg = self.read(name)?;
+        let mut tmp = String::new();
+        cfg.read_to_string(&mut tmp).ok()?;
+        Some(tmp)
+    }
+
+    ///
+    /// Writes small string to file
+    /// 
+    pub fn write_file<S>(&self, name: &str, value: S)
+    where
+        S: AsRef<str>,
+    {
+        if let Some(mut file) = self.write(name) {
+            match write!(file, "{}", value.as_ref()) {
+                Ok(_) => {
+                    file.flush().unwrap();
+                }
+                Err(e) => {
+                    warn!("Unable to save config: {:?}", e)
+                }
+            }
+        }
     }
 }
