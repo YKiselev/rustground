@@ -102,14 +102,15 @@ impl VarRegistry {
         Ok(buf.to_string())
     }
 
-    pub fn add<T>(&self, name: String, part: &Arc<RwLock<T>>) -> Result<(), VarRegistryError>
+    pub fn add<S, T>(&self, name: S, part: &Arc<RwLock<T>>) -> Result<(), VarRegistryError>
     where
+        S: Into<String> + AsRef<str>,
         T: VarBag + Send + Sync + 'static,
     {
         let mut guard = self.lock().ok_or(VarRegistryError::LockFailed)?;
         let vb: Arc<RwLock<VarBagBox>> = part.clone();
-        sync_with_table(&guard.table, name.as_str(), &vb)?;
-        match guard.vars.entry(name) {
+        sync_with_table(&guard.table, name.as_ref(), &vb)?;
+        match guard.vars.entry(name.into()) {
             Entry::Occupied(mut entry) => {
                 if entry.get().upgrade().is_some() {
                     Err(VarRegistryError::AlreadyExists)
@@ -452,7 +453,7 @@ mod test {
                 ..Default::default()
             },
         });
-        reg.add("root".to_owned(), &arc).unwrap();
+        reg.add("root", &arc).unwrap();
         assert_eq!("my name", reg.try_get_value("root::name").unwrap());
         assert_eq!("123", reg.try_get_value("root::counter").unwrap());
         assert_eq!("234.567", reg.try_get_value("root::speed").unwrap());
@@ -470,7 +471,7 @@ mod test {
 
         assert_eq!(
             Err(VarRegistryError::AlreadyExists),
-            reg.add("root".to_owned(), &arc)
+            reg.add("root", &arc)
         );
     }
 
@@ -492,7 +493,7 @@ mod test {
             assert_eq!("my name", reg.try_get_value("root::name").unwrap());
             assert_eq!(
                 Err(VarRegistryError::AlreadyExists),
-                reg.add("root".to_owned(), &arc)
+                reg.add("root", &arc)
             );
         }
         let arc = wrap_var_bag(TestVars {
@@ -507,11 +508,11 @@ mod test {
                 },
             },
         });
-        reg.add("root".to_owned(), &arc).unwrap();
+        reg.add("root", &arc).unwrap();
         assert_eq!("new name", reg.try_get_value("root::name").unwrap());
         assert_eq!(
             Err(VarRegistryError::AlreadyExists),
-            reg.add("root".to_owned(), &arc)
+            reg.add("root", &arc)
         );
     }
 
@@ -543,7 +544,7 @@ speed = 110.5
         )
         .unwrap();
         reg.set_table(table).unwrap();
-        reg.add("root".to_owned(), &arc).unwrap();
+        reg.add("root", &arc).unwrap();
 
         assert_eq!("777", reg.try_get_value("root::counter").unwrap());
         assert_eq!("true", reg.try_get_value("root::flag").unwrap());

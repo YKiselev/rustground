@@ -10,9 +10,9 @@ pub(crate) struct AppCommands(CommandOwner);
 impl AppCommands {
     pub fn new(app: Arc<App>) -> Result<Self, AppError> {
         let mut builder = CommandBuilder::new(&app.commands);
-        let app2 = Arc::clone(&app);
+        let app_ref = Arc::clone(&app);
         builder.add("quit", move || {
-            app2.exit_flag
+            app_ref.exit_flag
                 .store(true, Ordering::Relaxed);
             Ok(())
         })?;

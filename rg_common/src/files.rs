@@ -2,6 +2,7 @@ use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io::Error;
 use std::path::{Path, PathBuf};
+use std::sync::RwLock;
 use std::{env, fs};
 
 use log::{debug, error, info, warn};
@@ -9,8 +10,8 @@ use log::{debug, error, info, warn};
 use crate::arguments::Arguments;
 
 pub trait Files {
-    fn open<S: AsRef<str>>(&mut self, path: S) -> Option<File>;
-    fn create<S: AsRef<str>>(&mut self, path: S) -> Option<File>;
+    fn read<S: AsRef<str>>(&self, path: S) -> Option<File>;
+    fn write<S: AsRef<str>>(&self, path: S) -> Option<File>;
 }
 
 #[derive(Debug)]
@@ -33,7 +34,7 @@ impl FileRoot {
         self.readonly
     }
 
-    fn open(&mut self, path: &str) -> Option<File> {
+    fn read(&self, path: &str) -> Option<File> {
         let mut buf = self.path.clone();
         buf.push(path);
         match File::open(&buf) {
@@ -48,18 +49,18 @@ impl FileRoot {
         }
     }
 
-    fn create(&mut self, path: &str) -> Option<File> {
+    fn write(&self, path: &str) -> Option<File> {
         let mut buf = self.path.clone();
         buf.push(path);
         match File::create(&buf) {
             Ok(file) => {
-                debug!("create({:?})={:?}", &buf, &file);
+                debug!("create({:?})", &file);
                 Some(file)
             }
             Err(e) => {
                 warn!("Unable to create file: {:?}, {:?}", buf, e);
                 None
-            },
+            }
         }
     }
 }
@@ -77,7 +78,7 @@ impl Display for FileRoot {
 
 #[derive(Debug)]
 pub struct AppFiles {
-    roots: Vec<FileRoot>,
+    roots: RwLock<Vec<FileRoot>>,
 }
 
 impl AppFiles {
@@ -113,16 +114,20 @@ impl AppFiles {
             .map(Result::unwrap)
             .collect();
 
-        AppFiles { roots }
+        AppFiles {
+            roots: RwLock::new(roots),
+        }
     }
 }
 
 impl Files for AppFiles {
-    fn open<S: AsRef<str>>(&mut self, path: S) -> Option<File> {
-        self.roots.iter_mut().find_map(|r| r.open(path.as_ref()))
+    fn read<S: AsRef<str>>(&self, path: S) -> Option<File> {
+        let guard = self.roots.read().ok()?;
+        guard.iter().find_map(|r| r.read(path.as_ref()))
     }
 
-    fn create<S: AsRef<str>>(&mut self, path: S) -> Option<File> {
-        self.roots.iter_mut().find_map(|r| r.create(path.as_ref()))
+    fn write<S: AsRef<str>>(&self, path: S) -> Option<File> {
+        let guard = self.roots.read().ok()?;
+        guard.iter().find_map(|r| r.write(path.as_ref()))
     }
 }

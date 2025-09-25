@@ -14,7 +14,7 @@ pub struct App {
     pub arguments: Arguments,
     pub exit_flag: AtomicBool,
     pub started_at: Instant,
-    pub files: Arc<Mutex<AppFiles>>,
+    pub files: AppFiles,
     pub vars: VarRegistry,
     pub commands: CommandRegistry,
 }
@@ -28,7 +28,7 @@ impl App {
             arguments: args,
             exit_flag: AtomicBool::new(false),
             started_at: Instant::now(),
-            files: Arc::new(Mutex::new(files)),
+            files: files,
             vars: VarRegistry::new(cfg),
             commands: CommandRegistry::default(),
         }

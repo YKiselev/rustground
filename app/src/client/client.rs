@@ -19,7 +19,7 @@ impl Client {
     pub(crate) fn new(app: &Arc<App>) -> Result<Self, AppError> {
         info!("Starting client...");
         let cfg = wrap_var_bag(ClientConfig::new());
-        app.vars.add("client".to_owned(), &cfg)?;
+        app.vars.add("client", &cfg)?;
         let state = ClientState::new(&app)?;
         Ok(Client(cfg, Some(state)))
     }
@@ -44,11 +44,7 @@ impl ApplicationHandler for Client {
                 if let Some(mut state) = self.1.take() {
                     match state.app.vars.to_toml() {
                         Ok(toml) => {
-                            if let Some(mut files) = state.app.files.lock().ok() {
-                                save_config("config.toml", &mut files, toml);
-                            } else {
-                                warn!("Unable to lock files!");
-                            }
+                            save_config("config.toml", &state.app.files, toml);
                         }
                         Err(e) => {
                             warn!("Unable to export vars to toml: {:?}", e);

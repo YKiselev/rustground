@@ -37,7 +37,7 @@ pub(crate) struct Server(Arc<RwLock<ServerConfig>>, Option<ServerState>);
 impl Server {
     pub fn new(app: &Arc<App>) -> Result<Self, AppError> {
         let cfg = wrap_var_bag(ServerConfig::new());
-        let _ = app.vars.add("server".to_owned(), &cfg)?;
+        let _ = app.vars.add("server", &cfg)?;
         Ok(Self(cfg, None))
     }
 
