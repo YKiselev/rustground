@@ -9,11 +9,6 @@ use log::{debug, error, info, warn};
 
 use crate::arguments::Arguments;
 
-// pub trait Files {
-//     fn read<S: AsRef<str>>(&self, path: S) -> Option<File>;
-//     fn write<S: AsRef<str>>(&self, path: S) -> Option<File>;
-// }
-
 #[derive(Debug)]
 struct FileRoot {
     readonly: bool,
@@ -91,27 +86,25 @@ impl AppFiles {
             }
             folders.push(app_home);
         }
-        let current_dir = env::current_dir().unwrap_or(PathBuf::from("."));
-        info!("Current dir is \"{}\"", current_dir.display());
+        let current_dir = env::current_dir().expect("Unable to get current directory!");
+        info!("Current dir is {:?}", current_dir);
         folders.push(current_dir.join("base"));
         folders.push(current_dir.join("base/resources"));
         let roots = folders
             .iter()
             .filter(|p| p.exists())
-            .map(|path| {
-                let r = FileRoot::try_new(path);
-                if r.is_err() {
-                    r.inspect_err(|error| {
-                        warn!("Failed to map \"{}\": {error}", path.display());
-                    })
-                } else {
-                    r.inspect(|root| {
-                        info!("Added {root}");
-                    })
+            .filter_map(|path| {
+                match FileRoot::try_new(path) {
+                    Ok(root) => {
+                        info!("Added {}", root);
+                        Some(root)
+                    },
+                    Err(e) => {
+                        warn!("Failed to map {:?}: {:?}", path, e);
+                        None
+                    }
                 }
             })
-            .filter(Result::is_ok)
-            .map(Result::unwrap)
             .collect();
 
         AppFiles {

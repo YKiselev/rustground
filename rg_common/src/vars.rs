@@ -7,7 +7,7 @@ use std::fmt::{Debug, Display, Formatter};
 use std::iter::Peekable;
 use std::ops::Deref;
 use std::str::Split;
-use std::sync::{Arc, Mutex, MutexGuard, RwLock, Weak};
+use std::sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard, Weak};
 
 use log::warn;
 use serde::Serialize;
@@ -72,14 +72,14 @@ struct InnerData {
 }
 
 #[derive(Debug, Default)]
-pub struct VarRegistry(Mutex<InnerData>);
+pub struct VarRegistry(RwLock<InnerData>);
 
 impl VarRegistry {
     pub const DELIMITER: &'static str = "::";
 
     pub fn new(table: Option<Table>) -> Self {
         if table.is_some() {
-            Self(Mutex::new(InnerData {
+            Self(RwLock::new(InnerData {
                 table: table.unwrap(),
                 ..Default::default()
             }))
@@ -89,13 +89,18 @@ impl VarRegistry {
     }
 
     pub fn set_table(&self, table: Table) -> Result<(), VarRegistryError> {
-        let mut guard = self.lock().ok_or(VarRegistryError::LockFailed)?;
+        let mut guard = self.write().ok_or(VarRegistryError::LockFailed)?;
         guard.table = table;
+        for (name, part) in guard.vars.iter() {
+            if let Some(arc) = part.upgrade() {
+                sync_with_table(&guard.table, name.as_ref(), &arc)?;
+            }
+        }
         Ok(())
     }
 
     pub fn to_toml(&self) -> Result<String, VarRegistryError> {
-        let guard = self.lock().ok_or(VarRegistryError::LockFailed)?;
+        let guard = self.read().ok_or(VarRegistryError::LockFailed)?;
         let mut buf = Buffer::new();
         let _ = erased_serde::serialize(&guard.vars, toml::Serializer::pretty(&mut buf))
             .map_err(|e| VarRegistryError::TomlError(e))?;
@@ -107,7 +112,7 @@ impl VarRegistry {
         S: Into<String> + AsRef<str>,
         T: VarBag + Send + Sync + 'static,
     {
-        let mut guard = self.lock().ok_or(VarRegistryError::LockFailed)?;
+        let mut guard = self.write().ok_or(VarRegistryError::LockFailed)?;
         let vb: Arc<RwLock<VarBagBox>> = part.clone();
         sync_with_table(&guard.table, name.as_ref(), &vb)?;
         match guard.vars.entry(name.into()) {
@@ -126,8 +131,12 @@ impl VarRegistry {
         }
     }
 
-    fn lock(&self) -> Option<MutexGuard<InnerData>> {
-        self.0.lock().ok()
+    fn read(&self) -> Option<RwLockReadGuard<InnerData>> {
+        self.0.read().ok()
+    }
+
+    fn write(&self) -> Option<RwLockWriteGuard<InnerData>> {
+        self.0.write().ok()
     }
 
     pub fn try_get_value<S>(&self, name: S) -> Option<String>
@@ -135,7 +144,7 @@ impl VarRegistry {
         S: AsRef<str>,
     {
         let mut sp = name.as_ref().split(Self::DELIMITER);
-        let guard = self.lock()?;
+        let guard = self.read()?;
         let arc = guard.vars.get(sp.next()?)?.upgrade()?;
         let v_guard = arc.read().ok()?;
         let v = Variable::from(v_guard.deref()).try_get_var(&mut sp)?;
@@ -182,7 +191,7 @@ impl VarRegistry {
 
     pub fn try_set_value(&self, name: &str, value: &str) -> Result<(), VarRegistryError> {
         let mut sp = name.split(Self::DELIMITER);
-        let guard = self.lock().ok_or(VarRegistryError::LockFailed)?;
+        let guard = self.read().ok_or(VarRegistryError::LockFailed)?;
         let key = sp.next().ok_or(not_found())?;
         let arc = guard
             .vars
@@ -199,7 +208,7 @@ impl VarRegistry {
     pub fn complete(&self, part: &str) -> Option<Vec<String>> {
         let mut sp = part.split(Self::DELIMITER).peekable();
         let bag_name = sp.next()?;
-        let guard = self.lock()?;
+        let guard = self.read()?;
         let mut result = Vec::new();
         for (key, value) in guard.vars.iter() {
             if !bag_name.is_empty() && !key.starts_with(bag_name) {
@@ -469,10 +478,7 @@ mod test {
         let v = reg.complete("::s::s").unwrap();
         assert_eq!(v, ["root::sub::speed"]);
 
-        assert_eq!(
-            Err(VarRegistryError::AlreadyExists),
-            reg.add("root", &arc)
-        );
+        assert_eq!(Err(VarRegistryError::AlreadyExists), reg.add("root", &arc));
     }
 
     #[test]
@@ -491,10 +497,7 @@ mod test {
             });
             reg.add("root".to_owned(), &arc).unwrap();
             assert_eq!("my name", reg.try_get_value("root::name").unwrap());
-            assert_eq!(
-                Err(VarRegistryError::AlreadyExists),
-                reg.add("root", &arc)
-            );
+            assert_eq!(Err(VarRegistryError::AlreadyExists), reg.add("root", &arc));
         }
         let arc = wrap_var_bag(TestVars {
             counter: 123,
@@ -510,14 +513,22 @@ mod test {
         });
         reg.add("root", &arc).unwrap();
         assert_eq!("new name", reg.try_get_value("root::name").unwrap());
-        assert_eq!(
-            Err(VarRegistryError::AlreadyExists),
-            reg.add("root", &arc)
-        );
+        assert_eq!(Err(VarRegistryError::AlreadyExists), reg.add("root", &arc));
     }
 
+    const TABLE: &str = r#"
+[root]
+counter = 777
+flag = true
+name = "from table!"
+speed = 3.555
+
+[root.sub]
+speed = 110.5
+        "#;
+
     #[test]
-    fn var_registry_table() {
+    fn var_registry_set_table_before_varbag() {
         let reg = VarRegistry::default();
         let arc = wrap_var_bag(TestVars {
             counter: 123,
@@ -530,19 +541,7 @@ mod test {
             },
         });
 
-        let table = toml::from_str(
-            r#"
-[root]
-counter = 777
-flag = true
-name = "from table!"
-speed = 3.555
-
-[root.sub]
-speed = 110.5
-        "#,
-        )
-        .unwrap();
+        let table = toml::from_str(TABLE).unwrap();
         reg.set_table(table).unwrap();
         reg.add("root", &arc).unwrap();
 
@@ -554,6 +553,31 @@ speed = 110.5
 
         let toml = reg.to_toml().unwrap();
         println!("Registry table looks like that:\n{}\n===", toml);
+    }
+
+    #[test]
+    fn var_registry_set_table_after_varbag() {
+        let reg = VarRegistry::default();
+        let arc = wrap_var_bag(TestVars {
+            counter: 123,
+            flag: false,
+            name: "new name".to_string(),
+            speed: 234.567,
+            sub: MoreTestVars {
+                speed: 220.0,
+                ..Default::default()
+            },
+        });
+        reg.add("root", &arc).unwrap();
+
+        let table = toml::from_str(TABLE).unwrap();
+        reg.set_table(table).unwrap();
+
+        assert_eq!("777", reg.try_get_value("root::counter").unwrap());
+        assert_eq!("true", reg.try_get_value("root::flag").unwrap());
+        assert_eq!("from table!", reg.try_get_value("root::name").unwrap());
+        assert_eq!("3.555", reg.try_get_value("root::speed").unwrap());
+        assert_eq!("110.5", reg.try_get_value("root::sub::speed").unwrap());
     }
 
     #[derive(Debug, VarBag, Serialize, Deserialize)]
@@ -605,34 +629,5 @@ speed = 110.5
         assert_eq!(c.sub.counter, 321);
         c.speed.set_from_str(&mut empty_split(), "3.33").unwrap();
         assert_eq!(c.speed, 3.33);
-    }
-
-    #[derive(Debug, Serialize)]
-    struct A {
-        speed: f32,
-        name: String,
-    }
-
-    #[derive(Debug, Serialize)]
-    struct B {
-        flags: usize,
-        inner: A,
-    }
-
-    #[test]
-    fn toml() {
-        let mut c = B {
-            flags: 123456789,
-            inner: A {
-                speed: 3.22,
-                name: "John".to_owned(),
-            },
-        };
-        let mut map: HashMap<String, RwLock<Arc<_>>> = HashMap::default();
-        map.insert("A".to_owned(), RwLock::new(Arc::new(c)));
-
-        let r = dbg!(toml::to_string(&map).unwrap());
-
-        let r2: Table = dbg!(toml::from_str(&r).unwrap());
     }
 }
