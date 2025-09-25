@@ -103,7 +103,7 @@ impl VarRegistry {
         let guard = self.read().ok_or(VarRegistryError::LockFailed)?;
         let mut buf = Buffer::new();
         let _ = erased_serde::serialize(&guard.vars, toml::Serializer::pretty(&mut buf))
-            .map_err(|e| VarRegistryError::TomlError(e))?;
+            .map_err(|e| VarRegistryError::TomlError(e.to_string()))?;
         Ok(buf.to_string())
     }
 
@@ -283,7 +283,7 @@ pub enum VarRegistryError {
     VarError(VariableError),
     AlreadyExists,
     LockFailed,
-    TomlError(toml::ser::Error),
+    TomlError(String),
 }
 
 impl Display for VarRegistryError {
@@ -314,7 +314,7 @@ pub enum VariableError {
     #[snafu(display("Parsing failed"))]
     ParsingError,
     #[snafu(display("Deserialization failed: {e}"))]
-    DeserializationError { e: toml::de::Error },
+    DeserializationError { e: String },
     #[snafu(display("Not found"))]
     NotFound,
     #[snafu(display("TOML error: {cause}"))]
