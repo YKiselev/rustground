@@ -21,7 +21,6 @@ mod cmd_parser;
 pub mod commands;
 mod config;
 mod files;
-mod pool;
 mod v_from;
 mod v_from_str;
 mod v_from_value;

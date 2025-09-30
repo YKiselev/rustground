@@ -131,11 +131,11 @@ impl VarRegistry {
         }
     }
 
-    fn read(&self) -> Option<RwLockReadGuard<InnerData>> {
+    fn read(&self) -> Option<RwLockReadGuard<'_, InnerData>> {
         self.0.read().ok()
     }
 
-    fn write(&self) -> Option<RwLockWriteGuard<InnerData>> {
+    fn write(&self) -> Option<RwLockWriteGuard<'_, InnerData>> {
         self.0.write().ok()
     }
 

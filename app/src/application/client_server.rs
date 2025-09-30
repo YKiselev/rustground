@@ -23,7 +23,7 @@ pub(crate) fn run_client_server(args: Arguments) -> Result<(), AppError> {
     event_loop.run_app(&mut client)?;
 
     server.lock()?.shutdown();
-    debug!("Joining sv thread...");
+    debug!("Joining server thread...");
     let _ = sv_handle
         .join()
         .inspect_err(|e| warn!("Failed to join server thread: {:?}", e));
