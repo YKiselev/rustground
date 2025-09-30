@@ -1,18 +1,13 @@
 use std::{
     any::{Any, TypeId},
-    borrow::{Borrow, Cow},
-    collections::{hash_map::Entry, HashMap, HashSet},
+    borrow::Borrow,
+    collections::{hash_map::Entry, HashMap},
     fmt::Display,
-    fs::File,
-    io::{BufRead, BufReader, Read},
-    marker::PhantomData,
+    io::Read,
     sync::{Arc, PoisonError, RwLock, Weak},
 };
 
 use snafu::Snafu;
-use uuid::Uuid;
-
-use crate::App;
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
 pub struct Key(Box<str>, TypeId);
@@ -36,19 +31,6 @@ impl Key {
 type Erased = dyn Any + Send + Sync;
 type TypeMap = HashMap<Key, Weak<Erased>>;
 
-pub trait Resolver<R>: Fn(&str) -> Option<R>
-where
-    R: Read,
-{
-}
-
-impl<R, T> Resolver<R> for T
-where
-    R: Read,
-    T: Fn(&str) -> Option<R>,
-{
-}
-
 pub trait Loader<A, R>: Fn(&R) -> Result<Arc<A>, AssetError>
 where
     A: Send + Sync,
@@ -64,40 +46,39 @@ where
 {
 }
 
-pub struct Assets<R, Rd>(R, RwLock<TypeMap>, PhantomData<Rd>);
+pub struct Assets(RwLock<TypeMap>);
 
-impl<R, Rd> Assets<R, Rd>
-where
-    Rd: Read,
-    R: Resolver<Rd>,
-{
-    pub fn new(resolver: R) -> Self
-    {
-        Self(
-            resolver,
-            RwLock::new(TypeMap::new()),
-            PhantomData::default(),
-        )
+impl Assets {
+    pub fn new() -> Self {
+        Self(RwLock::new(TypeMap::new()))
     }
 
-    pub fn load<S, L, A>(&self, name: S, loader: L) -> Result<Arc<A>, AssetError>
+    pub fn load<S, R, L, A, Rd>(
+        &self,
+        name: S,
+        resolver: R,
+        loader: &L,
+    ) -> Result<Arc<A>, AssetError>
     where
         A: Send + Sync + 'static,
         S: Into<Box<str>> + Borrow<str>,
+        Rd: Read,
+        R: Fn(&str) -> Option<Rd>,
         L: Loader<A, Rd> + 'static,
     {
-        let guard = self.1.read()?;
+        let guard = self.0.read()?;
         let key = Key::new::<_, L>(name);
         if let Some(erased) = guard.get(&key).and_then(|weak| weak.upgrade()) {
             if let Ok(asset) = Arc::downcast::<A>(erased) {
                 return Ok(Arc::clone(&asset));
             }
         }
-        // Load asset under read guard
-        let reader = (self.0)(key.0.borrow()).ok_or(AssetError::NotFound)?;
-        let asset = loader(&reader as _)?;
         drop(guard);
-        let mut guard = self.1.write()?;
+        // Load asset w/o any locks!
+        let reader = (resolver)(key.0.borrow()).ok_or(AssetError::NotFound)?;
+        let asset = loader(&reader as _)?;
+
+        let mut guard = self.0.write()?;
         let typed = match guard.entry(key) {
             Entry::Occupied(mut entry) => {
                 if let Some(erased) = entry.get().upgrade() {
@@ -132,10 +113,10 @@ pub enum AssetError {
     LockPoisoned,
     #[snafu(display("Not found"))]
     NotFound,
-    #[snafu(display("Key already registered: {uuid}"))]
-    KeyAlreadyRegistered { uuid: Uuid },
-    #[snafu(display("Bad key: {uuid}"))]
-    BadKey { uuid: Uuid },
+    // #[snafu(display("Key already registered: {uuid}"))]
+    // KeyAlreadyRegistered { uuid: Uuid },
+    // #[snafu(display("Bad key: {uuid}"))]
+    // BadKey { uuid: Uuid },
     #[snafu(display("Type mismatch for key {key}"))]
     TypeMismatch { key: Key },
 }
@@ -148,6 +129,8 @@ impl<T> From<PoisonError<T>> for AssetError {
 
 #[cfg(test)]
 mod tests {
+
+    use std::io::BufReader;
 
     use super::*;
 
@@ -164,14 +147,11 @@ mod tests {
 
     #[test]
     fn asset_loaders() {
-        let resolver = |_:&str| {
-            Some(b"test" as &[u8])
-        };
-        let assets = Assets::new(resolver);
-
-        let first = assets.load("first", loader_1).unwrap();
-        let second = assets.load("first", loader_1).unwrap();
-        let third = assets.load("first", loader_1).unwrap();
+        let resolver = |_: &str| Some(BufReader::new(b"test" as &[u8]));
+        let assets = Assets::new();
+        let first = assets.load("first", &resolver, &loader_1).unwrap();
+        let second = assets.load("first", &resolver, &loader_1).unwrap();
+        let third = assets.load("first", &resolver, &loader_1).unwrap();
         assert_eq!(1, unsafe { L1_COUNTER });
     }
 }

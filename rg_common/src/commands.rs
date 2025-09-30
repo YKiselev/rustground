@@ -96,6 +96,7 @@ pub struct CommandBuilder<'a> {
     handlers: Vec<Arc<dyn CmdAdapter>>,
 }
 
+#[allow(dead_code)]
 pub struct CommandOwner(Vec<Arc<dyn CmdAdapter>>);
 
 pub trait FromContext<Output = Self> {

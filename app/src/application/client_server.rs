@@ -8,7 +8,7 @@ use crate::{
 
 pub(crate) fn run_client_server(args: Arguments) -> Result<(), AppError> {
     #[allow(unused_variables)]
-    let (handle, _) = app_logger::init(&args)?;
+    let (handle, log_buf) = app_logger::init(&args)?;
     info!("========= Starting =========");
 
     let host = AppHost::new(args);

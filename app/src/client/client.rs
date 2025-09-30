@@ -12,7 +12,6 @@ use crate::{
     error::AppError,
 };
 
-#[derive(Debug)]
 pub struct Client(Arc<RwLock<ClientConfig>>, Option<ClientState>);
 
 impl Client {

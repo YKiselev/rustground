@@ -2,7 +2,7 @@ extern crate self as rg_common;
 
 pub use arguments::Arguments;
 pub use commands::CommandRegistry;
-pub use files::AppFiles;
+pub use files::Files;
 pub use vars::FromStrMutator;
 pub use vars::FromValue;
 pub use vars::VarBag;

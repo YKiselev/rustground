@@ -72,16 +72,18 @@ impl Display for FileRoot {
     }
 }
 
+const HOME_DIR: &str = ".rustground";
+
 #[derive(Debug)]
-pub struct AppFiles {
+pub struct Files {
     roots: RwLock<Vec<FileRoot>>,
 }
 
-impl AppFiles {
+impl Files {
     pub fn new(args: &Arguments) -> Self {
         let mut folders: Vec<PathBuf> = Vec::new();
         if let Some(home) = dirs::home_dir() {
-            let app_home = home.join(".rustground");
+            let app_home = home.join(HOME_DIR);
             if let Err(e) = fs::create_dir_all(&app_home) {
                 error!("Unable to create app home: {:?}: {:?}", &app_home, e);
             }
@@ -108,7 +110,7 @@ impl AppFiles {
             })
             .collect();
 
-        AppFiles {
+        Files {
             roots: RwLock::new(roots),
         }
     }

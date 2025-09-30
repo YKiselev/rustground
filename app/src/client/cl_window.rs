@@ -13,7 +13,6 @@ use winit::{
 
 use crate::error::AppError;
 
-#[derive(Debug)]
 pub(super) struct ClientWindow {
     app: Arc<App>,
     pub(super) window: Option<Window>,

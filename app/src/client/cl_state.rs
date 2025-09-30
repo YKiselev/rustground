@@ -17,7 +17,6 @@ use crate::{
     fps::FrameStats,
 };
 
-#[derive(Debug)]
 pub(super) struct ClientState {
     pub app: Arc<App>,
     net: ClientNetwork,
