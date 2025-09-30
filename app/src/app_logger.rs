@@ -112,7 +112,7 @@ impl AppLoggerBuffer {
         }
     }
 
-    pub(crate) fn iter(&self) -> Iter<String> {
+    pub(crate) fn iter(&self) -> Iter<'_, String> {
         self.buffer.iter()
     }
 }
