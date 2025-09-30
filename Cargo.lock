@@ -110,7 +110,7 @@ dependencies = [
  "log4rs",
  "mio",
  "paste",
- "rand 0.8.5",
+ "rand",
  "rg_common",
  "rg_macros",
  "rg_math",
@@ -1028,7 +1028,7 @@ dependencies = [
  "log-mdc",
  "once_cell",
  "parking_lot",
- "rand 0.8.5",
+ "rand",
  "serde",
  "serde-value",
  "serde_json",
@@ -1091,27 +1091,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "musli-zerocopy"
-version = "0.0.131"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d5fe114fdd9e5c8dbfa28bb08b8e26bf41622d4d9cd0b0dcd79fb92d068b39bd"
-dependencies = [
- "musli-zerocopy-macros",
- "rand 0.9.0",
-]
-
-[[package]]
-name = "musli-zerocopy-macros"
-version = "0.0.131"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a6bc51406033f2f788aa10707bf2f37615568e2074dbe42916931f0f2d4acbfe"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.98",
-]
-
-[[package]]
 name = "ndk"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1153,7 +1132,7 @@ dependencies = [
  "num-integer",
  "num-iter",
  "num-traits",
- "rand 0.8.5",
+ "rand",
  "serde",
  "smallvec",
  "zeroize",
@@ -1672,17 +1651,7 @@ checksum = "34af8d1a0e25924bc5b7c43c079c942339d8f0a8b57c39049bef581b46327404"
 dependencies = [
  "libc",
  "rand_chacha",
- "rand_core 0.6.4",
-]
-
-[[package]]
-name = "rand"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3779b94aeb87e8bd4e834cee3650289ee9e0d5677f976ecdb6d219e5f4f6cd94"
-dependencies = [
- "rand_core 0.9.3",
- "zerocopy",
+ "rand_core",
 ]
 
 [[package]]
@@ -1692,7 +1661,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e6c10a63a0fa32252be49d21e7709d4d4baf8d231c2dbce1eaa8141b9b127d88"
 dependencies = [
  "ppv-lite86",
- "rand_core 0.6.4",
+ "rand_core",
 ]
 
 [[package]]
@@ -1703,12 +1672,6 @@ checksum = "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c"
 dependencies = [
  "getrandom 0.2.15",
 ]
-
-[[package]]
-name = "rand_core"
-version = "0.9.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "99d9a13982dcf210057a8a78572b2217b667c3beacbf3a0d8b454f6f82837d38"
 
 [[package]]
 name = "raw-window-handle"
@@ -1843,9 +1806,7 @@ dependencies = [
 name = "rg_net"
 version = "0.1.0"
 dependencies = [
- "byteorder",
  "log",
- "musli-zerocopy",
  "num_enum",
  "rg_macros",
  "snafu",
@@ -1876,7 +1837,7 @@ dependencies = [
  "num-traits",
  "pkcs1",
  "pkcs8",
- "rand_core 0.6.4",
+ "rand_core",
  "serde",
  "signature",
  "spki",
@@ -2042,7 +2003,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77549399552de45a898a580c1b41d445bf730df867cc44e6c0233bbc4b8329de"
 dependencies = [
  "digest",
- "rand_core 0.6.4",
+ "rand_core",
 ]
 
 [[package]]

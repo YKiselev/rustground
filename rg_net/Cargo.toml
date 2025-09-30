@@ -1,12 +1,10 @@
 [package]
 name = "rg_net"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
 rg_macros = { path = "../rg_macros" }
 snafu = "0.8.4"
-byteorder = "1.5.0"
 num_enum = "0.7.3"
-musli-zerocopy = "0.0.131"
 log = "0.4.22"
