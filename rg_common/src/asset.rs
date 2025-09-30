@@ -80,16 +80,17 @@ impl Assets {
 
         let mut guard = self.0.write()?;
         let typed = match guard.entry(key) {
-            Entry::Occupied(mut entry) => {
-                if let Some(erased) = entry.get().upgrade() {
+            Entry::Occupied(mut entry) => match entry.get().upgrade() {
+                Some(erased) => {
                     Arc::downcast::<A>(erased).map_err(|_| AssetError::TypeMismatch {
                         key: entry.key().clone(),
                     })?
-                } else {
+                }
+                _ => {
                     entry.insert(downgrade(&asset));
                     asset
                 }
-            }
+            },
             Entry::Vacant(entry) => {
                 entry.insert(downgrade(&asset));
                 asset
