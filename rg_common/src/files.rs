@@ -1,3 +1,4 @@
+use std::borrow::Borrow;
 use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io::{Error, Read, Write};
@@ -114,10 +115,10 @@ impl AppFiles {
 
     pub fn read<S>(&self, path: S) -> Option<File>
     where
-        S: AsRef<str>,
+        S: Borrow<str>,
     {
         let guard = self.roots.read().ok()?;
-        guard.iter().find_map(|r| r.read(path.as_ref()))
+        guard.iter().find_map(|r| r.read(path.borrow()))
     }
 
     pub fn write<S>(&self, path: S) -> Option<File>
@@ -133,7 +134,7 @@ impl AppFiles {
     /// 
     pub fn read_file<S>(&self, name: S) -> Option<String>
     where
-        S: AsRef<str>,
+        S: Borrow<str>,
     {
         let mut cfg = self.read(name)?;
         let mut tmp = String::new();
@@ -146,10 +147,10 @@ impl AppFiles {
     /// 
     pub fn write_file<S>(&self, name: &str, value: S)
     where
-        S: AsRef<str>,
+        S: Borrow<str>,
     {
         if let Some(mut file) = self.write(name) {
-            match write!(file, "{}", value.as_ref()) {
+            match write!(file, "{}", value.borrow()) {
                 Ok(_) => {
                     file.flush().unwrap();
                 }

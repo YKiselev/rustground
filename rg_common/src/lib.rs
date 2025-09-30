@@ -28,3 +28,4 @@ mod v_from_value;
 mod vars;
 mod test;
 mod plugin;
+mod asset;

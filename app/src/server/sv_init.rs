@@ -7,13 +7,20 @@ use std::thread;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-pub(crate) fn server_init(
+pub(crate) fn init(
     app: &Arc<App>,
 ) -> Result<(Arc<Mutex<Server>>, JoinHandle<()>), AppError> {
-    let server = Arc::new(Mutex::new(Server::new(app)?));
+    let server = Server::new(app)?;
+    let server = Arc::new(Mutex::new(server));
     server.lock()?.init(app)?;
-    let sv_clone = server.clone();
-    let app_clone = app.clone();
+    let handle = start_server_thread(Arc::clone(app), Arc::clone(&server))?;
+    Ok((server, handle))
+}
+
+fn start_server_thread(
+    app: Arc<App>,
+    server: Arc<Mutex<Server>>,
+) -> Result<JoinHandle<()>, AppError> {
     let handle = thread::Builder::new()
         .name("server-thread".to_string())
         .spawn(move || {
@@ -21,12 +28,12 @@ pub(crate) fn server_init(
             let mut lag = 0u128;
             const MILLIS_PER_UPDATE: u128 = 10;
             info!("Entering server loop...");
-            while !app_clone.is_exit() {
+            while !app.is_exit() {
                 let delta = time.elapsed();
                 time = Instant::now();
                 lag += delta.as_millis();
                 while lag >= MILLIS_PER_UPDATE {
-                    match sv_clone.lock() {
+                    match server.lock() {
                         Ok(mut srv) => {
                             if let Err(e) = srv.update() {
                                 warn!("Server update failed: {:?}", e);
@@ -45,5 +52,5 @@ pub(crate) fn server_init(
             }
             info!("Server loop ended.");
         })?;
-    Ok((server, handle))
+    Ok(handle)
 }

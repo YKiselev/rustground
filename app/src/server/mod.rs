@@ -10,4 +10,4 @@ mod sv_security;
 mod sv_state;
 
 pub(crate) use server::Server;
-pub(crate) use sv_init::server_init;
+pub(crate) use sv_init::init;
