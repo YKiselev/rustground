@@ -1,35 +1,25 @@
-use snafu::Snafu;
+use thiserror::Error;
 use vulkanalia::vk;
 
-#[derive(Debug, Snafu, PartialEq)]
+#[derive(Debug, Error, PartialEq)]
 pub enum VkError {
-    #[snafu(display("Vulkan error code: {code}"))]
-    VkErrorCode { code: i32 },
-    #[snafu(display("Generic error: {cause}"))]
-    GenericError { cause: String },
-    #[snafu(display("Suitability error: {cause}"))]
-    SuitabilityError { cause: &'static str },
-    #[snafu(display("Swapchain has changed!"))]
+    #[error("Vulkan error code: {0}")]
+    VkErrorCode(#[from] vk::ErrorCode),
+    #[error("Generic error: {0}")]
+    GenericError(String),
+    #[error("Suitability error: {0}")]
+    SuitabilityError(&'static str),
+    #[error("Swapchain has changed!")]
     SwapchainChanged,
-}
-
-impl From<vk::ErrorCode> for VkError {
-    fn from(value: vk::ErrorCode) -> Self {
-        VkError::VkErrorCode {
-            code: value.as_raw(),
-        }
-    }
 }
 
 pub fn to_generic<E>(e: E) -> VkError
 where
     E: ToString,
 {
-    VkError::GenericError {
-        cause: e.to_string(),
-    }
+    VkError::GenericError(e.to_string())
 }
 
 pub fn to_suitability(cause: &'static str) -> VkError {
-    VkError::SuitabilityError { cause }
+    VkError::SuitabilityError(cause)
 }

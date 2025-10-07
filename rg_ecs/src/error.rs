@@ -1,19 +1,19 @@
 use std::sync::PoisonError;
 
-use snafu::Snafu;
+use thiserror::Error;
 
 ///
 /// EntityError
 ///
-#[derive(Debug, Snafu)]
+#[derive(Debug, Error)]
 pub enum EntityError {
-    #[snafu(display("No such entity!"))]
+    #[error("No such entity!")]
     NotFound,
-    #[snafu(display("No such archetype!"))]
+    #[error("No such archetype!")]
     NoSuchArchetype,
-    #[snafu(display("Lock is poisoned!"))]
+    #[error("Lock is poisoned!")]
     LockPoisoned,
-    #[snafu(display("Index is out of bounds!"))]
+    #[error("Index is out of bounds!")]
     OutOfBounds,
 }
 

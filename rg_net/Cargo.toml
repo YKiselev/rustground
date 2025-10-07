@@ -5,6 +5,6 @@ edition = "2024"
 
 [dependencies]
 rg_macros = { path = "../rg_macros" }
-snafu = "0.8.4"
 num_enum = "0.7.3"
 log = "0.4.22"
+thiserror = "2.0.17"

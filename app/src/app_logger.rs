@@ -1,11 +1,11 @@
-use std::collections::vec_deque::Iter;
 use std::collections::VecDeque;
+use std::collections::vec_deque::Iter;
 use std::sync::mpsc::{self, Receiver, SyncSender};
 
 use log::{LevelFilter, Record};
+use log4rs::append::Append;
 use log4rs::append::console::ConsoleAppender;
 use log4rs::append::file::FileAppender;
-use log4rs::append::Append;
 use log4rs::config::{Appender, Logger, Root};
 use log4rs::encode::pattern::PatternEncoder;
 use log4rs::{Config, Handle};
@@ -60,7 +60,7 @@ pub(crate) fn init(args: &Arguments) -> Result<(Handle, AppLoggerBuffer), AppErr
                 .appender("app")
                 .appender("file")
                 .build(level),
-        ).map_err(|e| AppError::IllegalState { message: e.to_string() })?;
+        )?;
 
     let handle = log4rs::init_config(config)?;
     Ok((handle, buf))
@@ -79,8 +79,7 @@ pub(crate) fn build_dedicated_config() -> Result<Config, AppError> {
                 .appender("stdout")
                 .appender("file")
                 .build(LevelFilter::Info),
-        )
-        .map_err(|e| AppError::IllegalState { message: e.to_string() })?;
+        )?;
 
     Ok(config)
 }

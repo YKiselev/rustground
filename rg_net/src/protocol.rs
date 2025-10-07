@@ -1,29 +1,29 @@
-use std::{array::TryFromSliceError, fmt::{Debug, Error}};
+use std::{array::TryFromSliceError, fmt::Debug};
 
 use num_enum::{IntoPrimitive, TryFromPrimitive};
-use snafu::Snafu;
+use thiserror::Error;
 
 pub const MAX_DATAGRAM_SIZE: usize = 65507;
 pub const NET_BUF_SIZE: usize = 65536;
 pub const MIN_HEADER_SIZE: usize = 3;
 pub const PROTOCOL_VERSION: Version = Version(1, 0);
 
-#[derive(Debug, Snafu, PartialEq)]
+#[derive(Debug, Error, PartialEq)]
 pub enum ProtocolError {
-    #[snafu(display("Index {index} is out of range 0..{size}"))]
+    #[error("Index {index} is out of range 0..{size}")]
     BufferUnderflow { index: usize, size: usize },
-    #[snafu(display("Buffer overflow"))]
+    #[error("Buffer overflow")]
     BufferOverflow,
-    #[snafu(display("Value is too big"))]
+    #[error("Value is too big")]
     ValueTooBig,
-    #[snafu(display("Bad string"))]
+    #[error("Bad string")]
     BadString,
-    #[snafu(display("Bad enum tag: {value}"))]
+    #[error("Bad enum tag: {value}")]
     BadEnumTag { value: isize },
-    #[snafu(display("Format error: {e:?}"))]
-    FormatError{ e: std::fmt::Error },
-    #[snafu(display("Unexpected packet: {kind:?}"))]
-    UnexpectedPacket{ kind: PacketKind }
+    #[error(transparent)]
+    FormatError(#[from] std::fmt::Error),
+    #[error("Unexpected packet: {0:?}")]
+    UnexpectedPacket(PacketKind),
 }
 
 impl ProtocolError {
@@ -34,12 +34,6 @@ impl ProtocolError {
 impl From<TryFromSliceError> for ProtocolError {
     fn from(_: TryFromSliceError) -> Self {
         ProtocolError::underflow(0, 0)
-    }
-}
-
-impl From<Error> for ProtocolError {
-    fn from(value: Error) -> Self {
-        ProtocolError::FormatError { e: value }
     }
 }
 

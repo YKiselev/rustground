@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::VecDeque;
 use std::io::ErrorKind;
 use std::net::{Ipv4Addr, SocketAddr};
@@ -12,9 +13,9 @@ use rg_net::write_connect;
 use rg_net::write_hello;
 use rg_net::write_ping;
 use rg_net::write_with_header;
-use rg_net::{process_buf, read_accepted, read_rejected, NET_BUF_SIZE};
-use rg_net::{try_write, NetBufReader, NetBufWriter, NetReader};
-use rg_net::{PacketKind, ProtocolError, MAX_DATAGRAM_SIZE};
+use rg_net::{MAX_DATAGRAM_SIZE, PacketKind, ProtocolError};
+use rg_net::{NET_BUF_SIZE, process_buf, read_accepted, read_rejected};
+use rg_net::{NetBufReader, NetBufWriter, NetReader, try_write};
 
 use crate::client::cl_pub_key::PublicKey;
 use crate::error::AppError;
@@ -96,9 +97,9 @@ impl ClientNetwork {
                 })
             })?)
         } else {
-            Err(AppError::IllegalState {
-                message: "No server key to encode data!".to_owned(),
-            })
+            Err(AppError::IllegalState(Cow::Borrowed(
+                "No server key to encode data!",
+            )))
         }
     }
 
@@ -157,9 +158,9 @@ impl ClientNetwork {
                             PacketKind::Rejected => self.on_rejected(reader),
                             //PacketKind::Ping => reader.skip(header.size),
                             //PacketKind::Pong => reader.skip(header.size),
-                            other => Err(AppError::ProtocolError {
-                                e: ProtocolError::UnexpectedPacket { kind: other },
-                            }),
+                            other => Err(AppError::ProtocolError(ProtocolError::UnexpectedPacket(
+                                other,
+                            ))),
                         }
                         .inspect_err(|e| error!("Failed to process: {:?}", e))
                         .is_ok()
@@ -286,7 +287,7 @@ pub(crate) fn receive_data(
             return if e.kind() == ErrorKind::WouldBlock {
                 Ok(None) // no data yet
             } else {
-                Err(AppError::IoError { kind: e.kind() })
+                Err(AppError::IoError(e.kind()))
             };
         }
     }

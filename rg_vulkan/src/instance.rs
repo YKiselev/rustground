@@ -128,7 +128,7 @@ impl VkInstance {
         let image_index = match result {
             Ok(image_index) => image_index as usize,
             Err(vk::ErrorCode::OUT_OF_DATE_KHR) => return Err(VkError::SwapchainChanged),
-            Err(e) => return Err(to_generic(e.to_string())),
+            Err(e) => return Err(e.into()),
         };
         Ok(image_index)
     }
@@ -169,7 +169,7 @@ impl VkInstance {
             || result == Err(vk::ErrorCode::OUT_OF_DATE_KHR);
         if !changed {
             if let Err(e) = result {
-                return Err(to_generic(e.to_string()));
+                return Err(e.into());
             }
         }
 
