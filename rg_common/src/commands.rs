@@ -1,10 +1,8 @@
 use std::{
-    collections::HashMap,
-    str::FromStr,
-    sync::{Arc, Mutex, PoisonError, Weak},
+    borrow::Cow, collections::HashMap, str::FromStr, sync::{Arc, Mutex, PoisonError, Weak}
 };
 
-use snafu::Snafu;
+use thiserror::Error;
 
 use crate::cmd_parser::parse_command_line;
 
@@ -65,19 +63,19 @@ impl CommandRegistry {
 ///
 /// Command registry error
 ///
-#[derive(Debug, Snafu)]
+#[derive(Debug, Error)]
 pub enum CmdError {
-    #[snafu(display("Command already exists"))]
+    #[error("Command already exists")]
     AlreadyExists,
-    #[snafu(display("Unable to parse: \"{value}\""))]
-    ParseError { value: String },
-    #[snafu(display("Expected {expected} arguments got {actual}"))]
+    #[error("Unable to parse: \"{0}\"")]
+    ParseError(String),
+    #[error("Expected {expected} arguments got {actual}")]
     ArgNumberMismatch { expected: usize, actual: usize },
-    #[snafu(display("No such command"))]
+    #[error("No such command")]
     NotFound,
-    #[snafu(display("Lock poisoned"))]
+    #[error("Lock poisoned")]
     LockPoisoned,
-    #[snafu(display("Argument conversion failed"))]
+    #[error("Argument conversion failed")]
     ConversionFailed,
 }
 
@@ -108,9 +106,7 @@ fn parse<T>(v: &str) -> Result<T, CmdError>
 where
     T: FromStr,
 {
-    v.parse().map_err(|_| CmdError::ParseError {
-        value: v.to_owned(),
-    })
+    v.parse().map_err(|_| CmdError::ParseError(v.to_owned()))
 }
 
 macro_rules! impl_from_context {
@@ -118,9 +114,7 @@ macro_rules! impl_from_context {
         $(  impl FromContext for $t
             {
                 fn to_arg(value: Option<&str>) -> Result<Self, CmdError> {
-                    parse(value.ok_or(CmdError::ParseError {
-                        value: "No value!".to_owned(),
-                    })?)
+                    parse(value.ok_or(CmdError::ParseError("No value!".to_owned()))?)
                 }
             }
         ) *
@@ -307,7 +301,7 @@ mod test {
 
         assert!(matches!(
             invoke(&reg, ["1", "2.3"]),
-            Err(CmdError::ParseError { value: _ })
+            Err(CmdError::ParseError(_))
         ));
         assert!(matches!(
             invoke(&reg, ["1", "2", ".3"]),

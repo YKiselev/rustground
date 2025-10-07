@@ -1,15 +1,8 @@
 use proc_macro::TokenStream;
 
-use syn::__private::quote::quote;
-use syn::{Attribute, Data, DeriveInput};
-
-fn find_attribute<'a>(attrs: &'a Vec<Attribute>, path: &str) -> Option<&'a Attribute> {
-    attrs.iter().find(|v| v.path().is_ident(path))
-}
-
-fn has_attribute(attrs: &Vec<Attribute>, path: &str) -> bool {
-    find_attribute(attrs, path).is_some()
-}
+//use syn::__private::quote::quote;
+use quote::quote;
+use syn::{Data, DeriveInput};
 
 pub(crate) fn define_var_bag(input: DeriveInput) -> TokenStream {
     let struct_identifier = &input.ident;
@@ -72,7 +65,7 @@ pub(crate) fn define_var_bag(input: DeriveInput) -> TokenStream {
                                 )*
                                 Ok(())
                             },
-                            _ => Err(rg_common::VariableError::TableExpected{ value_kind: value.to_string() })
+                            _ => Err(rg_common::VariableError::TableExpected(value))
                         }
                     }
                 }

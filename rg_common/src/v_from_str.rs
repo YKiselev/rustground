@@ -1,10 +1,9 @@
-use std::num::{ParseFloatError, ParseIntError};
-use std::str::{FromStr, ParseBoolError, Split};
+use std::str::{FromStr, Split};
 
 use rg_common::VarBag;
 
-use crate::vars::FromStrMutator;
 use crate::VariableError;
+use crate::vars::FromStrMutator;
 
 ///
 /// Error converters
@@ -21,7 +20,7 @@ macro_rules! impl_parsing_error_from {
     };
 }
 
-impl_parsing_error_from! { ParseIntError, ParseFloatError, ParseBoolError }
+//impl_parsing_error_from! { ParseIntError, ParseFloatError, ParseBoolError }
 
 ///
 /// Mutators
@@ -44,16 +43,17 @@ macro_rules! impl_from_str_mutator {
 
 impl_from_str_mutator! { i32, i64, u32, u64, usize, f32, f64, bool, String }
 
-impl<T: FromStr> FromStrMutator for Option<T> {
+impl<T: FromStr> FromStrMutator for Option<T>
+where
+    VariableError: From<<T as FromStr>::Err>,
+{
     fn set_from_str(&mut self, sp: &mut Split<&str>, value: &str) -> Result<(), VariableError> {
         if sp.next().is_some() {
             return Err(VariableError::NotFound);
         }
         *self = if "None" != value {
             Some(
-                value
-                    .parse::<T>()
-                    .map_err(|_| VariableError::ParsingError)?,
+                value.parse::<T>()?,
             )
         } else {
             None

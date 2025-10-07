@@ -11,5 +11,6 @@ serde = {  version = "1.0.204", features = ["derive", "rc"] }
 erased-serde = "0.4.6"
 rg_macros = { path = "../rg_macros" }
 argh = "0.1.13"
-snafu = "0.8.5"
+#snafu = "0.8.5"
 uuid = {version = "1.18.1", features = ["v4"]}
+thiserror = "2.0.17"

@@ -1,21 +1,16 @@
 use std::borrow::Cow;
-use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::convert::Infallible;
-use std::error::Error;
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::{Debug};
 use std::iter::Peekable;
 use std::ops::Deref;
 use std::str::Split;
-use std::sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard, Weak};
+use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard, Weak};
 
-use log::warn;
-use serde::Serialize;
-use snafu::Snafu;
+use thiserror::Error;
 use toml::ser::Buffer;
 use toml::{Table, Value};
-
-use crate::vars::VarRegistryError::VarError;
 
 pub enum Variable<'a> {
     VarBag(&'a dyn VarBag),
@@ -103,7 +98,7 @@ impl VarRegistry {
         let guard = self.read().ok_or(VarRegistryError::LockFailed)?;
         let mut buf = Buffer::new();
         let _ = erased_serde::serialize(&guard.vars, toml::Serializer::pretty(&mut buf))
-            .map_err(|e| VarRegistryError::TomlError(e.to_string()))?;
+            .map_err(|e| VarRegistryError::TomlError(e))?;
         Ok(buf.to_string())
     }
 
@@ -156,7 +151,7 @@ impl VarRegistry {
                     Some(s.to_string())
                 } else {
                     None
-                }
+                };
             }
             Variable::Integer(i) => {
                 if sp.next().is_none() {
@@ -278,49 +273,32 @@ fn filter_names(
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Error)]
 pub enum VarRegistryError {
-    VarError(VariableError),
+    #[error(transparent)]
+    VarError(#[from] VariableError),
+    #[error("Already esists")]
     AlreadyExists,
+    #[error("Lock failed")]
     LockFailed,
-    TomlError(String),
+    #[error(transparent)]
+    TomlError(#[from] toml::ser::Error),
 }
 
-impl Display for VarRegistryError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            VarError(e) => {
-                write!(f, "Variable error: {:?}!", e)
-            }
-            VarRegistryError::LockFailed => {
-                write!(f, "Lock failed!")
-            }
-            VarRegistryError::AlreadyExists => write!(f, "Already exists!"),
-            VarRegistryError::TomlError(error) => write!(f, "{}", error),
-        }
-    }
-}
-
-impl Error for VarRegistryError {}
-
-impl From<VariableError> for VarRegistryError {
-    fn from(value: VariableError) -> Self {
-        VarRegistryError::VarError(value)
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Snafu)]
+#[derive(Debug, Clone, Error)]
 pub enum VariableError {
-    #[snafu(display("Parsing failed"))]
-    ParsingError,
-    #[snafu(display("Deserialization failed: {e}"))]
-    DeserializationError { e: String },
-    #[snafu(display("Not found"))]
+    #[error(transparent)]
+    IntParsingError(#[from] std::num::ParseIntError),
+    #[error(transparent)]
+    FloatParsingError(#[from] std::num::ParseFloatError),
+    #[error(transparent)]
+    BoolParsingError(#[from] std::str::ParseBoolError),
+    #[error(transparent)]
+    DeserializationError(#[from] toml::de::Error),
+    #[error("Not found")]
     NotFound,
-    #[snafu(display("TOML error: {cause}"))]
-    TomlError { cause: String },
-    #[snafu(display("Expected Table got {value_kind}"))]
-    TableExpected { value_kind: String },
+    #[error("Expected Table got {0:?}")]
+    TableExpected(toml::Value),
 }
 
 impl From<Infallible> for VariableError {
@@ -343,6 +321,7 @@ mod test {
 
     use rg_macros::VarBag;
     use serde::Deserialize;
+    use serde::Serialize;
 
     use super::*;
 
@@ -478,7 +457,10 @@ mod test {
         let v = reg.complete("::s::s").unwrap();
         assert_eq!(v, ["root::sub::speed"]);
 
-        assert_eq!(Err(VarRegistryError::AlreadyExists), reg.add("root", &arc));
+        assert!(matches!(
+            reg.add("root", &arc),
+            Err(VarRegistryError::AlreadyExists)
+        ));
     }
 
     #[test]
@@ -497,7 +479,10 @@ mod test {
             });
             reg.add("root".to_owned(), &arc).unwrap();
             assert_eq!("my name", reg.try_get_value("root::name").unwrap());
-            assert_eq!(Err(VarRegistryError::AlreadyExists), reg.add("root", &arc));
+            assert!(matches!(
+                reg.add("root", &arc),
+                Err(VarRegistryError::AlreadyExists)
+            ));
         }
         let arc = wrap_var_bag(TestVars {
             counter: 123,
@@ -513,7 +498,10 @@ mod test {
         });
         reg.add("root", &arc).unwrap();
         assert_eq!("new name", reg.try_get_value("root::name").unwrap());
-        assert_eq!(Err(VarRegistryError::AlreadyExists), reg.add("root", &arc));
+        assert!(matches!(
+            reg.add("root", &arc),
+            Err(VarRegistryError::AlreadyExists)
+        ));
     }
 
     const TABLE: &str = r#"

@@ -7,7 +7,7 @@ use std::{
     sync::{Arc, PoisonError, RwLock, Weak},
 };
 
-use snafu::Snafu;
+use thiserror::Error;
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
 pub struct Key(Box<str>, TypeId);
@@ -82,9 +82,7 @@ impl Assets {
         let typed = match guard.entry(key) {
             Entry::Occupied(mut entry) => match entry.get().upgrade() {
                 Some(erased) => {
-                    Arc::downcast::<A>(erased).map_err(|_| AssetError::TypeMismatch {
-                        key: entry.key().clone(),
-                    })?
+                    Arc::downcast::<A>(erased).map_err(|_| AssetError::TypeMismatch(entry.key().clone()))?
                 }
                 _ => {
                     entry.insert(downgrade(&asset));
@@ -108,18 +106,14 @@ where
     Arc::downgrade(value) as Weak<Erased>
 }
 
-#[derive(Debug, Snafu)]
+#[derive(Debug, Error)]
 pub enum AssetError {
-    #[snafu(display("Lock poisoned"))]
+    #[error("Lock poisoned")]
     LockPoisoned,
-    #[snafu(display("Not found"))]
+    #[error("Not found")]
     NotFound,
-    // #[snafu(display("Key already registered: {uuid}"))]
-    // KeyAlreadyRegistered { uuid: Uuid },
-    // #[snafu(display("Bad key: {uuid}"))]
-    // BadKey { uuid: Uuid },
-    #[snafu(display("Type mismatch for key {key}"))]
-    TypeMismatch { key: Key },
+    #[error("Type mismatch for key {0}")]
+    TypeMismatch(Key),
 }
 
 impl<T> From<PoisonError<T>> for AssetError {

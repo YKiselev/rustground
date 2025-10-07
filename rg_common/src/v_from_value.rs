@@ -10,7 +10,7 @@ where
     fn from_value(value: Value) -> Result<Self, VariableError> {
         value
             .try_into()
-            .map_err(|e| VariableError::DeserializationError { e: e.to_string() })
+            .map_err(|e| e.into())
     }
 }
 
@@ -21,7 +21,7 @@ where
     fn from_value(value: Value) -> Result<Self, VariableError> {
         value
             .try_into()
-            .map_err(|e| VariableError::DeserializationError { e: e.to_string() })
+            .map_err(|e| e.into())
     }
 }
 
@@ -32,7 +32,7 @@ macro_rules! impl_from_value {
         {
             fn from_value(value: Value) -> Result<Self, VariableError> {
                 value.try_into()
-                .map_err(|e| VariableError::DeserializationError{ e: e.to_string() })
+                .map_err(|e| e.into())
             }
         }
         )*
