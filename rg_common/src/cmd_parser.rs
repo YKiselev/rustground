@@ -1,4 +1,4 @@
-use std::str::Chars;
+use std::{ops::Range, str::CharIndices};
 
 ///
 /// Command line parser
@@ -15,28 +15,26 @@ fn is_quote(ch: char) -> bool {
     ch == '\"' || ch == '\''
 }
 
-fn unquote(mut value: String) -> Option<String> {
-    let first = value.chars().next()?;
-    let last = value.chars().next_back()?;
-    let result = if is_quote(first) && is_quote(last) {
-        value.remove(0);
-        value.pop();
-        value
+fn unquote(value: &str) -> &str {
+    let mut chars = value.chars();
+    if let (Some(first), Some(last)) = (chars.next(), chars.next_back()) {
+        if is_quote(first) && first == last {
+            &value[1..value.len() - 1]
+        } else {
+            value
+        }
     } else {
         value
-    };
-    if !result.is_empty() {
-        Some(result)
-    } else {
-        None
     }
 }
 
-pub fn parse_command_line(chars: &mut Chars<'_>) -> Option<Vec<String>> {
+pub fn parse_command_line(str: &str) -> (Option<&str>, Option<Vec<&str>>) {
+    let mut chars = str.char_indices();
     let mut result = Vec::new();
-    let mut buf = String::new();
     let mut state = State::Whitespace;
-    while let Some(ch) = chars.next() {
+    let mut segment_start = 0usize;
+    let mut length = 0usize;
+    while let Some((index, ch)) = chars.next() {
         match state {
             State::Normal => match ch {
                 '\n' | ';' => {
@@ -44,61 +42,60 @@ pub fn parse_command_line(chars: &mut Chars<'_>) -> Option<Vec<String>> {
                 }
                 '\\' => {
                     state = State::Backslash('a');
-                    buf.push(ch);
+                    length += ch.len_utf8();
                 }
                 '"' | '\'' => {
                     state = State::Quoted(ch);
-                    buf.push(ch);
+                    length += ch.len_utf8();
                 }
                 _ if ch.is_whitespace() => {
                     state = State::Whitespace;
-                    if !buf.is_empty() {
-                        if let Some(v) = unquote(buf) {
-                            result.push(v);
-                        }
-                        buf = String::new();
+                    if length > 0 {
+                        result.push(unquote(&str[segment_start..segment_start + length]));
+                        segment_start = index;
                     }
                 }
                 _ => {
-                    buf.push(ch);
+                    length += ch.len_utf8();
                 }
             },
             State::Whitespace => {
                 if !ch.is_whitespace() {
+                    segment_start = index;
+                    length = 0;
                     match ch {
                         ';' => {
                             break;
                         }
                         '\\' => {
                             state = State::Backslash(' ');
-                            buf.push(ch);
+                            length += ch.len_utf8();
                         }
                         '"' | '\'' => {
                             state = State::Quoted(ch);
-                            buf.push(ch);
+                            length += ch.len_utf8();
                         }
                         _ => {
                             state = State::Normal;
-                            buf.push(ch);
+                            length += ch.len_utf8();
                         }
                     }
                 }
             }
-            State::Quoted(q) => match ch {
-                '"' | '\'' if q == ch => {
-                    state = State::Normal;
-                    buf.push(ch);
+            State::Quoted(q) => {
+                match ch {
+                    '"' | '\'' if q == ch => {
+                        state = State::Normal;
+                    }
+                    '\\' => {
+                        state = State::Backslash(q);
+                    }
+                    _ => {}
                 }
-                '\\' => {
-                    state = State::Backslash(q);
-                    buf.push(ch);
-                }
-                _ => {
-                    buf.push(ch);
-                }
-            },
+                length += ch.len_utf8();
+            }
             State::Backslash(v) => {
-                buf.push(ch);
+                length += ch.len_utf8();
                 match v {
                     '"' | '\'' => {
                         state = State::Quoted(v);
@@ -110,27 +107,34 @@ pub fn parse_command_line(chars: &mut Chars<'_>) -> Option<Vec<String>> {
             }
         }
     }
-    if let Some(v) = unquote(buf) {
-        result.push(v);
+    if length > 0 {
+        result.push(unquote(&str[segment_start..segment_start + length]));
     }
-    if result.is_empty() {
+    let str_opt = if let Some((index, _h)) = chars.next() {
+        Some(&str[index..])
+    } else {
+        None
+    };
+    let vec_opt = if result.is_empty() {
         None
     } else {
         Some(result)
-    }
+    };
+    (str_opt, vec_opt)
 }
 
 #[cfg(test)]
 mod test {
-    use crate::cmd_parser::parse_command_line;
+    use super::*;
+
+    fn parse(cmd: &str) -> Option<Vec<&str>> {
+        let (_, parts) = parse_command_line(cmd);
+        parts
+    }
 
     fn assert(cmd: &str, expected: &[&str]) {
-        let e = expected
-            .iter()
-            .map(|s| s.to_string())
-            .collect::<Vec<String>>();
-        let mut chars = cmd.chars();
-        assert_eq!(parse_command_line(&mut chars), Some(e));
+        let e: Vec<&str> = expected.to_vec();
+        assert_eq!(parse(cmd), Some(e));
     }
 
     #[test]
@@ -168,11 +172,12 @@ mod test {
     #[test]
     fn several_commands() {
         let a = "a 1 2 3 ; b 4 5; c 6\n d 7";
-        let mut chars = a.chars();
         let mut r = Vec::new();
-        loop {
-            match parse_command_line(&mut chars) {
-                Some(args) => r.push(args),
+        let mut str = a;
+        while let (rest, Some(parts)) = parse_command_line(str) {
+            r.push(parts);
+            match rest {
+                Some(s) => str = s,
                 None => break,
             }
         }

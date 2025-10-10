@@ -1,10 +1,12 @@
 use std::{
-    borrow::Cow, collections::HashMap, str::FromStr, sync::{Arc, Mutex, PoisonError, Weak}
+    collections::HashMap,
+    str::FromStr,
+    sync::{Arc, Mutex, PoisonError, Weak},
 };
 
 use thiserror::Error;
 
-use crate::cmd_parser::parse_command_line;
+use crate::cmd_parser::{parse_command_line};
 
 ///
 /// Command registry
@@ -49,10 +51,11 @@ impl CommandRegistry {
     where
         S: AsRef<str>,
     {
-        let mut chars = command.as_ref().chars();
-        loop {
-            match parse_command_line(&mut chars) {
-                Some(ref args) => self.invoke(args)?,
+        let mut str = command.as_ref();
+        while let (rest, Some(args)) = parse_command_line(str) {
+            // todo self.invoke(args)?;
+            match rest {
+                Some(s) => str = s,
                 None => break,
             }
         }
@@ -75,8 +78,8 @@ pub enum CmdError {
     NotFound,
     #[error("Lock poisoned")]
     LockPoisoned,
-    #[error("Argument conversion failed")]
-    ConversionFailed,
+    // #[error("Argument conversion failed")]
+    // ConversionFailed,
 }
 
 fn arg_num_mismatch(expected: usize, actual: usize) -> Result<(), CmdError> {
@@ -226,12 +229,12 @@ mod test {
     use std::{
         ops::Deref,
         sync::{
-            atomic::{AtomicUsize, Ordering},
             Arc, Mutex,
+            atomic::{AtomicUsize, Ordering},
         },
     };
 
-    use crate::{commands::CmdError, CommandRegistry};
+    use crate::{CommandRegistry, commands::CmdError};
 
     use super::{CommandBuilder, CommandOwner};
 
