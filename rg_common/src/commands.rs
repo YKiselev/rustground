@@ -11,9 +11,9 @@ use crate::cmd_parser::{parse_command_line};
 ///
 /// Command registry
 ///
-pub trait CmdAdapter: Fn(&[String]) -> Result<(), CmdError> + Send + Sync {}
+pub trait CmdAdapter: Fn(&[&str]) -> Result<(), CmdError> + Send + Sync {}
 
-impl<T> CmdAdapter for T where T: Fn(&[String]) -> Result<(), CmdError> + Send + Sync {}
+impl<T> CmdAdapter for T where T: Fn(&[&str]) -> Result<(), CmdError> + Send + Sync {}
 
 type CmdMap = HashMap<String, Weak<dyn CmdAdapter>>;
 
@@ -34,12 +34,12 @@ impl CommandRegistry {
     }
 
     /// Invokes command handler by name passed as first argument in [args]
-    pub fn invoke(&self, args: &[String]) -> Result<(), CmdError> {
+    pub fn invoke(&self, args: &[&str]) -> Result<(), CmdError> {
         if args.len() < 1 {
             return arg_num_mismatch(1, 0);
         }
         let guard = self.0.lock()?;
-        if let Some(adapter) = guard.get(&args[0]).and_then(|weak| weak.upgrade()) {
+        if let Some(adapter) = guard.get(args[0]).and_then(|weak| weak.upgrade()) {
             drop(guard);
             return (adapter)(&args[1..]);
         }
@@ -53,7 +53,7 @@ impl CommandRegistry {
     {
         let mut str = command.as_ref();
         while let (rest, Some(args)) = parse_command_line(str) {
-            // todo self.invoke(args)?;
+            self.invoke(&args[..])?;
             match rest {
                 Some(s) => str = s,
                 None => break,
@@ -78,8 +78,6 @@ pub enum CmdError {
     NotFound,
     #[error("Lock poisoned")]
     LockPoisoned,
-    // #[error("Argument conversion failed")]
-    // ConversionFailed,
 }
 
 fn arg_num_mismatch(expected: usize, actual: usize) -> Result<(), CmdError> {
@@ -138,7 +136,7 @@ where
 
 impl_from_context! {u8, u16, u32, u64, usize, i8, i16, i32, i64, f32, f64, String, bool}
 
-fn check_args(expected: usize, actual: usize) -> Result<(), CmdError> {
+fn ensure_at_most(expected: usize, actual: usize) -> Result<(), CmdError> {
     if actual > expected {
         return arg_num_mismatch(expected, actual);
     }
@@ -196,13 +194,13 @@ macro_rules! impl_as_adapter {
         {
             fn as_handler(self) -> impl CmdAdapter {
                 const ARG_COUNT: usize = count!($($t),*);
-                move |args: &[String]| {
-                    check_args(ARG_COUNT, args.len())?;
+                move |args: &[&str]| {
+                    ensure_at_most(ARG_COUNT, args.len())?;
                     let mut k = 0usize;
 
                     (self)(
                         $({
-                            let arg = $t::to_arg(args.get(k).map(|v| v.as_str()))?;
+                            let arg = $t::to_arg(args.get(k).map(|s| *s))?;
                             k += 1;
                             arg
                         },)*
@@ -242,7 +240,6 @@ mod test {
         reg: R,
         args: [&str; N],
     ) -> Result<(), CmdError> {
-        let args: Vec<String> = args.iter().map(|v| v.to_string()).collect();
         reg.invoke(args.as_slice())
     }
 
