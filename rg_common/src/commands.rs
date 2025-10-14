@@ -6,7 +6,7 @@ use std::{
 
 use thiserror::Error;
 
-use crate::cmd_parser::{parse_command_line};
+use crate::cmd_parser::parse_command_line;
 
 ///
 /// Command registry
@@ -98,8 +98,10 @@ pub struct CommandBuilder<'a> {
 #[allow(dead_code)]
 pub struct CommandOwner(Vec<Arc<dyn CmdAdapter>>);
 
-pub trait FromContext<Output = Self> {
-    fn to_arg(value: Option<&str>) -> Result<Output, CmdError>;
+pub trait FromContext {
+    type Output<'r>;
+
+    fn to_arg<'a>(value: Option<&'a str>) -> Result<Self::Output<'a>, CmdError>;
 }
 
 #[inline(always)]
@@ -114,23 +116,40 @@ macro_rules! impl_from_context {
     ( $($t:ty),* ) => {
         $(  impl FromContext for $t
             {
-                fn to_arg(value: Option<&str>) -> Result<Self, CmdError> {
-                    parse(value.ok_or(CmdError::ParseError("No value!".to_owned()))?)
+                type Output<'r> = Self;
+
+                fn to_arg<'a>(value: Option<&'a str>) -> Result<Self::Output<'a>, CmdError> {
+                    parse(value.ok_or_else(|| no_value())?)
                 }
             }
         ) *
     }
 }
 
+fn no_value() -> CmdError {
+    CmdError::ParseError("No value!".to_owned())
+}
+
 impl<T> FromContext for Option<T>
 where
     T: FromStr,
 {
-    fn to_arg(value: Option<&str>) -> Result<Self, CmdError> {
-        Ok(match value {
-            Some(v) => Some(parse::<T>(v)?),
-            None => None,
+    type Output<'r> = Self;
+
+    fn to_arg<'a>(value: Option<&'a str>) -> Result<Self::Output<'a>, CmdError> {
+        Ok(if let Some(v) = value {
+            Some(parse::<T>(v)?)
+        } else {
+            None
         })
+    }
+}
+
+impl FromContext for &str {
+    type Output<'r> = &'r str;
+
+    fn to_arg<'a>(value: Option<&'a str>) -> Result<Self::Output<'a>, CmdError> {
+        value.ok_or_else(|| no_value())
     }
 }
 
@@ -157,10 +176,10 @@ impl CommandBuilder<'_> {
     /// Binds supplied command handler [adapter] to [name]
     pub fn add<A, Args>(&mut self, name: &str, adapter: A) -> Result<(), CmdError>
     where
-        A: AsAdapter<Args> + 'static,
+        A: IntoAdapter<Args> + 'static,
         Args: 'static,
     {
-        let a = Arc::new(adapter.as_handler());
+        let a = Arc::new(adapter.to_adapter());
         self.registry
             .register(name.to_owned(), Arc::downgrade(&a) as _)?;
         self.handlers.push(a);
@@ -174,8 +193,8 @@ impl CommandBuilder<'_> {
     }
 }
 
-pub trait AsAdapter<Args> {
-    fn as_handler(self) -> impl CmdAdapter;
+pub trait IntoAdapter<Args> {
+    fn to_adapter(self) -> impl CmdAdapter;
 }
 
 macro_rules! count {
@@ -185,22 +204,24 @@ macro_rules! count {
 
 macro_rules! impl_as_adapter {
     ($($t:ident),*) => {
-        impl<Func, $($t),*> AsAdapter<($($t,)*)> for Func
+        impl<Func, $($t),*> IntoAdapter<($($t,)*)> for Func
         where
-            Func: Fn($($t),*) -> Result<(), CmdError> + Send + Sync + 'static,
+            for <'a> Func: Fn($($t),*) -> Result<(), CmdError> + Fn($(<$t as FromContext>::Output<'a>),*)-> Result<(), CmdError> + Send + Sync + 'static,
             $(
                 $t : FromContext + 'static,
             )*
         {
-            fn as_handler(self) -> impl CmdAdapter {
+            fn to_adapter(self) -> impl CmdAdapter {
                 const ARG_COUNT: usize = count!($($t),*);
+
                 move |args: &[&str]| {
                     ensure_at_most(ARG_COUNT, args.len())?;
                     let mut k = 0usize;
 
                     (self)(
                         $({
-                            let arg = $t::to_arg(args.get(k).map(|s| *s))?;
+                            let arg = args.get(k).map(|s| *s);
+                            let arg = $t::to_arg(arg)?;
                             k += 1;
                             arg
                         },)*
@@ -232,9 +253,42 @@ mod test {
         },
     };
 
-    use crate::{CommandRegistry, commands::CmdError};
+    use super::*;
 
-    use super::{CommandBuilder, CommandOwner};
+    trait From2 {
+        type Output<'r>;
+
+        fn to<'a>(value: &'a str) -> Self::Output<'a>;
+    }
+
+    impl From2 for &str {
+        type Output<'o> = &'o str;
+
+        fn to<'a>(value: &'a str) -> Self::Output<'a> {
+            value
+        }
+    }
+
+    fn adapt<F, A>(func: F) -> impl CmdAdapter
+    where
+        for<'a> F: Fn(A) + Fn(<A as From2>::Output<'a>) + Send + Sync + 'static,
+        A: From2 + 'static,
+    {
+        move |args| {
+            (func)(A::to(args[0]));
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn test() {
+        let a = "123";
+        let func = |v: &str| {
+            println!("Got {v}");
+        };
+        let a1 = adapt(func);
+        (a1)(&["222"]).unwrap();
+    }
 
     fn invoke<const N: usize, R: Deref<Target = CommandRegistry>>(
         reg: R,
@@ -376,7 +430,7 @@ mod test {
         .unwrap();
         let counter = Arc::new(Mutex::new(0));
         let cloned = Arc::clone(&counter);
-        b.add("wow3", move |a: bool, b: String| {
+        b.add("wow3", move |a: bool, b: &str| {
             println!("It works: {a}, {b}, {}", cloned.lock().unwrap());
             *cloned.lock().unwrap() += 1;
             Ok(())
