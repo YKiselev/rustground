@@ -109,7 +109,8 @@ fn parse<T>(v: &str) -> Result<T, CmdError>
 where
     T: FromStr,
 {
-    v.parse().map_err(|_| CmdError::ParseError(v.to_owned()))
+    v.parse()
+        .map_err(|_| CmdError::ParseError(format!("Failed to parse {v}")))
 }
 
 macro_rules! impl_from_context {
@@ -119,13 +120,15 @@ macro_rules! impl_from_context {
                 type Output<'r> = Self;
 
                 fn to_arg<'a>(value: Option<&'a str>) -> Result<Self::Output<'a>, CmdError> {
-                    parse(value.ok_or_else(|| no_value())?)
+                    let raw_str = value.ok_or_else(|| no_value())?;
+                    parse(raw_str)
                 }
             }
         ) *
     }
 }
 
+#[inline]
 fn no_value() -> CmdError {
     CmdError::ParseError("No value!".to_owned())
 }
@@ -206,7 +209,8 @@ macro_rules! impl_as_adapter {
     ($($t:ident),*) => {
         impl<Func, $($t),*> IntoAdapter<($($t,)*)> for Func
         where
-            for <'a> Func: Fn($($t),*) -> Result<(), CmdError> + Fn($(<$t as FromContext>::Output<'a>),*)-> Result<(), CmdError> + Send + Sync + 'static,
+            for <'a> Func: Fn($($t),*) -> Result<(), CmdError> +
+                Fn($(<$t as FromContext>::Output<'a>),*)-> Result<(), CmdError> + Send + Sync + 'static,
             $(
                 $t : FromContext + 'static,
             )*
@@ -254,41 +258,6 @@ mod test {
     };
 
     use super::*;
-
-    trait From2 {
-        type Output<'r>;
-
-        fn to<'a>(value: &'a str) -> Self::Output<'a>;
-    }
-
-    impl From2 for &str {
-        type Output<'o> = &'o str;
-
-        fn to<'a>(value: &'a str) -> Self::Output<'a> {
-            value
-        }
-    }
-
-    fn adapt<F, A>(func: F) -> impl CmdAdapter
-    where
-        for<'a> F: Fn(A) + Fn(<A as From2>::Output<'a>) + Send + Sync + 'static,
-        A: From2 + 'static,
-    {
-        move |args| {
-            (func)(A::to(args[0]));
-            Ok(())
-        }
-    }
-
-    #[test]
-    fn test() {
-        let a = "123";
-        let func = |v: &str| {
-            println!("Got {v}");
-        };
-        let a1 = adapt(func);
-        (a1)(&["222"]).unwrap();
-    }
 
     fn invoke<const N: usize, R: Deref<Target = CommandRegistry>>(
         reg: R,
@@ -412,26 +381,25 @@ mod test {
         b.add("name", move |n: Option<String>| {
             if let Some(n) = n {
                 ac.lock().unwrap().name = n;
-            } else {
-                println!("Name is: {}", ac.lock().unwrap().name);
             }
+            println!("Name is: {}", ac.lock().unwrap().name);
             Ok(())
         })
         .unwrap();
-        b.add("wow", || {
-            println!("It works!");
-            Ok(())
-        })
-        .unwrap();
-        b.add("wow2", |a: i32| {
-            println!("It works: {a}");
+        let ac = Arc::clone(&arc);
+        b.add("data", move |v: Option<i32>| {
+            let mut guard = ac.lock().unwrap();
+            if let Some(v) = v {
+                guard.data = v;
+            }
+            println!("data={}", guard.data);
             Ok(())
         })
         .unwrap();
         let counter = Arc::new(Mutex::new(0));
         let cloned = Arc::clone(&counter);
-        b.add("wow3", move |a: bool, b: &str| {
-            println!("It works: {a}, {b}, {}", cloned.lock().unwrap());
+        b.add("two_args", move |a: bool, b: &str| {
+            println!("Passed: {a}, {b}, {}", cloned.lock().unwrap());
             *cloned.lock().unwrap() += 1;
             Ok(())
         })
@@ -440,8 +408,10 @@ mod test {
         invoke(&reg, ["name"]).unwrap();
         invoke(&reg, ["name", "Guffy"]).unwrap();
         assert_eq!("Guffy", arc.lock().unwrap().name);
-        invoke(&reg, ["wow"]).unwrap();
-        invoke(&reg, ["wow2", "777"]).unwrap();
-        invoke(&reg, ["wow3", "true", "Wohoaa!"]).unwrap();
+        invoke(&reg, ["data"]).unwrap();
+        assert_eq!(123, arc.lock().unwrap().data);
+        invoke(&reg, ["data", "77"]).unwrap();
+        assert_eq!(77, arc.lock().unwrap().data);
+        invoke(&reg, ["two_args", "true", "Wohoaa!"]).unwrap();
     }
 }
