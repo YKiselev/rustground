@@ -299,27 +299,24 @@ mod test {
     }
 
     #[test]
-    fn commands() {
+    fn arg_number() {
         let reg = CommandRegistry::default();
         let mut b = CommandBuilder::new(&reg);
         b.add("0", || Ok(())).unwrap();
-        b.add("1", |a: i32| Ok(())).unwrap();
+        b.add("1", |_: i32| Ok(())).unwrap();
         assert!(matches!(
-            b.add("1", |a: String| Ok(())),
+            b.add("1", |_: String| Ok(())),
             Err(CmdError::AlreadyExists)
         ));
-        b.add("2", |a: i32, b: String| Ok(())).unwrap();
-        b.add("2_2", |a: i32, b: Option<String>| {
-            print!("Got a={a}, b={b:?}");
-            Ok(())
-        })
-        .unwrap();
-        b.add("3", |a: i32, b: u8, c: String| Ok(())).unwrap();
+        b.add("2a", |_: i32, _: String| Ok(())).unwrap();
+        b.add("2b", |_: i32, _: Option<String>| Ok(())).unwrap();
+        b.add("3", |_: i32, _: u8, _: String| Ok(())).unwrap();
         let _cmds = b.build();
 
         invoke(&reg, ["0"]).unwrap();
         invoke(&reg, ["1", "123"]).unwrap();
-        invoke(&reg, ["2_2", "321"]).unwrap();
+        invoke(&reg, ["2a", "1", "2"]).unwrap();
+        invoke(&reg, ["2b", "1"]).unwrap();
         invoke(&reg, ["3", "123", "22", "Hello_World!"]).unwrap();
 
         assert!(matches!(
@@ -340,7 +337,7 @@ mod test {
     }
 
     #[test]
-    fn recusrive() {
+    fn recusrive_calls() {
         let reg = Arc::new(CommandRegistry::default());
         let counter = Arc::new(AtomicUsize::default());
         let c2 = Arc::clone(&counter);
@@ -369,7 +366,7 @@ mod test {
     }
 
     #[test]
-    fn real_module() {
+    fn typical_usage() {
         let reg = CommandRegistry::default();
         let mut b = CommandBuilder::new(&reg);
         let arc = Arc::new(Mutex::new(Module {
