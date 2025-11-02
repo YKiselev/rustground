@@ -1,8 +1,8 @@
 use std::borrow::Borrow;
 use std::fs::File;
 use std::io::{BufReader, Read};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use log::{info, warn};
@@ -10,9 +10,9 @@ use log::{info, warn};
 use rg_common::arguments::Arguments;
 use rg_common::{CommandRegistry, Files, VarRegistry};
 
-use crate::asset::{AssetError, Assets, Loader};
-use crate::config::load_config;
-use crate::save_config;
+use crate::asset::{AssetError, Assets};
+use crate::config::read_config;
+use crate::{save_config, Loader, LoaderError};
 
 pub struct App {
     pub arguments: Arguments,
@@ -50,7 +50,7 @@ impl App {
     where
         S: AsRef<str>,
     {
-        if let Some(cfg) = load_config(name.as_ref(), &self.files) {
+        if let Some(cfg) = self.load_resource(name.as_ref(), &read_config).ok() {
             info!("Loaded config: {:?}", &cfg);
             let _ = self
                 .vars
@@ -63,10 +63,9 @@ impl App {
         save_config(name, &self.files, value);
     }
 
-    pub fn load_asset<S, L, A, Rd>(&self, name: S, loader: &L) -> Result<Arc<A>, AssetError>
+    pub fn load_asset<S, L, A>(&self, name: S, loader: &L) -> Result<Arc<A>, AssetError>
     where
         S: Into<Box<str>> + Borrow<str>,
-        Rd: Read,
         L: Loader<A, BufReader<File>> + 'static,
         A: Send + Sync + 'static,
     {
@@ -75,5 +74,18 @@ impl App {
             |n| self.files.read(n).map(|f| BufReader::new(f)),
             loader,
         )
+    }
+
+    pub fn load_resource<S, L, A>(&self, name: S, loader: &L) -> Result<A, LoaderError>
+    where
+        S: Into<Box<str>> + Borrow<str>,
+        L: Loader<A, BufReader<File>> + 'static,
+        A: Send + Sync + 'static,
+    {
+        self.files
+            .read(name)
+            .ok_or_else(|| LoaderError::NotFound)
+            .map(|f| BufReader::new(f))
+            .and_then(|mut r| loader(&mut r))
     }
 }

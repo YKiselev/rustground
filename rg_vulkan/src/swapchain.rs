@@ -19,7 +19,7 @@ pub(crate) struct Swapchain {
     pub views: Vec<ImageView>,
     pub render_pass: RenderPass,
     pub framebuffers: Vec<Framebuffer>,
-    pub submit_semaphores: Vec<vk::Semaphore>,
+    pub render_finished: Vec<vk::Semaphore>,
 }
 
 impl Swapchain {
@@ -68,15 +68,10 @@ impl Swapchain {
         let views = create_swapchain_image_views(&images, surface_format.format, device)?;
         let render_pass = create_render_pass(device, surface_format.format)?;
         let framebuffers = create_framebuffers(&views, render_pass, &extent, device)?;
-        let fence_info = vk::FenceCreateInfo::builder().flags(vk::FenceCreateFlags::SIGNALED);
-        let images_in_flight = images
-            .iter()
-            .map(|_| unsafe { device.create_fence(&fence_info, None) })
-            .collect::<Result<Vec<Fence>, _>>()?;
         let semaphore_info = vk::SemaphoreCreateInfo::builder();
         let render_finished = images
             .iter()
-            .map(|i| unsafe { device.create_semaphore(&semaphore_info, None) })
+            .map(|_| unsafe { device.create_semaphore(&semaphore_info, None) })
             .collect::<Result<Vec<vk::Semaphore>, _>>()?;
 
         Ok(Swapchain {
@@ -87,13 +82,13 @@ impl Swapchain {
             views,
             render_pass,
             framebuffers,
-            submit_semaphores: render_finished,
+            render_finished,
         })
     }
 
     pub fn destroy(&mut self, device: &Device) {
         unsafe {
-            self.submit_semaphores
+            self.render_finished
                 .iter()
                 .for_each(|s| device.destroy_semaphore(*s, None));
 
@@ -108,7 +103,11 @@ impl Swapchain {
         }
     }
 
-    pub fn aquire_next_image(&self, device: &Device, acquire_semaphore: Semaphore) -> VkResult<u32> {
+    pub fn aquire_next_image(
+        &self,
+        device: &Device,
+        acquire_semaphore: Semaphore,
+    ) -> VkResult<u32> {
         let (image_index, _) = unsafe {
             device.acquire_next_image_khr(
                 self.swapchain,

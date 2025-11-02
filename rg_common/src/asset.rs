@@ -1,13 +1,15 @@
 use std::{
     any::{Any, TypeId},
     borrow::Borrow,
-    collections::{hash_map::Entry, HashMap},
+    collections::{HashMap, hash_map::Entry},
     fmt::Display,
     io::Read,
     sync::{Arc, PoisonError, RwLock, Weak},
 };
 
 use thiserror::Error;
+
+use crate::{Loader, LoaderError};
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
 pub struct Key(Box<str>, TypeId);
@@ -30,21 +32,6 @@ impl Key {
 
 type Erased = dyn Any + Send + Sync;
 type TypeMap = HashMap<Key, Weak<Erased>>;
-
-pub trait Loader<A, R>: Fn(&R) -> Result<Arc<A>, AssetError>
-where
-    A: Send + Sync,
-    R: Read,
-{
-}
-
-impl<A, R, T> Loader<A, R> for T
-where
-    A: Send + Sync,
-    R: Read,
-    T: Fn(&R) -> Result<Arc<A>, AssetError>,
-{
-}
 
 pub struct Assets(RwLock<TypeMap>);
 
@@ -75,15 +62,15 @@ impl Assets {
         }
         drop(guard);
         // Load asset w/o any locks!
-        let reader = (resolver)(key.0.borrow()).ok_or(AssetError::NotFound)?;
-        let asset = loader(&reader as _)?;
+        let mut reader = (resolver)(key.0.borrow()).ok_or(AssetError::NotFound)?;
+        let asset = loader(&mut reader as _)?;
+        let asset = Arc::new(asset);
 
         let mut guard = self.0.write()?;
         let typed = match guard.entry(key) {
             Entry::Occupied(mut entry) => match entry.get().upgrade() {
-                Some(erased) => {
-                    Arc::downcast::<A>(erased).map_err(|_| AssetError::TypeMismatch(entry.key().clone()))?
-                }
+                Some(erased) => Arc::downcast::<A>(erased)
+                    .map_err(|_| AssetError::TypeMismatch(entry.key().clone()))?,
                 _ => {
                     entry.insert(downgrade(&asset));
                     asset
@@ -114,11 +101,19 @@ pub enum AssetError {
     NotFound,
     #[error("Type mismatch for key {0}")]
     TypeMismatch(Key),
+    #[error("{0}")]
+    Loader(LoaderError),
 }
 
 impl<T> From<PoisonError<T>> for AssetError {
     fn from(_: PoisonError<T>) -> Self {
         AssetError::LockPoisoned
+    }
+}
+
+impl From<LoaderError> for AssetError {
+    fn from(value: LoaderError) -> Self {
+        AssetError::Loader(value)
     }
 }
 
@@ -131,13 +126,13 @@ mod tests {
 
     static mut L1_COUNTER: i32 = 0;
 
-    fn loader_1<R>(read: &R) -> Result<Arc<String>, AssetError>
+    fn loader_1<R>(read: &mut R) -> Result<String, LoaderError>
     where
         R: Read,
     {
         unsafe { L1_COUNTER += 1 };
 
-        Ok(Arc::new(String::from("value")))
+        Ok(String::from("value"))
     }
 
     #[test]

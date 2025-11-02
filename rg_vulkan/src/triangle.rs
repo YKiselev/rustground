@@ -332,10 +332,10 @@ impl Triangle {
     pub fn draw_to_buffer(
         &mut self,
         instance: &VkInstance,
-        image_index: usize
+        image_index: usize,
+        command_buffer: vk::CommandBuffer
     ) -> Result<(), VkError> {
         let info = vk::CommandBufferBeginInfo::builder();
-        let command_buffer = instance.command_buffers[image_index];
 
         unsafe { instance.device.begin_command_buffer(command_buffer, &info) }?;
 

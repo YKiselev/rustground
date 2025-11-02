@@ -72,7 +72,7 @@ impl VulkanRenderer {
     }
 
     fn render_frame(&mut self, image_index: usize) {
-        match self.triangle.draw_to_buffer(&self.instance, image_index) {
+        match self.triangle.draw_to_buffer(&self.instance, image_index, self.instance.command_buffer()) {
             Ok(_) => {
                 let time = self.start.elapsed().as_secs_f32();
                 let extent = self.instance.swapchain.extent;
@@ -91,6 +91,7 @@ impl VulkanRenderer {
 
     pub fn destroy(&mut self) {
         info!("Destroing renderer");
+        self.instance.wait_idle().unwrap();
         self.triangle.destroy(&self.instance.device);
         self.instance.destroy();
     }
