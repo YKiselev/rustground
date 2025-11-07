@@ -117,8 +117,8 @@ impl Swapchain {
         }
     }
 
-    pub fn acquire_next_image(&self, device: &Device, frame: usize) -> Result<usize, VkError> {
-        let fences = &[self.frames_in_flight.frence(frame)];
+    pub fn acquire_next_image(&self, device: &Device) -> Result<usize, VkError> {
+        let fences = &[self.frames_in_flight.frence()];
         unsafe {
             device.wait_for_fences(fences, true, u64::MAX)?;
             device.reset_fences(fences)?;
@@ -127,7 +127,7 @@ impl Swapchain {
             device.acquire_next_image_khr(
                 self.swapchain,
                 u64::MAX,
-                self.frames_in_flight.image_available_semaphore(frame),
+                self.frames_in_flight.image_available_semaphore(),
                 vk::Fence::null(),
             )
         } {
@@ -148,12 +148,11 @@ impl Swapchain {
         device: &Device,
         graphics_queue: Queue,
         present_queue: Queue,
-        frame: usize,
         image_index: usize,
     ) -> Result<SuccessCode, ErrorCode> {
-        let wait_semaphores = &[self.frames_in_flight.image_available_semaphore(frame)];
+        let wait_semaphores = &[self.frames_in_flight.image_available_semaphore()];
         let wait_stages = &[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
-        let command_buffers = &[self.frames_in_flight.command_buffer(frame)];
+        let command_buffers = &[self.frames_in_flight.command_buffer()];
         let signal_semaphores = &[self.render_finished[image_index]];
         let submit_info = vk::SubmitInfo::builder()
             .wait_semaphores(wait_semaphores)
@@ -163,7 +162,7 @@ impl Swapchain {
 
         unsafe {
             let infos = &[submit_info];
-            device.queue_submit(graphics_queue, infos, self.frames_in_flight.frence(frame))?;
+            device.queue_submit(graphics_queue, infos, self.frames_in_flight.frence())?;
         }
 
         let swapchains = &[self.swapchain];

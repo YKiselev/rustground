@@ -1,11 +1,10 @@
-use std::u64;
 
 use vulkanalia::{
     Device, Entry, Instance,
     vk::{
         self, CommandBuffer, CommandPoolCreateFlags, DeviceMemory, DeviceSize, DeviceV1_0,
         ExtDebugUtilsExtension, Handle, HasBuilder, InstanceV1_0, KhrSurfaceExtension,
-        KhrSwapchainExtension, MemoryMapFlags, PhysicalDevice, Queue, SurfaceKHR,
+        MemoryMapFlags, PhysicalDevice, Queue, SurfaceKHR,
     },
     window,
 };
@@ -15,7 +14,6 @@ use crate::{
     create_instance::create_instance,
     device::{VALIDATION_ENABLED, create_logical_device, pick_physical_device},
     error::{VkError, to_generic},
-    frames_in_flight::FramesInFlight,
     queue_family::QueueFamilyIndices,
     swapchain::Swapchain,
 };
@@ -35,8 +33,7 @@ pub struct VkInstance {
     pub present_queue: Queue,
     pub swapchain: Swapchain,
     pub descriptor_set_layout: vk::DescriptorSetLayout,
-    pub command_pool: vk::CommandPool,
-    frame: usize,
+    pub command_pool: vk::CommandPool
 }
 
 impl VkInstance {
@@ -56,8 +53,7 @@ impl VkInstance {
             present_queue,
             swapchain: Swapchain::default(),
             descriptor_set_layout: Default::default(),
-            command_pool: Default::default(),
-            frame: 0,
+            command_pool: Default::default()
         };
         result.init_descriptor_set_layout()?;
         result.init_command_pool()?;
@@ -94,11 +90,11 @@ impl VkInstance {
     }
 
     pub fn command_buffer(&self) -> CommandBuffer {
-        self.swapchain.frames_in_flight.command_buffer(self.frame)
+        self.swapchain.frames_in_flight.command_buffer()
     }
 
     pub fn begin_frame(&self) -> Result<usize, VkError> {
-        self.swapchain.acquire_next_image(&self.device, self.frame)
+        self.swapchain.acquire_next_image(&self.device)
     }
 
     pub fn end_frame(&mut self, image_index: usize) -> Result<bool, VkError> {
@@ -106,11 +102,10 @@ impl VkInstance {
             &self.device,
             self.graphics_queue,
             self.present_queue,
-            self.frame,
             image_index,
         );
 
-        self.frame = (self.frame + 1) % MAX_FRAMES_IN_FLIGHT;
+        self.swapchain.frames_in_flight.next_frame();
 
         let changed = result == Ok(vk::SuccessCode::SUBOPTIMAL_KHR)
             || result == Err(vk::ErrorCode::OUT_OF_DATE_KHR);
