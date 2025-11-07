@@ -17,7 +17,7 @@ use crate::{
     error::{VkError, to_generic},
     frames_in_flight::FramesInFlight,
     queue_family::QueueFamilyIndices,
-    swapchain::{Swapchain, SwapchainBootstrap},
+    swapchain::{Swapchain},
 };
 
 pub(crate) const DEVICE_EXTENSIONS: &[vk::ExtensionName] = &[vk::KHR_SWAPCHAIN_EXTENSION.name];
@@ -170,15 +170,14 @@ impl VkInstance {
     }
 
     fn init_swapchain(&mut self, window: &Window) -> Result<(), VkError> {
-        let bootstrap = SwapchainBootstrap::new(
+        self.swapchain = Swapchain::new(
             &self.instance,
             self.surface,
             &self.device,
             self.physical_device,
             window,
             self.descriptor_set_layout,
-        );
-        self.swapchain = Swapchain::new(&bootstrap)?;
+        )?;
         self.frames_in_flight = FramesInFlight::new(&self.device, self.command_pool)?;
         Ok(())
     }
