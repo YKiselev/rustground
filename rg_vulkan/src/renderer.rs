@@ -66,6 +66,7 @@ impl VulkanRenderer {
     fn recreate_swapchain(&mut self, window: &Window) -> Result<(), VkError> {
         self.resized = false;
         self.instance.recreate_swapchain(window)?;
+        self.triangle.destroy(&self.instance.device);
         self.triangle = Triangle::new(&self.instance)?;
         self.triangle.update_descriptor_sets(&self.instance)?;
         Ok(())

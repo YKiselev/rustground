@@ -15,9 +15,9 @@ use crate::{
     create_instance::create_instance,
     device::{VALIDATION_ENABLED, create_logical_device, pick_physical_device},
     error::{VkError, to_generic},
-    frame::Frame,
+    frames_in_flight::FramesInFlight,
     queue_family::QueueFamilyIndices,
-    swapchain::Swapchain,
+    swapchain::{Swapchain, SwapchainBootstrap},
 };
 
 pub(crate) const DEVICE_EXTENSIONS: &[vk::ExtensionName] = &[vk::KHR_SWAPCHAIN_EXTENSION.name];
@@ -36,9 +36,7 @@ pub struct VkInstance {
     pub swapchain: Swapchain,
     pub descriptor_set_layout: vk::DescriptorSetLayout,
     pub command_pool: vk::CommandPool,
-    pub descriptor_pool: vk::DescriptorPool,
-    pub descriptor_sets: Vec<vk::DescriptorSet>,
-    frames_in_flight: Vec<Frame>,
+    frames_in_flight: FramesInFlight,
     frame: usize,
 }
 
@@ -60,17 +58,12 @@ impl VkInstance {
             swapchain: Swapchain::default(),
             descriptor_set_layout: Default::default(),
             command_pool: Default::default(),
-            descriptor_pool: Default::default(),
-            descriptor_sets: vec![],
-            frames_in_flight: vec![],
+            frames_in_flight: Default::default(),
             frame: 0,
         };
-        result.init_swapchain(window)?;
         result.init_descriptor_set_layout()?;
         result.init_command_pool()?;
-        result.init_descriptor_pool()?;
-        result.init_descriptor_sets()?;
-        result.init_in_flight_frames()?;
+        result.init_swapchain(window)?;
         Ok(result)
     }
 
@@ -103,19 +96,19 @@ impl VkInstance {
     }
 
     pub fn command_buffer(&self) -> CommandBuffer {
-        self.frames_in_flight[self.frame].command_buffer
+        self.frames_in_flight.command_buffer(self.frame)
     }
 
     pub fn begin_frame(&mut self) -> Result<usize, VkError> {
-        let frame = &self.frames_in_flight[self.frame];
-        let fences = &[frame.in_flight_fence];
+        let fences = &[self.frames_in_flight.frence(self.frame)];
         unsafe {
             self.device.wait_for_fences(fences, true, u64::MAX)?;
             self.device.reset_fences(fences)?;
         };
-        let result = self
-            .swapchain
-            .aquire_next_image(&self.device, frame.image_available);
+        let result = self.swapchain.aquire_next_image(
+            &self.device,
+            self.frames_in_flight.image_available_semaphore(self.frame),
+        );
 
         let image_index = match result {
             Ok(image_index) => image_index as usize,
@@ -126,10 +119,9 @@ impl VkInstance {
     }
 
     pub fn end_frame(&mut self, image_index: usize) -> Result<bool, VkError> {
-        let frame = &self.frames_in_flight[self.frame];
-        let wait_semaphores = &[frame.image_available];
+        let wait_semaphores = &[self.frames_in_flight.image_available_semaphore(self.frame)];
         let wait_stages = &[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
-        let command_buffers = &[frame.command_buffer];
+        let command_buffers = &[self.frames_in_flight.command_buffer(self.frame)];
         let signal_semaphores = &[self.swapchain.render_finished[image_index]];
         let submit_info = vk::SubmitInfo::builder()
             .wait_semaphores(wait_semaphores)
@@ -139,8 +131,11 @@ impl VkInstance {
 
         unsafe {
             let infos = &[submit_info];
-            self.device
-                .queue_submit(self.graphics_queue, infos, frame.in_flight_fence)?;
+            self.device.queue_submit(
+                self.graphics_queue,
+                infos,
+                self.frames_in_flight.frence(self.frame),
+            )?;
         }
 
         let swapchains = &[self.swapchain.swapchain];
@@ -168,42 +163,23 @@ impl VkInstance {
     }
 
     pub fn recreate_swapchain(&mut self, window: &Window) -> Result<(), VkError> {
-        unsafe { self.device.device_wait_idle() }?;
+        self.wait_idle()?;
         self.destroy_swapchain();
-
         self.init_swapchain(window)?;
-        self.init_descriptor_pool()?;
-        self.init_descriptor_sets()?;
-        self.init_in_flight_frames()?;
-
-        Ok(())
-    }
-
-    fn init_in_flight_frames(&mut self) -> Result<(), VkError> {
-        let allocate_info = vk::CommandBufferAllocateInfo::builder()
-            .command_pool(self.command_pool)
-            .level(vk::CommandBufferLevel::PRIMARY)
-            .command_buffer_count(MAX_FRAMES_IN_FLIGHT as u32);
-
-        let command_buffers = unsafe { self.device.allocate_command_buffers(&allocate_info) }?;
-
-        for i in 0..MAX_FRAMES_IN_FLIGHT {
-            let frame = Frame::new(&self.device, command_buffers[i])?;
-            self.frames_in_flight.push(frame);
-        }
-
         Ok(())
     }
 
     fn init_swapchain(&mut self, window: &Window) -> Result<(), VkError> {
-        self.swapchain = Swapchain::new(
+        let bootstrap = SwapchainBootstrap::new(
             &self.instance,
             self.surface,
             &self.device,
             self.physical_device,
             window,
-        )?;
-
+            self.descriptor_set_layout,
+        );
+        self.swapchain = Swapchain::new(&bootstrap)?;
+        self.frames_in_flight = FramesInFlight::new(&self.device, self.command_pool)?;
         Ok(())
     }
 
@@ -215,21 +191,6 @@ impl VkInstance {
             .flags(CommandPoolCreateFlags::RESET_COMMAND_BUFFER);
 
         self.command_pool = unsafe { self.device.create_command_pool(&info, None) }?;
-        Ok(())
-    }
-
-    fn init_descriptor_pool(&mut self) -> Result<(), VkError> {
-        let ubo_size = vk::DescriptorPoolSize::builder()
-            .type_(vk::DescriptorType::UNIFORM_BUFFER)
-            .descriptor_count(self.swapchain.images.len() as u32);
-
-        let pool_sizes = &[ubo_size];
-        let info = vk::DescriptorPoolCreateInfo::builder()
-            .pool_sizes(pool_sizes)
-            .max_sets(self.swapchain.images.len() as u32);
-
-        self.descriptor_pool = unsafe { self.device.create_descriptor_pool(&info, None) }?;
-
         Ok(())
     }
 
@@ -245,17 +206,6 @@ impl VkInstance {
 
         self.descriptor_set_layout =
             unsafe { self.device.create_descriptor_set_layout(&info, None) }?;
-
-        Ok(())
-    }
-
-    fn init_descriptor_sets(&mut self) -> Result<(), VkError> {
-        let layouts = vec![self.descriptor_set_layout; self.swapchain.images.len()];
-        let info = vk::DescriptorSetAllocateInfo::builder()
-            .descriptor_pool(self.descriptor_pool)
-            .set_layouts(&layouts);
-
-        self.descriptor_sets = unsafe { self.device.allocate_descriptor_sets(&info) }?;
 
         Ok(())
     }
@@ -494,23 +444,9 @@ impl VkInstance {
     }
 
     fn destroy_swapchain(&mut self) {
-        unsafe {
-            self.device
-                .destroy_descriptor_pool(self.descriptor_pool, None);
-            self.device.free_command_buffers(
-                self.command_pool,
-                &self
-                    .frames_in_flight
-                    .iter()
-                    .map(|f| f.command_buffer)
-                    .collect::<Vec<CommandBuffer>>(),
-            );
-            self.frames_in_flight
-                .iter()
-                .for_each(|f| f.destroy(&self.device));
-            self.frames_in_flight.clear();
-            self.swapchain.destroy(&self.device);
-        }
+        self.frames_in_flight
+            .destroy(&self.device, self.command_pool);
+        self.swapchain.destroy(&self.device);
     }
 }
 

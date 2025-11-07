@@ -6,7 +6,7 @@ mod pipeline;
 mod uniform;
 mod vertex;
 mod swapchain;
-mod frame;
+mod frames_in_flight;
 mod queue_family;
 mod device;
 mod create_instance;

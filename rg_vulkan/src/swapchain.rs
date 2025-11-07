@@ -1,14 +1,113 @@
 use vulkanalia::{
     Device, Instance, VkResult,
     vk::{
-        self, DeviceV1_0, Extent2D, Fence, Format, Framebuffer, Handle, HasBuilder, Image,
-        ImageView, KhrSurfaceExtension, KhrSwapchainExtension, PhysicalDevice, RenderPass,
-        Semaphore, SurfaceKHR, SwapchainKHR,
+        self, DescriptorPool, DeviceV1_0, Extent2D, Fence, Format, Framebuffer, Handle, HasBuilder,
+        Image, ImageView, KhrSurfaceExtension, KhrSwapchainExtension, PhysicalDevice, RenderPass,
+        Semaphore, SurfaceFormatKHR, SurfaceKHR, SwapchainKHR,
     },
 };
 use winit::window::Window;
 
 use crate::{error::VkError, pipeline::create_render_pass, queue_family::QueueFamilyIndices};
+
+#[derive(Debug)]
+pub(crate) struct SwapchainBootstrap<'a> {
+    instance: &'a Instance,
+    pub surface: SurfaceKHR,
+    device: &'a Device,
+    physical_device: PhysicalDevice,
+    pub window: &'a Window,
+    descriptor_set_layout: vk::DescriptorSetLayout,
+}
+
+impl<'a> SwapchainBootstrap<'a> {
+    pub(crate) fn new(
+        instance: &'a Instance,
+        surface: SurfaceKHR,
+        device: &'a Device,
+        physical_device: PhysicalDevice,
+        window: &'a Window,
+        descriptor_set_layout: vk::DescriptorSetLayout,
+    ) -> Self {
+        Self {
+            instance,
+            surface,
+            device,
+            physical_device,
+            window,
+            descriptor_set_layout,
+        }
+    }
+
+    fn get_queue_family_indices(&self) -> Result<QueueFamilyIndices, VkError> {
+        QueueFamilyIndices::get(self.instance, self.surface, self.physical_device)
+    }
+
+    fn get_swapchain_support(&self) -> Result<SwapchainSupport, VkError> {
+        SwapchainSupport::get(self.instance, self.surface, self.physical_device)
+    }
+
+    fn create_swapchain(&self, info: &vk::SwapchainCreateInfoKHR) -> Result<SwapchainKHR, VkError> {
+        Ok(unsafe { self.device.create_swapchain_khr(info, None)? })
+    }
+
+    fn get_images(&self, swapchain: SwapchainKHR) -> Result<Vec<Image>, VkError> {
+        Ok(unsafe { self.device.get_swapchain_images_khr(swapchain) }?)
+    }
+
+    fn create_views(&self, format: Format, images: &Vec<Image>) -> Result<Vec<ImageView>, VkError> {
+        Ok(create_swapchain_image_views(images, format, self.device)?)
+    }
+
+    fn create_render_pass(&self, format: Format) -> Result<RenderPass, VkError> {
+        create_render_pass(self.device, format)
+    }
+
+    fn create_framebuffers(
+        &self,
+        views: &Vec<ImageView>,
+        render_pass: RenderPass,
+        extent: &Extent2D,
+    ) -> Result<Vec<Framebuffer>, VkError> {
+        create_framebuffers(views, render_pass, extent, self.device)
+    }
+
+    fn create_semaphores(&self, count: usize) -> Result<Vec<Semaphore>, VkError> {
+        let semaphore_info = vk::SemaphoreCreateInfo::builder();
+        (0..count)
+            .map(|_| {
+                unsafe { self.device.create_semaphore(&semaphore_info, None) }
+                    .map_err(|e| VkError::VkErrorCode(e))
+            })
+            .collect()
+    }
+
+    fn create_descriptor_sets(
+        &self,
+        pool: DescriptorPool,
+        count: usize,
+    ) -> Result<Vec<vk::DescriptorSet>, VkError> {
+        let layouts = vec![self.descriptor_set_layout; count];
+        let info = vk::DescriptorSetAllocateInfo::builder()
+            .descriptor_pool(pool)
+            .set_layouts(&layouts);
+
+        unsafe { self.device.allocate_descriptor_sets(&info) }.map_err(|e| VkError::VkErrorCode(e))
+    }
+
+    fn create_descriptor_pool(&self, count: usize) -> Result<DescriptorPool, VkError> {
+        let ubo_size = vk::DescriptorPoolSize::builder()
+            .type_(vk::DescriptorType::UNIFORM_BUFFER)
+            .descriptor_count(count as u32);
+
+        let pool_sizes = &[ubo_size];
+        let info = vk::DescriptorPoolCreateInfo::builder()
+            .pool_sizes(pool_sizes)
+            .max_sets(count as u32);
+
+        Ok(unsafe { self.device.create_descriptor_pool(&info, None) }?)
+    }
+}
 
 #[derive(Debug, Default)]
 pub(crate) struct Swapchain {
@@ -20,22 +119,17 @@ pub(crate) struct Swapchain {
     pub render_pass: RenderPass,
     pub framebuffers: Vec<Framebuffer>,
     pub render_finished: Vec<vk::Semaphore>,
+    pub descriptor_pool: vk::DescriptorPool,
+    pub descriptor_sets: Vec<vk::DescriptorSet>,
 }
 
 impl Swapchain {
-    pub fn new(
-        instance: &Instance,
-        surface: SurfaceKHR,
-        device: &Device,
-        physical_device: PhysicalDevice,
-        window: &Window,
-    ) -> Result<Swapchain, VkError> {
-        let indices = QueueFamilyIndices::get(instance, surface, physical_device)?;
-        let support = SwapchainSupport::get(instance, surface, physical_device)?;
-
+    pub fn new<'a>(bootstrap: &SwapchainBootstrap<'a>) -> Result<Swapchain, VkError> {
+        let indices = bootstrap.get_queue_family_indices()?;
+        let support = bootstrap.get_swapchain_support()?;
         let surface_format = get_swapchain_surface_format(&support.formats);
         let present_mode = get_swapchain_present_mode(&support.present_modes);
-        let extent = get_swapchain_extent(window, support.capabilities);
+        let extent = support.get_swapchain_extent(bootstrap.window);
 
         let image_count = support.get_optimal_image_count();
         let mut queue_family_indices = vec![];
@@ -48,7 +142,7 @@ impl Swapchain {
         };
 
         let info = vk::SwapchainCreateInfoKHR::builder()
-            .surface(surface)
+            .surface(bootstrap.surface)
             .min_image_count(image_count)
             .image_format(surface_format.format)
             .image_color_space(surface_format.color_space)
@@ -63,16 +157,14 @@ impl Swapchain {
             .clipped(true)
             .old_swapchain(vk::SwapchainKHR::null());
 
-        let swapchain = unsafe { device.create_swapchain_khr(&info, None) }?;
-        let images = unsafe { device.get_swapchain_images_khr(swapchain) }?;
-        let views = create_swapchain_image_views(&images, surface_format.format, device)?;
-        let render_pass = create_render_pass(device, surface_format.format)?;
-        let framebuffers = create_framebuffers(&views, render_pass, &extent, device)?;
-        let semaphore_info = vk::SemaphoreCreateInfo::builder();
-        let render_finished = images
-            .iter()
-            .map(|_| unsafe { device.create_semaphore(&semaphore_info, None) })
-            .collect::<Result<Vec<vk::Semaphore>, _>>()?;
+        let swapchain = bootstrap.create_swapchain(&info)?;
+        let images = bootstrap.get_images(swapchain)?;
+        let views = bootstrap.create_views(surface_format.format, &images)?;
+        let render_pass = bootstrap.create_render_pass(surface_format.format)?;
+        let framebuffers = bootstrap.create_framebuffers(&views, render_pass, &extent)?;
+        let render_finished = bootstrap.create_semaphores(images.len())?;
+        let descriptor_pool = bootstrap.create_descriptor_pool(images.len())?;
+        let descriptor_sets = bootstrap.create_descriptor_sets(descriptor_pool, images.len())?;
 
         Ok(Swapchain {
             format: surface_format.format,
@@ -83,22 +175,27 @@ impl Swapchain {
             render_pass,
             framebuffers,
             render_finished,
+            descriptor_pool,
+            descriptor_sets,
         })
     }
 
     pub fn destroy(&mut self, device: &Device) {
         unsafe {
+            device.destroy_descriptor_pool(self.descriptor_pool, None);
             self.render_finished
                 .iter()
                 .for_each(|s| device.destroy_semaphore(*s, None));
-
+            self.render_finished.clear();
             self.framebuffers
                 .iter()
                 .for_each(|f| device.destroy_framebuffer(*f, None));
+            self.framebuffers.clear();
             device.destroy_render_pass(self.render_pass, None);
             self.views
                 .iter()
                 .for_each(|v| device.destroy_image_view(*v, None));
+            self.views.clear();
             device.destroy_swapchain_khr(self.swapchain, None);
         }
     }
@@ -152,6 +249,10 @@ impl SwapchainSupport {
             image_count = self.capabilities.max_image_count;
         }
         image_count
+    }
+
+    fn get_swapchain_extent(&self, window: &Window) -> vk::Extent2D {
+        get_swapchain_extent(window, self.capabilities)
     }
 }
 

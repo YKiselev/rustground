@@ -244,9 +244,6 @@ impl Triangle {
     }
 
     fn init_uniform_buffers(&mut self, instance: &VkInstance) -> Result<(), VkError> {
-        self.uniform_buffers.clear();
-        self.uniform_buffers_memory.clear();
-
         for _ in 0..instance.swapchain.images.len() {
             let (uniform_buffer, uniform_buffer_memory) = instance.create_buffer(
                 size_of::<UniformBufferObject>() as u64,
@@ -303,7 +300,7 @@ impl Triangle {
     }
 
     pub fn update_descriptor_sets(&mut self, instance: &VkInstance) -> Result<(), VkError> {
-        assert_eq!(self.uniform_buffers.len(), instance.descriptor_sets.len());
+        assert_eq!(self.uniform_buffers.len(), instance.swapchain.descriptor_sets.len());
 
         for i in 0..self.uniform_buffers.len() {
             let info = vk::DescriptorBufferInfo::builder()
@@ -313,7 +310,7 @@ impl Triangle {
 
             let buffer_info = &[info];
             let ubo_write = vk::WriteDescriptorSet::builder()
-                .dst_set(instance.descriptor_sets[i])
+                .dst_set(instance.swapchain.descriptor_sets[i])
                 .dst_binding(0)
                 .dst_array_element(0)
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
@@ -358,7 +355,7 @@ impl Triangle {
 
         unsafe {
             instance.device.cmd_begin_render_pass(command_buffer, &info, vk::SubpassContents::INLINE);
-            self.render(&instance.device, &command_buffer, instance.descriptor_sets[image_index])?;
+            self.render(&instance.device, &command_buffer, instance.swapchain.descriptor_sets[image_index])?;
             instance.device.cmd_end_render_pass(command_buffer);
             instance.device.end_command_buffer(command_buffer)?;
         }
@@ -399,14 +396,16 @@ impl Triangle {
         Ok(())
     }
 
-    pub fn destroy(&self, device: &Device) {
+    pub fn destroy(&mut self, device: &Device) {
         unsafe {
             self.uniform_buffers
                 .iter()
                 .for_each(|b| device.destroy_buffer(*b, None));
+            self.uniform_buffers.clear();
             self.uniform_buffers_memory
                 .iter()
                 .for_each(|m| device.free_memory(*m, None));
+            self.uniform_buffers_memory.clear();
             device.destroy_buffer(self.index_buffer, None);
             device.free_memory(self.index_buffer_memory, None);
             device.destroy_buffer(self.vertex_buffer, None);
