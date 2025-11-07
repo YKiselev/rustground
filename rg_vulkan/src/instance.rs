@@ -17,7 +17,7 @@ use crate::{
     error::{VkError, to_generic},
     frames_in_flight::FramesInFlight,
     queue_family::QueueFamilyIndices,
-    swapchain::{Swapchain},
+    swapchain::Swapchain,
 };
 
 pub(crate) const DEVICE_EXTENSIONS: &[vk::ExtensionName] = &[vk::KHR_SWAPCHAIN_EXTENSION.name];
@@ -36,7 +36,6 @@ pub struct VkInstance {
     pub swapchain: Swapchain,
     pub descriptor_set_layout: vk::DescriptorSetLayout,
     pub command_pool: vk::CommandPool,
-    frames_in_flight: FramesInFlight,
     frame: usize,
 }
 
@@ -58,7 +57,6 @@ impl VkInstance {
             swapchain: Swapchain::default(),
             descriptor_set_layout: Default::default(),
             command_pool: Default::default(),
-            frames_in_flight: Default::default(),
             frame: 0,
         };
         result.init_descriptor_set_layout()?;
@@ -96,59 +94,22 @@ impl VkInstance {
     }
 
     pub fn command_buffer(&self) -> CommandBuffer {
-        self.frames_in_flight.command_buffer(self.frame)
+        self.swapchain.frames_in_flight.command_buffer(self.frame)
     }
 
-    pub fn begin_frame(&mut self) -> Result<usize, VkError> {
-        let fences = &[self.frames_in_flight.frence(self.frame)];
-        unsafe {
-            self.device.wait_for_fences(fences, true, u64::MAX)?;
-            self.device.reset_fences(fences)?;
-        };
-        let result = self.swapchain.aquire_next_image(
-            &self.device,
-            self.frames_in_flight.image_available_semaphore(self.frame),
-        );
-
-        let image_index = match result {
-            Ok(image_index) => image_index as usize,
-            Err(vk::ErrorCode::OUT_OF_DATE_KHR) => return Err(VkError::SwapchainChanged),
-            Err(e) => return Err(e.into()),
-        };
-        Ok(image_index)
+    pub fn begin_frame(&self) -> Result<usize, VkError> {
+        self.swapchain.acquire_next_image(&self.device, self.frame)
     }
 
     pub fn end_frame(&mut self, image_index: usize) -> Result<bool, VkError> {
-        let wait_semaphores = &[self.frames_in_flight.image_available_semaphore(self.frame)];
-        let wait_stages = &[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
-        let command_buffers = &[self.frames_in_flight.command_buffer(self.frame)];
-        let signal_semaphores = &[self.swapchain.render_finished[image_index]];
-        let submit_info = vk::SubmitInfo::builder()
-            .wait_semaphores(wait_semaphores)
-            .wait_dst_stage_mask(wait_stages)
-            .command_buffers(command_buffers)
-            .signal_semaphores(signal_semaphores);
+        let result = self.swapchain.present(
+            &self.device,
+            self.graphics_queue,
+            self.present_queue,
+            self.frame,
+            image_index,
+        );
 
-        unsafe {
-            let infos = &[submit_info];
-            self.device.queue_submit(
-                self.graphics_queue,
-                infos,
-                self.frames_in_flight.frence(self.frame),
-            )?;
-        }
-
-        let swapchains = &[self.swapchain.swapchain];
-        let image_indices = &[image_index as u32];
-        let present_info = vk::PresentInfoKHR::builder()
-            .wait_semaphores(signal_semaphores)
-            .swapchains(swapchains)
-            .image_indices(image_indices);
-
-        let result = unsafe {
-            self.device
-                .queue_present_khr(self.present_queue, &present_info)
-        };
         self.frame = (self.frame + 1) % MAX_FRAMES_IN_FLIGHT;
 
         let changed = result == Ok(vk::SuccessCode::SUBOPTIMAL_KHR)
@@ -177,8 +138,8 @@ impl VkInstance {
             self.physical_device,
             window,
             self.descriptor_set_layout,
+            self.command_pool,
         )?;
-        self.frames_in_flight = FramesInFlight::new(&self.device, self.command_pool)?;
         Ok(())
     }
 
@@ -443,9 +404,7 @@ impl VkInstance {
     }
 
     fn destroy_swapchain(&mut self) {
-        self.frames_in_flight
-            .destroy(&self.device, self.command_pool);
-        self.swapchain.destroy(&self.device);
+        self.swapchain.destroy(&self.device, self.command_pool);
     }
 }
 

@@ -1,15 +1,18 @@
 use vulkanalia::{
     Device, Instance, VkResult,
     vk::{
-        self, DescriptorPool, DescriptorSetLayout, DeviceV1_0, Extent2D, Fence, Format,
-        Framebuffer, Handle, HasBuilder, Image, ImageView, KhrSurfaceExtension,
-        KhrSwapchainExtension, PhysicalDevice, RenderPass, Semaphore, SurfaceFormatKHR, SurfaceKHR,
-        SwapchainKHR,
+        self, CommandPool, DescriptorPool, DescriptorSetLayout, DeviceV1_0, ErrorCode, Extent2D,
+        Fence, Format, Framebuffer, Handle, HasBuilder, Image, ImageView, KhrSurfaceExtension,
+        KhrSwapchainExtension, PhysicalDevice, Queue, RenderPass, Semaphore, SuccessCode,
+        SurfaceFormatKHR, SurfaceKHR, SwapchainKHR,
     },
 };
 use winit::window::Window;
 
-use crate::{error::VkError, pipeline::create_render_pass, queue_family::QueueFamilyIndices};
+use crate::{
+    error::VkError, frames_in_flight::FramesInFlight, pipeline::create_render_pass,
+    queue_family::QueueFamilyIndices,
+};
 
 #[derive(Debug, Default)]
 pub(crate) struct Swapchain {
@@ -23,6 +26,7 @@ pub(crate) struct Swapchain {
     pub render_finished: Vec<vk::Semaphore>,
     pub descriptor_pool: vk::DescriptorPool,
     pub descriptor_sets: Vec<vk::DescriptorSet>,
+    pub frames_in_flight: FramesInFlight,
 }
 
 impl Swapchain {
@@ -33,6 +37,7 @@ impl Swapchain {
         physical_device: PhysicalDevice,
         window: &Window,
         descriptor_set_layout: vk::DescriptorSetLayout,
+        command_pool: vk::CommandPool,
     ) -> Result<Swapchain, VkError> {
         let indices = QueueFamilyIndices::get(instance, surface, physical_device)?;
         let support = SwapchainSupport::get(instance, surface, physical_device)?;
@@ -74,7 +79,7 @@ impl Swapchain {
         let descriptor_pool = create_descriptor_pool(device, images.len())?;
         let descriptor_sets =
             create_descriptor_sets(device, descriptor_set_layout, descriptor_pool, images.len())?;
-
+        let frames_in_flight = FramesInFlight::new(device, command_pool)?;
         Ok(Swapchain {
             format: surface_format.format,
             extent,
@@ -86,10 +91,13 @@ impl Swapchain {
             render_finished,
             descriptor_pool,
             descriptor_sets,
+            frames_in_flight,
         })
     }
 
-    pub fn destroy(&mut self, device: &Device) {
+    pub fn destroy(&mut self, device: &Device, pool: CommandPool) {
+        self.frames_in_flight.destroy(device, pool);
+
         unsafe {
             device.destroy_descriptor_pool(self.descriptor_pool, None);
             self.render_finished
@@ -109,20 +117,63 @@ impl Swapchain {
         }
     }
 
-    pub fn aquire_next_image(
-        &self,
-        device: &Device,
-        acquire_semaphore: Semaphore,
-    ) -> VkResult<u32> {
-        let (image_index, _) = unsafe {
+    pub fn acquire_next_image(&self, device: &Device, frame: usize) -> Result<usize, VkError> {
+        let fences = &[self.frames_in_flight.frence(frame)];
+        unsafe {
+            device.wait_for_fences(fences, true, u64::MAX)?;
+            device.reset_fences(fences)?;
+        };
+        match unsafe {
             device.acquire_next_image_khr(
                 self.swapchain,
                 u64::MAX,
-                acquire_semaphore,
+                self.frames_in_flight.image_available_semaphore(frame),
                 vk::Fence::null(),
             )
-        }?;
-        Ok(image_index)
+        } {
+            Ok((image_index, code)) => {
+                if code == SuccessCode::SUBOPTIMAL_KHR {
+                    Err(VkError::SwapchainChanged)
+                } else {
+                    Ok(image_index as usize)
+                }
+            }
+            Err(vk::ErrorCode::OUT_OF_DATE_KHR) => Err(VkError::SwapchainChanged),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    pub fn present(
+        &self,
+        device: &Device,
+        graphics_queue: Queue,
+        present_queue: Queue,
+        frame: usize,
+        image_index: usize,
+    ) -> Result<SuccessCode, ErrorCode> {
+        let wait_semaphores = &[self.frames_in_flight.image_available_semaphore(frame)];
+        let wait_stages = &[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
+        let command_buffers = &[self.frames_in_flight.command_buffer(frame)];
+        let signal_semaphores = &[self.render_finished[image_index]];
+        let submit_info = vk::SubmitInfo::builder()
+            .wait_semaphores(wait_semaphores)
+            .wait_dst_stage_mask(wait_stages)
+            .command_buffers(command_buffers)
+            .signal_semaphores(signal_semaphores);
+
+        unsafe {
+            let infos = &[submit_info];
+            device.queue_submit(graphics_queue, infos, self.frames_in_flight.frence(frame))?;
+        }
+
+        let swapchains = &[self.swapchain];
+        let image_indices = &[image_index as u32];
+        let present_info = vk::PresentInfoKHR::builder()
+            .wait_semaphores(signal_semaphores)
+            .swapchains(swapchains)
+            .image_indices(image_indices);
+
+        unsafe { device.queue_present_khr(present_queue, &present_info) }
     }
 }
 
