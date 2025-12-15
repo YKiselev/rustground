@@ -1,6 +1,7 @@
-use std::time::Instant;
+use std::{sync::Arc, time::Instant};
 
 use log::{info, warn};
+use rg_common::App;
 use vulkanalia::{
     Entry,
     loader::{LIBRARY, LibloadingLoader},
@@ -13,17 +14,17 @@ use crate::{
     triangle::Triangle,
 };
 
-#[derive(Debug)]
 pub struct VulkanRenderer {
     entry: Entry,
     instance: VkInstance,
     resized: bool,
     start: Instant,
     triangle: Triangle,
+    app: Arc<App>
 }
 
 impl VulkanRenderer {
-    pub fn new(window: &Window) -> Result<Self, VkError> {
+    pub fn new(app: &Arc<App>, window: &Window) -> Result<Self, VkError> {
         unsafe {
             let loader = LibloadingLoader::new(LIBRARY).map_err(to_generic)?;
             let entry = Entry::new(loader).map_err(to_generic)?;
@@ -37,6 +38,7 @@ impl VulkanRenderer {
                 resized: false,
                 start: Instant::now(),
                 triangle,
+                app: Arc::clone(app)
             })
         }
     }

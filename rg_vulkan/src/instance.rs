@@ -1,4 +1,4 @@
-
+use rg_common::Files;
 use vulkanalia::{
     Device, Entry, Instance,
     vk::{
@@ -33,7 +33,7 @@ pub struct VkInstance {
     pub present_queue: Queue,
     pub swapchain: Swapchain,
     pub descriptor_set_layout: vk::DescriptorSetLayout,
-    pub command_pool: vk::CommandPool
+    pub command_pool: vk::CommandPool,
 }
 
 impl VkInstance {
@@ -53,7 +53,7 @@ impl VkInstance {
             present_queue,
             swapchain: Swapchain::default(),
             descriptor_set_layout: Default::default(),
-            command_pool: Default::default()
+            command_pool: Default::default(),
         };
         result.init_descriptor_set_layout()?;
         result.init_command_pool()?;
@@ -105,7 +105,7 @@ impl VkInstance {
             image_index,
         );
 
-        self.swapchain.frames_in_flight.next_frame();
+        self.swapchain.advance_frame_index();
 
         let changed = result == Ok(vk::SuccessCode::SUBOPTIMAL_KHR)
             || result == Err(vk::ErrorCode::OUT_OF_DATE_KHR);
@@ -254,87 +254,85 @@ impl VkInstance {
         Ok((buffer, buffer_memory))
     }
 
-    fn create_texture_image(&self) -> Result<(), VkError> {
-        /*
-                let image = File::open("tutorial/resources/texture.png")?;
+    fn create_texture_image(&self, files: &Files) -> Result<(), VkError> {
+        /*let image = files.read("tutorial/resources/texture.png").ok_or_else(|| VkError::GenericError("Not found".to_string()))?;
 
-                let decoder = png::Decoder::new(image);
-                let mut reader = decoder.read_info()?;
+        let decoder = png::Decoder::new(image);
+        let mut reader = decoder.read_info()?;
 
-                let mut pixels = vec![0; reader.info().raw_bytes()];
-                reader.next_frame(&mut pixels)?;
+        let mut pixels = vec![0; reader.info().raw_bytes()];
+        reader.next_frame(&mut pixels)?;
 
-                let size = reader.info().raw_bytes() as u64;
-                let (width, height) = reader.info().size();
+        let size = reader.info().raw_bytes() as u64;
+        let (width, height) = reader.info().size();
 
-                // Create (staging)
+        // Create (staging)
 
-                let (staging_buffer, staging_buffer_memory) = self.create_buffer(
-                    size,
-                    vk::BufferUsageFlags::TRANSFER_SRC,
-                    vk::MemoryPropertyFlags::HOST_COHERENT | vk::MemoryPropertyFlags::HOST_VISIBLE,
-                )?;
+        let (staging_buffer, staging_buffer_memory) = self.create_buffer(
+            size,
+            vk::BufferUsageFlags::TRANSFER_SRC,
+            vk::MemoryPropertyFlags::HOST_COHERENT | vk::MemoryPropertyFlags::HOST_VISIBLE,
+        )?;
 
-                // Copy (staging)
-                let device = &self.device;
+        // Copy (staging)
+        let device = &self.device;
 
-                self.copy_memory(
-                    staging_buffer_memory,
-                    0,
-                    size,
-                    vk::MemoryMapFlags::empty(),
-                    pixels.as_ptr(),
-                    pixels.len(),
-                )?;
+        self.copy_memory(
+            staging_buffer_memory,
+            0,
+            size,
+            vk::MemoryMapFlags::empty(),
+            pixels.as_ptr(),
+            pixels.len(),
+        )?;
 
-                // Create (image)
+        // Create (image)
 
-                let (texture_image, texture_image_memory) = self.create_image(
-                    width,
-                    height,
-                    vk::Format::R8G8B8A8_SRGB,
-                    vk::ImageTiling::OPTIMAL,
-                    vk::ImageUsageFlags::SAMPLED | vk::ImageUsageFlags::TRANSFER_DST,
-                    vk::MemoryPropertyFlags::DEVICE_LOCAL,
-                )?;
+        let (texture_image, texture_image_memory) = self.create_image(
+            width,
+            height,
+            vk::Format::R8G8B8A8_SRGB,
+            vk::ImageTiling::OPTIMAL,
+            vk::ImageUsageFlags::SAMPLED | vk::ImageUsageFlags::TRANSFER_DST,
+            vk::MemoryPropertyFlags::DEVICE_LOCAL,
+        )?;
 
-                data.texture_image = texture_image;
-                data.texture_image_memory = texture_image_memory;
+        data.texture_image = texture_image;
+        data.texture_image_memory = texture_image_memory;
 
-                // Transition + Copy (image)
+        // Transition + Copy (image)
 
-                transition_image_layout(
-                    device,
-                    data,
-                    data.texture_image,
-                    vk::Format::R8G8B8A8_SRGB,
-                    vk::ImageLayout::UNDEFINED,
-                    vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-                )?;
+        transition_image_layout(
+            device,
+            data,
+            data.texture_image,
+            vk::Format::R8G8B8A8_SRGB,
+            vk::ImageLayout::UNDEFINED,
+            vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+        )?;
 
-                copy_buffer_to_image(
-                    device,
-                    data,
-                    staging_buffer,
-                    data.texture_image,
-                    width,
-                    height,
-                )?;
+        copy_buffer_to_image(
+            device,
+            data,
+            staging_buffer,
+            data.texture_image,
+            width,
+            height,
+        )?;
 
-                transition_image_layout(
-                    device,
-                    data,
-                    data.texture_image,
-                    vk::Format::R8G8B8A8_SRGB,
-                    vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-                    vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-                )?;
+        transition_image_layout(
+            device,
+            data,
+            data.texture_image,
+            vk::Format::R8G8B8A8_SRGB,
+            vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+            vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+        )?;
 
-                unsafe {
-                    device.destroy_buffer(staging_buffer, None);
-                    device.free_memory(staging_buffer_memory, None)
-                };
-        */
+        unsafe {
+            device.destroy_buffer(staging_buffer, None);
+            device.free_memory(staging_buffer_memory, None)
+        };*/
         Ok(())
     }
 

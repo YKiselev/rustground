@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 use log::{debug, error, info, warn};
 use mio::net::UdpSocket;
 use rg_common::{App, Plugin};
-use rg_net::read_server_info;
+use rg_net::{read_pong, read_server_info};
 use rg_net::write_connect;
 use rg_net::write_hello;
 use rg_net::write_ping;
@@ -142,6 +142,16 @@ impl ClientNetwork {
         Ok(())
     }
 
+    fn on_pong<'a, R>(&mut self, reader: &mut R) -> Result<(), AppError>
+    where
+        R: NetReader<'a>,
+    {
+        let pong = read_pong(reader)?;
+        let roundtrip_time = Instant::now().elapsed().as_secs_f64() - pong.time;
+        info!("Server ping: {:.1} millis.", (roundtrip_time / 2_000.0f64).abs());
+        Ok(())
+    }
+
     fn receive_from_server(&mut self) {
         let mut buf = Vec::with_capacity(MAX_DATAGRAM_SIZE);
         loop {
@@ -157,7 +167,7 @@ impl ClientNetwork {
                             PacketKind::Accepted => self.on_accepted(reader),
                             PacketKind::Rejected => self.on_rejected(reader),
                             //PacketKind::Ping => reader.skip(header.size),
-                            //PacketKind::Pong => reader.skip(header.size),
+                            PacketKind::Pong => self.on_pong(reader),
                             other => Err(AppError::ProtocolError(ProtocolError::UnexpectedPacket(
                                 other,
                             ))),

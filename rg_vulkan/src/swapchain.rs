@@ -174,6 +174,10 @@ impl Swapchain {
 
         unsafe { device.queue_present_khr(present_queue, &present_info) }
     }
+
+    pub fn advance_frame_index(&mut self) {
+        self.frames_in_flight.advance_frame_index();
+    }
 }
 
 #[derive(Clone, Debug)]

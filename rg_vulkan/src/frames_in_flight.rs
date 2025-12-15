@@ -50,7 +50,7 @@ impl FramesInFlight {
         }
     }
 
-    pub fn next_frame(&mut self) {
+    pub fn advance_frame_index(&mut self) {
         self.frame = (self.frame + 1) % MAX_FRAMES_IN_FLIGHT;
     }
 

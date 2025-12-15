@@ -10,3 +10,4 @@ winit = "0.30.12"
 log = "0.4.21"
 cgmath = "0.18.0"
 thiserror = "2.0.17"
+png ={ version = "0.18.0"}

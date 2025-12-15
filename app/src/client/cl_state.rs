@@ -70,7 +70,7 @@ impl ClientState {
         if self.renderer.is_none() {
             if let Some(window) = self.window.window.as_ref() {
                 info!("Initializing renderer...");
-                match VulkanRenderer::new(window) {
+                match VulkanRenderer::new(&self.app, window) {
                     Ok(renderer) => self.renderer = Some(renderer),
                     Err(e) => {
                         error!("Renderer initialization failed: {}", e);

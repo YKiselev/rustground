@@ -1,6 +1,6 @@
 use std::borrow::Borrow;
 use std::fs::File;
-use std::io::{BufReader, Read};
+use std::io::BufReader;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -51,7 +51,7 @@ impl App {
         S: AsRef<str>,
     {
         if let Some(cfg) = self.load_resource(name.as_ref(), &read_config).ok() {
-            info!("Loaded config: {:?}", &cfg);
+            info!("Loaded config: {:?}", name.as_ref());
             let _ = self
                 .vars
                 .set_table(cfg)
@@ -71,20 +71,20 @@ impl App {
     {
         self.assets.load(
             name,
-            |n| self.files.read(n).map(|f| BufReader::new(f)),
+            |n| self.files.read(n).ok().map(|f| BufReader::new(f)),
             loader,
         )
     }
 
     pub fn load_resource<S, L, A>(&self, name: S, loader: &L) -> Result<A, LoaderError>
     where
-        S: Into<Box<str>> + Borrow<str>,
+        S: Into<Box<str>> + AsRef<str>,
         L: Loader<A, BufReader<File>> + 'static,
         A: Send + Sync + 'static,
     {
         self.files
             .read(name)
-            .ok_or_else(|| LoaderError::NotFound)
+            .map_err(|_| LoaderError::NotFound)
             .map(|f| BufReader::new(f))
             .and_then(|mut r| loader(&mut r))
     }

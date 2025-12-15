@@ -1,15 +1,36 @@
 use std::borrow::Borrow;
 use std::fmt::{Display, Formatter};
 use std::fs::File;
-use std::io::{Error, Read, Write};
+use std::io::{Error, ErrorKind, Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::RwLock;
+use std::sync::{PoisonError, RwLock};
 use std::{env, fs};
 
 use log::{debug, error, info, warn};
+use thiserror::Error;
 
 use crate::arguments::Arguments;
 
+///
+/// File error
+///
+#[derive(Debug, Error)]
+pub enum FileError {
+    #[error("I/O error {0}")]
+    IoError(#[from] std::io::Error),
+    #[error("Lock poisoned")]
+    LockPoisoned,
+}
+
+impl<T> From<PoisonError<T>> for FileError {
+    fn from(_: PoisonError<T>) -> Self {
+        FileError::LockPoisoned
+    }
+}
+
+///
+/// File root
+///
 #[derive(Debug)]
 struct FileRoot {
     readonly: bool,
@@ -17,7 +38,10 @@ struct FileRoot {
 }
 
 impl FileRoot {
-    fn try_new(path: &Path) -> Result<Self, Error> {
+    fn try_new(path: &Path) -> Result<Self, FileError> {
+        if !path.exists() {
+            return Err(FileError::IoError(Error::from(ErrorKind::NotFound)));
+        }
         let metadata = fs::metadata(path)?;
         let readonly = metadata.permissions().readonly();
         Ok(FileRoot {
@@ -30,32 +54,32 @@ impl FileRoot {
         self.readonly
     }
 
-    fn read(&self, path: &str) -> Option<File> {
+    fn read(&self, path: &str) -> Result<File, FileError> {
         let mut buf = self.path.clone();
         buf.push(path);
         match File::open(&buf) {
             Ok(file) => {
                 debug!("open({:?})", &buf);
-                Some(file)
+                Ok(file)
             }
             Err(e) => {
                 debug!("File not found: {:?}, {:?}", buf, e);
-                None
+                Err(FileError::IoError(e))
             }
         }
     }
 
-    fn write(&self, path: &str) -> Option<File> {
+    fn write(&self, path: &str) -> Result<File, FileError> {
         let mut buf = self.path.clone();
         buf.push(path);
         match File::create(&buf) {
             Ok(file) => {
                 debug!("create({:?})", &file);
-                Some(file)
+                Ok(file)
             }
             Err(e) => {
                 warn!("Unable to create file: {:?}, {:?}", buf, e);
-                None
+                Err(FileError::IoError(e))
             }
         }
     }
@@ -95,17 +119,14 @@ impl Files {
         folders.push(current_dir.join("base/resources"));
         let roots = folders
             .iter()
-            .filter(|p| p.exists())
-            .filter_map(|path| {
-                match FileRoot::try_new(path) {
-                    Ok(root) => {
-                        info!("Added {}", root);
-                        Some(root)
-                    },
-                    Err(e) => {
-                        warn!("Failed to map {:?}: {:?}", path, e);
-                        None
-                    }
+            .filter_map(|path| match FileRoot::try_new(path) {
+                Ok(root) => {
+                    info!("Added {}", root);
+                    Some(root)
+                }
+                Err(e) => {
+                    warn!("Failed to map {:?}: {:?}", path, e);
+                    None
                 }
             })
             .collect();
@@ -115,49 +136,69 @@ impl Files {
         }
     }
 
-    pub fn read<S>(&self, path: S) -> Option<File>
-    where
-        S: Borrow<str>,
-    {
-        let guard = self.roots.read().ok()?;
-        guard.iter().find_map(|r| r.read(path.borrow()))
-    }
-
-    pub fn write<S>(&self, path: S) -> Option<File>
+    pub fn read<S>(&self, path: S) -> Result<File, FileError>
     where
         S: AsRef<str>,
     {
-        let guard = self.roots.read().ok()?;
-        guard.iter().find_map(|r| r.write(path.as_ref()))
+        let guard = self.roots.read()?;
+        let path_str = path.as_ref();
+        let mut last_err: Option<FileError> = None;
+        for root in guard.iter() {
+            match root.read(path_str) {
+                Ok(f) => return Ok(f),
+                Err(e) => last_err = Some(e),
+            }
+        }
+        Err(last_err.unwrap_or_else(|| FileError::IoError(Error::from(ErrorKind::NotFound))))
+        // guard
+        //     .find_map(|r| r.read(path.borrow()).ok())
+        //     .ok_or_else(|| FileError::IoError(std::io::Error::from(ErrorKind::NotFound)))
+    }
+
+    pub fn write<S>(&self, path: S) -> Result<File, FileError>
+    where
+        S: AsRef<str>,
+    {
+        let guard = self.roots.read()?;
+        let path_str = path.as_ref();
+        let mut last_err: Option<FileError> = None;
+        for root in guard.iter() {
+            match root.write(path_str) {
+                Ok(f) => return Ok(f),
+                Err(e) => last_err = Some(e),
+            }
+        }
+        Err(last_err.unwrap_or_else(|| FileError::IoError(Error::from(ErrorKind::NotFound))))
+        //guard.iter().find_map(|r| r.write(path.as_ref())
     }
 
     ///
     /// Reads small file into string
-    /// 
-    pub fn read_file<S>(&self, name: S) -> Option<String>
+    ///
+    pub fn read_file<S>(&self, name: S) -> Result<String, FileError>
     where
-        S: Borrow<str>,
+        S: AsRef<str>,
     {
         let mut cfg = self.read(name)?;
         let mut tmp = String::new();
-        cfg.read_to_string(&mut tmp).ok()?;
-        Some(tmp)
+        cfg.read_to_string(&mut tmp)?;
+        Ok(tmp)
     }
 
     ///
     /// Writes small string to file
-    /// 
+    ///
     pub fn write_file<S>(&self, name: &str, value: S)
     where
         S: Borrow<str>,
     {
-        if let Some(mut file) = self.write(name) {
+        if let Ok(mut file) = self.write(name) {
             match write!(file, "{}", value.borrow()) {
                 Ok(_) => {
                     file.flush().unwrap();
                 }
                 Err(e) => {
-                    warn!("Unable to save config: {:?}", e)
+                    warn!("Unable to write to file: {:?}", e)
                 }
             }
         }
