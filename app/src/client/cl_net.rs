@@ -48,7 +48,7 @@ impl ClientNetwork {
     const MAX_LAST_SEEN: Duration = Duration::from_secs(3);
     const CONN_RETRY_INTERVAL: Duration = Duration::from_secs(3);
 
-    pub(crate) fn new(app: &Arc<App>) -> Result<Self, AppError> {
+    pub(crate) fn new(_app: &Arc<App>) -> Result<Self, AppError> {
         info!("Starting client...");
         let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0).into())
             .expect("Unable to create client socket!");
@@ -198,7 +198,7 @@ impl ClientNetwork {
 }
 
 impl Plugin for ClientNetwork {
-    fn frame_start(&mut self, app: &Arc<App>) {
+    fn frame_start(&mut self, _app: &Arc<App>) {
         match self.socket.take_error() {
             Ok(Some(error)) => error!("Socket error: {error:?}"),
             Ok(None) => {}
@@ -255,7 +255,7 @@ impl Plugin for ClientNetwork {
         }
     }
 
-    fn frame_end(&mut self, app: &Arc<App>) {
+    fn frame_end(&mut self, _app: &Arc<App>) {
         let bufs = &mut self.send_bufs;
         let socket = &self.socket;
         while let Some(b) = bufs.pop_front() {

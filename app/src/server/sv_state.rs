@@ -28,7 +28,7 @@ pub(super) struct ServerState {
 }
 
 impl ServerState {
-    pub fn new(app: &App, config: &Arc<RwLock<ServerConfig>>) -> Result<Self, AppError> {
+    pub fn new(_app: &App, config: &Arc<RwLock<ServerConfig>>) -> Result<Self, AppError> {
         info!("Starting server...");
         let cfg_guard = config.read()?;
         let cfg = &cfg_guard;

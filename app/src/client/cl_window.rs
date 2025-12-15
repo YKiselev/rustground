@@ -28,7 +28,7 @@ impl ClientWindow {
         })
     }
 
-    fn create_window_attributes(&mut self, event_loop: &ActiveEventLoop) -> WindowAttributes {
+    fn create_window_attributes(&mut self, _event_loop: &ActiveEventLoop) -> WindowAttributes {
         let attrs = Window::default_attributes()
             .with_inner_size(PhysicalSize::new(800, 600))
             .with_title("Rust Ground")
@@ -80,7 +80,7 @@ impl ApplicationHandler for ClientWindow {
 
     fn window_event(
         &mut self,
-        event_loop: &ActiveEventLoop,
+        _event_loop: &ActiveEventLoop,
         window_id: WindowId,
         event: WindowEvent,
     ) {
@@ -113,11 +113,11 @@ impl ApplicationHandler for ClientWindow {
                 }
             },
             WindowEvent::KeyboardInput {
-                event,
+                event: _,
                 is_synthetic: false,
                 ..
             } => {
-                let mods = self.modifiers;
+                let _mods = self.modifiers;
                 //info!("Key input: {event:?}");
                 // Dispatch actions only on press.
                 // if event.state.is_pressed() {
@@ -134,7 +134,7 @@ impl ApplicationHandler for ClientWindow {
             }
             WindowEvent::MouseInput {   .. } => {
                 //info!("Pointer button {button:?} {state:?}");
-                let mods = self.modifiers;
+                let _mods = self.modifiers;
                 // if let Some(action) = state
                 //     .is_pressed()
                 //     .then(|| Self::process_mouse_binding(button.mouse_button(), &mods))

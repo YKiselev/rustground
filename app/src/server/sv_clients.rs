@@ -38,7 +38,7 @@ impl Clients {
     pub fn add(&mut self, client_id: ClientId, name: &str) {
         match self.clients.entry(client_id) {
             Entry::Vacant(v) => {
-                let client = v.insert(Client::new(name));
+                let _client = v.insert(Client::new(name));
             }
             Entry::Occupied(ref mut o) => {
                 o.get_mut().touch();
