@@ -1,10 +1,6 @@
 use vulkanalia::{
-    Device, Instance, VkResult,
-    vk::{
-        self, CommandPool, DescriptorPool, DescriptorSetLayout, DeviceV1_0, ErrorCode, Extent2D,
-        Fence, Format, Framebuffer, Handle, HasBuilder, Image, ImageView, KhrSurfaceExtension,
-        KhrSwapchainExtension, PhysicalDevice, Queue, RenderPass, Semaphore, SuccessCode,
-        SurfaceFormatKHR, SurfaceKHR, SwapchainKHR,
+    Device, Instance, vk::{
+        self, CommandPool, DescriptorPool, DescriptorSetLayout, DeviceV1_0, ErrorCode, Extent2D, Fence, Format, Framebuffer, Handle, HasBuilder, Image, ImageView, KhrSurfaceExtensionInstanceCommands, KhrSwapchainExtensionDeviceCommands, PhysicalDevice, Queue, RenderPass, Semaphore, SuccessCode, SurfaceFormatKHR, SurfaceKHR, SwapchainKHR
     },
 };
 use winit::window::Window;

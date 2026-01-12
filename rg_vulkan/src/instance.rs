@@ -2,9 +2,7 @@ use rg_common::Files;
 use vulkanalia::{
     Device, Entry, Instance,
     vk::{
-        self, CommandBuffer, CommandPoolCreateFlags, DeviceMemory, DeviceSize, DeviceV1_0,
-        ExtDebugUtilsExtension, Handle, HasBuilder, InstanceV1_0, KhrSurfaceExtension,
-        MemoryMapFlags, PhysicalDevice, Queue, SurfaceKHR,
+        self, CommandBuffer, CommandPoolCreateFlags, DeviceMemory, DeviceSize, DeviceV1_0, ExtDebugUtilsExtensionInstanceCommands, Handle, HasBuilder, InstanceV1_0, KhrSurfaceExtensionInstanceCommands, MemoryMapFlags, PhysicalDevice, Queue, SurfaceKHR
     },
     window,
 };

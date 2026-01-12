@@ -6,7 +6,7 @@ use std::{
 use log::{debug, error, info, trace, warn};
 use vulkanalia::{
     Entry, Instance,
-    vk::{self, EntryV1_0, ExtDebugUtilsExtension, HasBuilder},
+    vk::{self, EntryV1_0, ExtDebugUtilsExtensionInstanceCommands, HasBuilder},
     window,
 };
 use winit::window::Window;

@@ -1,4 +1,4 @@
-use vulkanalia::{vk::{self, InstanceV1_0, KhrSurfaceExtension}, Instance};
+use vulkanalia::{vk::{self, InstanceV1_0, KhrSurfaceExtensionInstanceCommands}, Instance};
 
 use crate::error::{to_suitability, VkError};
 
