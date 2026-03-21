@@ -11,3 +11,4 @@ mod queue_family;
 mod device;
 mod create_instance;
 mod triangle;
+mod image;

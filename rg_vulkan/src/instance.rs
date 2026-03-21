@@ -16,6 +16,7 @@ use crate::{
     create_instance::create_instance,
     device::{VALIDATION_ENABLED, create_logical_device, pick_physical_device},
     error::{VkError, to_generic},
+    image::VkImage,
     queue_family::QueueFamilyIndices,
     swapchain::Swapchain,
 };
@@ -256,17 +257,21 @@ impl VkInstance {
         Ok((buffer, buffer_memory))
     }
 
-    fn create_texture_image(&self, files: &Files) -> Result<(), VkError> {
+    fn create_texture_image(&self, files: &Files) -> Result<VkImage, VkError> {
         let file = files
             .read("textures/tex1.png")
             .map_err(|_| VkError::GenericError("Not found".to_string()))?;
         let image = BufReader::new(file);
 
         let decoder = png::Decoder::new(image);
-        let mut reader = decoder.read_info()?;
+        let mut reader = decoder
+            .read_info()
+            .map_err(|e| VkError::GenericError("Decoding error".to_owned()))?;
 
         let mut pixels = vec![0; reader.info().raw_bytes()];
-        reader.next_frame(&mut pixels)?;
+        reader
+            .next_frame(&mut pixels)
+            .map_err(|e| VkError::GenericError("Decoding error".to_owned()))?;
 
         let size = reader.info().raw_bytes() as u64;
         let (width, height) = reader.info().size();
@@ -302,22 +307,22 @@ impl VkInstance {
             vk::MemoryPropertyFlags::DEVICE_LOCAL,
         )?;
 
-        data.texture_image = texture_image;
-        data.texture_image_memory = texture_image_memory;
+        //data.texture_image = texture_image;
+        //data.texture_image_memory = texture_image_memory;
 
         // Transition + Copy (image)
 
         self.transition_image_layout(
-            data.texture_image,
+            texture_image,
             vk::Format::R8G8B8A8_SRGB,
             vk::ImageLayout::UNDEFINED,
             vk::ImageLayout::TRANSFER_DST_OPTIMAL,
         )?;
 
-        self.copy_buffer_to_image(staging_buffer, data.texture_image, width, height)?;
+        self.copy_buffer_to_image(staging_buffer, texture_image, width, height)?;
 
         self.transition_image_layout(
-            data.texture_image,
+            texture_image,
             vk::Format::R8G8B8A8_SRGB,
             vk::ImageLayout::TRANSFER_DST_OPTIMAL,
             vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
@@ -327,7 +332,7 @@ impl VkInstance {
             device.destroy_buffer(staging_buffer, None);
             device.free_memory(staging_buffer_memory, None)
         };
-        Ok(())
+        Ok(VkImage::new(texture_image, texture_image_memory))
     }
 
     pub fn copy_memory<T>(
@@ -501,6 +506,48 @@ impl VkInstance {
             self.device
                 .free_command_buffers(self.command_pool, &[command_buffer])
         };
+
+        Ok(())
+    }
+
+    fn copy_buffer_to_image(
+        &self,
+        buffer: vk::Buffer,
+        image: vk::Image,
+        width: u32,
+        height: u32,
+    ) -> Result<(), VkError> {
+        let command_buffer = self.begin_single_time_commands()?;
+
+        let subresource = vk::ImageSubresourceLayers::builder()
+            .aspect_mask(vk::ImageAspectFlags::COLOR)
+            .mip_level(0)
+            .base_array_layer(0)
+            .layer_count(1);
+
+        let region = vk::BufferImageCopy::builder()
+            .buffer_offset(0)
+            .buffer_row_length(0)
+            .buffer_image_height(0)
+            .image_subresource(subresource)
+            .image_offset(vk::Offset3D { x: 0, y: 0, z: 0 })
+            .image_extent(vk::Extent3D {
+                width,
+                height,
+                depth: 1,
+            });
+
+        unsafe {
+            self.device.cmd_copy_buffer_to_image(
+                command_buffer,
+                buffer,
+                image,
+                vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                &[region],
+            )
+        }
+
+        self.end_single_time_commands(command_buffer)?;
 
         Ok(())
     }
