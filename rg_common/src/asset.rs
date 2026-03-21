@@ -3,7 +3,7 @@ use std::{
     borrow::Borrow,
     collections::{HashMap, hash_map::Entry},
     fmt::Display,
-    io::Read,
+    io::BufRead,
     sync::{Arc, PoisonError, RwLock, Weak},
 };
 
@@ -40,18 +40,12 @@ impl Assets {
         Self(RwLock::new(TypeMap::new()))
     }
 
-    pub fn load<S, R, L, A, Rd>(
-        &self,
-        name: S,
-        resolver: R,
-        loader: &L,
-    ) -> Result<Arc<A>, AssetError>
+    pub fn load<S, R, L, A>(&self, name: S, resolver: R, loader: &L) -> Result<Arc<A>, AssetError>
     where
         A: Send + Sync + 'static,
         S: Into<Box<str>> + Borrow<str>,
-        Rd: Read,
-        R: Fn(&str) -> Option<Rd>,
-        L: Loader<A, Rd> + 'static,
+        R: Fn(&str) -> Option<Box<dyn BufRead + Send>>,
+        L: Loader<A> + 'static,
     {
         let guard = self.0.read()?;
         let key = Key::new::<_, L>(name);
@@ -126,10 +120,7 @@ mod tests {
 
     static mut L1_COUNTER: i32 = 0;
 
-    fn loader_1<R>(read: &mut R) -> Result<String, LoaderError>
-    where
-        R: Read,
-    {
+    fn loader_1(read: &mut Box<dyn BufRead + Send>) -> Result<String, LoaderError> {
         unsafe { L1_COUNTER += 1 };
 
         Ok(String::from("value"))
@@ -137,7 +128,7 @@ mod tests {
 
     #[test]
     fn asset_loaders() {
-        let resolver = |_: &str| Some(BufReader::new(b"test" as &[u8]));
+        let resolver = |_: &str| Some(Box::new(BufReader::new(b"test" as &[u8])) as _);
         let assets = Assets::new();
         let first = assets.load("first", &resolver, &loader_1).unwrap();
         let second = assets.load("first", &resolver, &loader_1).unwrap();

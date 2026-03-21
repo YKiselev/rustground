@@ -1,22 +1,17 @@
-use std::{
-    fmt::Display,
-    io::{Error, Read},
-};
+use std::io::BufRead;
 
 use thiserror::Error;
 
-pub trait Loader<A, R>: Fn(&mut R) -> Result<A, LoaderError>
+pub trait Loader<A>: Fn(&mut Box<dyn BufRead + Send>) -> Result<A, LoaderError>
 where
     A: Send + Sync,
-    R: Read,
 {
 }
 
-impl<A, R, T> Loader<A, R> for T
+impl<A, T> Loader<A> for T
 where
     A: Send + Sync,
-    R: Read,
-    T: Fn(&mut R) -> Result<A, LoaderError>,
+    T: Fn(&mut Box<dyn BufRead + Send>) -> Result<A, LoaderError>,
 {
 }
 

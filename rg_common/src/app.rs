@@ -1,6 +1,6 @@
 use std::borrow::Borrow;
 use std::fs::File;
-use std::io::BufReader;
+use std::io::{BufRead, BufReader};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -66,12 +66,12 @@ impl App {
     pub fn load_asset<S, L, A>(&self, name: S, loader: &L) -> Result<Arc<A>, AssetError>
     where
         S: Into<Box<str>> + Borrow<str>,
-        L: Loader<A, BufReader<File>> + 'static,
+        L: Loader<A> + 'static,
         A: Send + Sync + 'static,
     {
         self.assets.load(
             name,
-            |n| self.files.read(n).ok().map(|f| BufReader::new(f)),
+            |n| self.files.buf_read(n).ok(),
             loader,
         )
     }
@@ -79,13 +79,12 @@ impl App {
     pub fn load_resource<S, L, A>(&self, name: S, loader: &L) -> Result<A, LoaderError>
     where
         S: Into<Box<str>> + AsRef<str>,
-        L: Loader<A, BufReader<File>> + 'static,
+        L: Loader<A> + 'static,
         A: Send + Sync + 'static,
     {
         self.files
-            .read(name)
+            .buf_read(name)
             .map_err(|_| LoaderError::NotFound)
-            .map(|f| BufReader::new(f))
             .and_then(|mut r| loader(&mut r))
     }
 }

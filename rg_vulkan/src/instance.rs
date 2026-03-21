@@ -1,8 +1,12 @@
+use std::{fs::File, io::BufReader};
+
 use rg_common::Files;
 use vulkanalia::{
     Device, Entry, Instance,
     vk::{
-        self, CommandBuffer, CommandPoolCreateFlags, DeviceMemory, DeviceSize, DeviceV1_0, ExtDebugUtilsExtensionInstanceCommands, Handle, HasBuilder, InstanceV1_0, KhrSurfaceExtensionInstanceCommands, MemoryMapFlags, PhysicalDevice, Queue, SurfaceKHR
+        self, CommandBuffer, CommandPoolCreateFlags, DeviceMemory, DeviceSize, DeviceV1_0,
+        ExtDebugUtilsExtensionInstanceCommands, Handle, HasBuilder, InstanceV1_0,
+        KhrSurfaceExtensionInstanceCommands, MemoryMapFlags, PhysicalDevice, Queue, SurfaceKHR,
     },
     window,
 };
@@ -253,7 +257,10 @@ impl VkInstance {
     }
 
     fn create_texture_image(&self, files: &Files) -> Result<(), VkError> {
-        /*let image = files.read("tutorial/resources/texture.png").ok_or_else(|| VkError::GenericError("Not found".to_string()))?;
+        let file = files
+            .read("textures/tex1.png")
+            .map_err(|_| VkError::GenericError("Not found".to_string()))?;
+        let image = BufReader::new(file);
 
         let decoder = png::Decoder::new(image);
         let mut reader = decoder.read_info()?;
@@ -300,27 +307,16 @@ impl VkInstance {
 
         // Transition + Copy (image)
 
-        transition_image_layout(
-            device,
-            data,
+        self.transition_image_layout(
             data.texture_image,
             vk::Format::R8G8B8A8_SRGB,
             vk::ImageLayout::UNDEFINED,
             vk::ImageLayout::TRANSFER_DST_OPTIMAL,
         )?;
 
-        copy_buffer_to_image(
-            device,
-            data,
-            staging_buffer,
-            data.texture_image,
-            width,
-            height,
-        )?;
+        self.copy_buffer_to_image(staging_buffer, data.texture_image, width, height)?;
 
-        transition_image_layout(
-            device,
-            data,
+        self.transition_image_layout(
             data.texture_image,
             vk::Format::R8G8B8A8_SRGB,
             vk::ImageLayout::TRANSFER_DST_OPTIMAL,
@@ -330,7 +326,7 @@ impl VkInstance {
         unsafe {
             device.destroy_buffer(staging_buffer, None);
             device.free_memory(staging_buffer_memory, None)
-        };*/
+        };
         Ok(())
     }
 
@@ -392,6 +388,121 @@ impl VkInstance {
         unsafe { device.bind_image_memory(image, image_memory, 0) }?;
 
         Ok((image, image_memory))
+    }
+
+    fn transition_image_layout(
+        &self,
+        image: vk::Image,
+        format: vk::Format,
+        old_layout: vk::ImageLayout,
+        new_layout: vk::ImageLayout,
+    ) -> Result<(), VkError> {
+        let (src_access_mask, dst_access_mask, src_stage_mask, dst_stage_mask) =
+            match (old_layout, new_layout) {
+                (vk::ImageLayout::UNDEFINED, vk::ImageLayout::TRANSFER_DST_OPTIMAL) => (
+                    vk::AccessFlags::empty(),
+                    vk::AccessFlags::TRANSFER_WRITE,
+                    vk::PipelineStageFlags::TOP_OF_PIPE,
+                    vk::PipelineStageFlags::TRANSFER,
+                ),
+                (
+                    vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                    vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+                ) => (
+                    vk::AccessFlags::TRANSFER_WRITE,
+                    vk::AccessFlags::SHADER_READ,
+                    vk::PipelineStageFlags::TRANSFER,
+                    vk::PipelineStageFlags::FRAGMENT_SHADER,
+                ),
+                _ => {
+                    return Err(VkError::GenericError(
+                        "Unsupported image layout transition!".to_owned(),
+                    ));
+                }
+            };
+
+        let command_buffer = self.begin_single_time_commands()?;
+
+        let subresource = vk::ImageSubresourceRange::builder()
+            .aspect_mask(vk::ImageAspectFlags::COLOR)
+            .base_mip_level(0)
+            .level_count(1)
+            .base_array_layer(0)
+            .layer_count(1);
+
+        let barrier = vk::ImageMemoryBarrier::builder()
+            .old_layout(old_layout)
+            .new_layout(new_layout)
+            .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+            .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+            .image(image)
+            .subresource_range(subresource)
+            .src_access_mask(src_access_mask)
+            .dst_access_mask(dst_access_mask);
+
+        unsafe {
+            self.device.cmd_pipeline_barrier(
+                command_buffer,
+                src_stage_mask,
+                dst_stage_mask,
+                vk::DependencyFlags::empty(),
+                &[] as &[vk::MemoryBarrier],
+                &[] as &[vk::BufferMemoryBarrier],
+                &[barrier],
+            )
+        };
+
+        self.end_single_time_commands(command_buffer)?;
+
+        Ok(())
+    }
+
+    fn begin_single_time_commands(&self) -> Result<vk::CommandBuffer, VkError> {
+        // Allocate
+
+        let info = vk::CommandBufferAllocateInfo::builder()
+            .level(vk::CommandBufferLevel::PRIMARY)
+            .command_pool(self.command_pool)
+            .command_buffer_count(1);
+
+        let command_buffer = unsafe { self.device.allocate_command_buffers(&info) }?[0];
+
+        // Begin
+
+        let info = vk::CommandBufferBeginInfo::builder()
+            .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+
+        unsafe {
+            self.device.begin_command_buffer(command_buffer, &info)?;
+        }
+
+        Ok(command_buffer)
+    }
+
+    fn end_single_time_commands(&self, command_buffer: vk::CommandBuffer) -> Result<(), VkError> {
+        // End
+
+        (unsafe { self.device.end_command_buffer(command_buffer) })?;
+
+        // Submit
+
+        let command_buffers = &[command_buffer];
+        let info = vk::SubmitInfo::builder().command_buffers(command_buffers);
+
+        unsafe {
+            self.device
+                .queue_submit(self.graphics_queue, &[info], vk::Fence::null())?;
+            self.device.queue_wait_idle(self.graphics_queue)?;
+        }
+
+        // Cleanup
+
+        unsafe {
+            self.device
+                .free_command_buffers(self.command_pool, &[command_buffer])
+        };
+
+        Ok(())
     }
 
     fn destroy_swapchain(&mut self) {

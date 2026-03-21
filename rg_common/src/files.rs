@@ -1,7 +1,7 @@
 use std::borrow::Borrow;
 use std::fmt::{Display, Formatter};
-use std::fs::File;
-use std::io::{Error, ErrorKind, Read, Write};
+use std::fs::{File, read};
+use std::io::{BufRead, BufReader, Error, ErrorKind, Read, Seek, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{PoisonError, RwLock};
 use std::{env, fs};
@@ -29,6 +29,17 @@ impl<T> From<PoisonError<T>> for FileError {
 }
 
 ///
+/// Readable and Writable resources
+///
+pub trait SeekAndRead: Read + Seek {}
+
+pub trait SeekAndWrite: Write + Seek {}
+
+impl SeekAndRead for File {}
+
+impl SeekAndWrite for File {}
+
+///
 /// File root
 ///
 #[derive(Debug)]
@@ -54,13 +65,13 @@ impl FileRoot {
         self.readonly
     }
 
-    fn read(&self, path: &str) -> Result<File, FileError> {
+    fn read(&self, path: &str) -> Result<Box<dyn SeekAndRead + Send>, FileError> {
         let mut buf = self.path.clone();
         buf.push(path);
         match File::open(&buf) {
             Ok(file) => {
                 debug!("open({:?})", &buf);
-                Ok(file)
+                Ok(Box::new(file))
             }
             Err(e) => {
                 debug!("File not found: {:?}, {:?}", buf, e);
@@ -69,13 +80,13 @@ impl FileRoot {
         }
     }
 
-    fn write(&self, path: &str) -> Result<File, FileError> {
+    fn write(&self, path: &str) -> Result<Box<dyn SeekAndWrite + Send>, FileError> {
         let mut buf = self.path.clone();
         buf.push(path);
         match File::create(&buf) {
             Ok(file) => {
                 debug!("create({:?})", &file);
-                Ok(file)
+                Ok(Box::new(file))
             }
             Err(e) => {
                 warn!("Unable to create file: {:?}, {:?}", buf, e);
@@ -136,7 +147,7 @@ impl Files {
         }
     }
 
-    pub fn read<S>(&self, path: S) -> Result<File, FileError>
+    pub fn read<S>(&self, path: S) -> Result<Box<dyn SeekAndRead + Send>, FileError>
     where
         S: AsRef<str>,
     {
@@ -150,12 +161,16 @@ impl Files {
             }
         }
         Err(last_err.unwrap_or_else(|| FileError::IoError(Error::from(ErrorKind::NotFound))))
-        // guard
-        //     .find_map(|r| r.read(path.borrow()).ok())
-        //     .ok_or_else(|| FileError::IoError(std::io::Error::from(ErrorKind::NotFound)))
     }
 
-    pub fn write<S>(&self, path: S) -> Result<File, FileError>
+    pub fn buf_read<S>(&self, path: S) -> Result<Box<dyn BufRead + Send>, FileError>
+    where
+        S: AsRef<str>,
+    {
+        Ok(self.read(path).map(BufReader::new).map(Box::new)?)
+    }
+
+    pub fn write<S>(&self, path: S) -> Result<Box<dyn SeekAndWrite + Send>, FileError>
     where
         S: AsRef<str>,
     {
@@ -169,7 +184,6 @@ impl Files {
             }
         }
         Err(last_err.unwrap_or_else(|| FileError::IoError(Error::from(ErrorKind::NotFound))))
-        //guard.iter().find_map(|r| r.write(path.as_ref())
     }
 
     ///
@@ -179,9 +193,9 @@ impl Files {
     where
         S: AsRef<str>,
     {
-        let mut cfg = self.read(name)?;
+        let mut file = self.read(name)?;
         let mut tmp = String::new();
-        cfg.read_to_string(&mut tmp)?;
+        file.read_to_string(&mut tmp)?;
         Ok(tmp)
     }
 
