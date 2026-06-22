@@ -43,8 +43,8 @@ impl ClientState {
     }
 
     pub fn destroy(&mut self) {
-        if let Some(mut renderer) = self.renderer.take() {
-            renderer.destroy();
+        if let Some(renderer) = self.renderer.take() {
+            std::mem::drop(renderer);
         }
     }
 

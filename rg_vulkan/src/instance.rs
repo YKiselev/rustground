@@ -1,17 +1,15 @@
-use std::{fs::File, io::BufReader};
+use std::ffi::CStr;
+use std::io::BufReader;
 
+use ash::khr::{surface, swapchain};
+use ash::vk::PhysicalDevice;
+use ash::{Device, Entry, Instance, vk};
+use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use rg_common::Files;
-use vulkanalia::{
-    Device, Entry, Instance,
-    vk::{
-        self, CommandBuffer, CommandPoolCreateFlags, DeviceMemory, DeviceSize, DeviceV1_0,
-        ExtDebugUtilsExtensionInstanceCommands, Handle, HasBuilder, InstanceV1_0,
-        KhrSurfaceExtensionInstanceCommands, MemoryMapFlags, PhysicalDevice, Queue, SurfaceKHR,
-    },
-    window,
-};
 use winit::window::Window;
 
+use crate::debug::DebugUtils;
+use crate::surface::VkSurface;
 use crate::{
     create_instance::create_instance,
     device::{VALIDATION_ENABLED, create_logical_device, pick_physical_device},
@@ -21,46 +19,57 @@ use crate::{
     swapchain::Swapchain,
 };
 
-pub(crate) const DEVICE_EXTENSIONS: &[vk::ExtensionName] = &[vk::KHR_SWAPCHAIN_EXTENSION.name];
+pub(crate) const DEVICE_EXTENSIONS: [&CStr; 1] = [swapchain::NAME];
 
 pub(crate) const MAX_FRAMES_IN_FLIGHT: usize = 2;
 
-#[derive(Debug)]
+#[derive()]
 pub struct VkInstance {
+    pub entry: Entry,
     pub instance: Instance,
-    messenger: vk::DebugUtilsMessengerEXT,
-    pub surface: SurfaceKHR,
-    pub physical_device: PhysicalDevice,
+    debug_utils: Option<DebugUtils>,
+    surface: VkSurface,
+    pub physical_device: vk::PhysicalDevice,
     pub device: Device,
-    pub graphics_queue: Queue,
-    pub present_queue: Queue,
+    pub graphics_queue: vk::Queue,
+    pub present_queue: vk::Queue,
     pub swapchain: Swapchain,
     pub descriptor_set_layout: vk::DescriptorSetLayout,
     pub command_pool: vk::CommandPool,
 }
 
 impl VkInstance {
-    pub fn new(window: &Window, entry: &Entry) -> Result<Self, VkError> {
-        let (instance, messenger) = create_instance(window, entry)?;
-        let surface = create_surface(&instance, window)?;
-        let physical_device = pick_physical_device(&instance, surface)?;
+    pub fn new(window: &Window) -> Result<Self, VkError> {
+        let entry = unsafe { Entry::load().map_err(to_generic)? };
+        let (instance, debug_utils) = create_instance(window, &entry)?;
+        let surface = VkSurface::new(&entry, &instance, window)?;
+        let physical_device = pick_physical_device(&instance, &surface)?;
         let (device, graphics_queue, present_queue) =
-            create_logical_device(&entry, &instance, surface, physical_device)?;
-        let mut result = Self {
+            create_logical_device(&instance, &surface, physical_device)?;
+        let descriptor_set_layout = create_descriptor_set_layout(&device)?;
+        let command_pool = create_command_pool(&instance, &device, &surface, physical_device)?;
+        let swapchain = Swapchain::new(
+            &instance,
+            &surface,
+            &device,
+            physical_device,
+            window,
+            descriptor_set_layout,
+            command_pool,
+        )?;
+        let result = Self {
+            entry,
             instance,
-            messenger,
+            debug_utils,
             surface,
             physical_device,
             device,
             graphics_queue,
             present_queue,
-            swapchain: Swapchain::default(),
-            descriptor_set_layout: Default::default(),
-            command_pool: Default::default(),
+            swapchain,
+            descriptor_set_layout,
+            command_pool,
         };
-        result.init_descriptor_set_layout()?;
-        result.init_command_pool()?;
-        result.init_swapchain(window)?;
         Ok(result)
     }
 
@@ -69,31 +78,6 @@ impl VkInstance {
             self.device.device_wait_idle()?;
         }
         Ok(())
-    }
-
-    pub fn destroy(&mut self) {
-        unsafe {
-            self.device.device_wait_idle().unwrap();
-
-            self.destroy_swapchain();
-            let device = &self.device;
-
-            device.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
-            device.destroy_command_pool(self.command_pool, None);
-            device.destroy_device(None);
-            self.instance.destroy_surface_khr(self.surface, None);
-
-            if VALIDATION_ENABLED {
-                self.instance
-                    .destroy_debug_utils_messenger_ext(self.messenger, None);
-            }
-
-            self.instance.destroy_instance(None);
-        }
-    }
-
-    pub fn command_buffer(&self) -> CommandBuffer {
-        self.swapchain.frames_in_flight.command_buffer()
     }
 
     pub fn begin_frame(&self) -> Result<usize, VkError> {
@@ -110,8 +94,7 @@ impl VkInstance {
 
         self.swapchain.advance_frame_index();
 
-        let changed = result == Ok(vk::SuccessCode::SUBOPTIMAL_KHR)
-            || result == Err(vk::ErrorCode::OUT_OF_DATE_KHR);
+        let changed = result == Ok(true) || result == Err(vk::Result::ERROR_OUT_OF_DATE_KHR);
         if !changed {
             if let Err(e) = result {
                 return Err(e.into());
@@ -124,46 +107,15 @@ impl VkInstance {
     pub fn recreate_swapchain(&mut self, window: &Window) -> Result<(), VkError> {
         self.wait_idle()?;
         self.destroy_swapchain();
-        self.init_swapchain(window)?;
-        Ok(())
-    }
-
-    fn init_swapchain(&mut self, window: &Window) -> Result<(), VkError> {
         self.swapchain = Swapchain::new(
             &self.instance,
-            self.surface,
+            &self.surface,
             &self.device,
             self.physical_device,
             window,
             self.descriptor_set_layout,
             self.command_pool,
         )?;
-        Ok(())
-    }
-
-    fn init_command_pool(&mut self) -> Result<(), VkError> {
-        let indices = QueueFamilyIndices::get(&self.instance, self.surface, self.physical_device)?;
-
-        let info = vk::CommandPoolCreateInfo::builder()
-            .queue_family_index(indices.graphics)
-            .flags(CommandPoolCreateFlags::RESET_COMMAND_BUFFER);
-
-        self.command_pool = unsafe { self.device.create_command_pool(&info, None) }?;
-        Ok(())
-    }
-
-    fn init_descriptor_set_layout(&mut self) -> Result<(), VkError> {
-        let ubo_binding = vk::DescriptorSetLayoutBinding::builder()
-            .binding(0)
-            .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-            .descriptor_count(1)
-            .stage_flags(vk::ShaderStageFlags::VERTEX);
-
-        let bindings = &[ubo_binding];
-        let info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(bindings);
-
-        self.descriptor_set_layout =
-            unsafe { self.device.create_descriptor_set_layout(&info, None) }?;
 
         Ok(())
     }
@@ -176,7 +128,7 @@ impl VkInstance {
     ) -> Result<(), VkError> {
         // Allocate
 
-        let info = vk::CommandBufferAllocateInfo::builder()
+        let info = vk::CommandBufferAllocateInfo::default()
             .level(vk::CommandBufferLevel::PRIMARY)
             .command_pool(self.command_pool)
             .command_buffer_count(1);
@@ -186,20 +138,20 @@ impl VkInstance {
 
         // Commands
 
-        let info = vk::CommandBufferBeginInfo::builder()
+        let info = vk::CommandBufferBeginInfo::default()
             .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
 
         unsafe {
             device.begin_command_buffer(command_buffer, &info)?;
-            let regions = vk::BufferCopy::builder().size(size);
-            device.cmd_copy_buffer(command_buffer, source, destination, &[regions]);
+            let regions = [vk::BufferCopy::default().size(size)];
+            device.cmd_copy_buffer(command_buffer, source, destination, regions.as_slice());
             device.end_command_buffer(command_buffer)?;
         }
 
         // Submit
 
         let command_buffers = &[command_buffer];
-        let info = vk::SubmitInfo::builder().command_buffers(command_buffers);
+        let info = vk::SubmitInfo::default().command_buffers(command_buffers);
 
         unsafe {
             device.queue_submit(self.graphics_queue, &[info], vk::Fence::null())?;
@@ -207,8 +159,8 @@ impl VkInstance {
         }
 
         // Cleanup
-
-        unsafe { device.free_command_buffers(self.command_pool, &[command_buffer]) };
+        let buffers = [command_buffer];
+        unsafe { device.free_command_buffers(self.command_pool, buffers.as_slice()) };
 
         Ok(())
     }
@@ -223,10 +175,10 @@ impl VkInstance {
                 .get_physical_device_memory_properties(self.physical_device)
         };
         (0..memory.memory_type_count)
+            .filter(|i| (requirements.memory_type_bits & (1 << i)) != 0)
             .find(|i| {
-                let suitable = (requirements.memory_type_bits & (1 << i)) != 0;
-                let memory_type = memory.memory_types[*i as usize];
-                suitable && memory_type.property_flags.contains(properties)
+                let memory_type = memory.memory_types.as_slice()[*i as usize];
+                memory_type.property_flags.contains(properties)
             })
             .ok_or_else(|| to_generic("Failed to find suitable memory type."))
     }
@@ -237,7 +189,7 @@ impl VkInstance {
         usage: vk::BufferUsageFlags,
         properties: vk::MemoryPropertyFlags,
     ) -> Result<(vk::Buffer, vk::DeviceMemory), VkError> {
-        let buffer_info = vk::BufferCreateInfo::builder()
+        let buffer_info = vk::BufferCreateInfo::default()
             .size(size)
             .usage(usage)
             .sharing_mode(vk::SharingMode::EXCLUSIVE);
@@ -246,7 +198,7 @@ impl VkInstance {
 
         let requirements = unsafe { self.device.get_buffer_memory_requirements(buffer) };
 
-        let memory_info = vk::MemoryAllocateInfo::builder()
+        let memory_info = vk::MemoryAllocateInfo::default()
             .allocation_size(requirements.size)
             .memory_type_index(self.get_memory_type_index(properties, requirements)?);
 
@@ -337,10 +289,10 @@ impl VkInstance {
 
     pub fn copy_memory<T>(
         &self,
-        dest: DeviceMemory,
-        dest_offset: DeviceSize,
-        size: DeviceSize,
-        flags: MemoryMapFlags,
+        dest: vk::DeviceMemory,
+        dest_offset: vk::DeviceSize,
+        size: vk::DeviceSize,
+        flags: vk::MemoryMapFlags,
         src: *const T,
         count: usize,
     ) -> Result<(), VkError> {
@@ -361,8 +313,8 @@ impl VkInstance {
         usage: vk::ImageUsageFlags,
         properties: vk::MemoryPropertyFlags,
     ) -> Result<(vk::Image, vk::DeviceMemory), VkError> {
-        let info = vk::ImageCreateInfo::builder()
-            .image_type(vk::ImageType::_2D)
+        let info = vk::ImageCreateInfo::default()
+            .image_type(vk::ImageType::TYPE_2D)
             .extent(vk::Extent3D {
                 width,
                 height,
@@ -375,7 +327,7 @@ impl VkInstance {
             .initial_layout(vk::ImageLayout::UNDEFINED)
             .usage(usage)
             .sharing_mode(vk::SharingMode::EXCLUSIVE)
-            .samples(vk::SampleCountFlags::_1);
+            .samples(vk::SampleCountFlags::TYPE_1);
 
         let device = &self.device;
         let image = unsafe { device.create_image(&info, None) }?;
@@ -384,7 +336,7 @@ impl VkInstance {
 
         let requirements = unsafe { device.get_image_memory_requirements(image) };
 
-        let info = vk::MemoryAllocateInfo::builder()
+        let info = vk::MemoryAllocateInfo::default()
             .allocation_size(requirements.size)
             .memory_type_index(self.get_memory_type_index(properties, requirements)?);
 
@@ -428,14 +380,14 @@ impl VkInstance {
 
         let command_buffer = self.begin_single_time_commands()?;
 
-        let subresource = vk::ImageSubresourceRange::builder()
+        let subresource = vk::ImageSubresourceRange::default()
             .aspect_mask(vk::ImageAspectFlags::COLOR)
             .base_mip_level(0)
             .level_count(1)
             .base_array_layer(0)
             .layer_count(1);
 
-        let barrier = vk::ImageMemoryBarrier::builder()
+        let barrier = vk::ImageMemoryBarrier::default()
             .old_layout(old_layout)
             .new_layout(new_layout)
             .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
@@ -446,14 +398,17 @@ impl VkInstance {
             .dst_access_mask(dst_access_mask);
 
         unsafe {
+            let mem_barriers = [];
+            let buf_barriers = [];
+            let img_barriers = [barrier];
             self.device.cmd_pipeline_barrier(
                 command_buffer,
                 src_stage_mask,
                 dst_stage_mask,
                 vk::DependencyFlags::empty(),
-                &[] as &[vk::MemoryBarrier],
-                &[] as &[vk::BufferMemoryBarrier],
-                &[barrier],
+                mem_barriers.as_slice(),
+                buf_barriers.as_slice(),
+                img_barriers.as_slice(),
             )
         };
 
@@ -465,7 +420,7 @@ impl VkInstance {
     fn begin_single_time_commands(&self) -> Result<vk::CommandBuffer, VkError> {
         // Allocate
 
-        let info = vk::CommandBufferAllocateInfo::builder()
+        let info = vk::CommandBufferAllocateInfo::default()
             .level(vk::CommandBufferLevel::PRIMARY)
             .command_pool(self.command_pool)
             .command_buffer_count(1);
@@ -474,7 +429,7 @@ impl VkInstance {
 
         // Begin
 
-        let info = vk::CommandBufferBeginInfo::builder()
+        let info = vk::CommandBufferBeginInfo::default()
             .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
 
         unsafe {
@@ -492,7 +447,7 @@ impl VkInstance {
         // Submit
 
         let command_buffers = &[command_buffer];
-        let info = vk::SubmitInfo::builder().command_buffers(command_buffers);
+        let info = vk::SubmitInfo::default().command_buffers(command_buffers);
 
         unsafe {
             self.device
@@ -503,8 +458,9 @@ impl VkInstance {
         // Cleanup
 
         unsafe {
+            let buffers = [command_buffer];
             self.device
-                .free_command_buffers(self.command_pool, &[command_buffer])
+                .free_command_buffers(self.command_pool, buffers.as_slice())
         };
 
         Ok(())
@@ -519,13 +475,13 @@ impl VkInstance {
     ) -> Result<(), VkError> {
         let command_buffer = self.begin_single_time_commands()?;
 
-        let subresource = vk::ImageSubresourceLayers::builder()
+        let subresource = vk::ImageSubresourceLayers::default()
             .aspect_mask(vk::ImageAspectFlags::COLOR)
             .mip_level(0)
             .base_array_layer(0)
             .layer_count(1);
 
-        let region = vk::BufferImageCopy::builder()
+        let region = vk::BufferImageCopy::default()
             .buffer_offset(0)
             .buffer_row_length(0)
             .buffer_image_height(0)
@@ -538,12 +494,13 @@ impl VkInstance {
             });
 
         unsafe {
+            let regions = [region];
             self.device.cmd_copy_buffer_to_image(
                 command_buffer,
                 buffer,
                 image,
                 vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-                &[region],
+                regions.as_slice(),
             )
         }
 
@@ -557,6 +514,55 @@ impl VkInstance {
     }
 }
 
-fn create_surface(instance: &Instance, window: &Window) -> Result<SurfaceKHR, VkError> {
-    Ok(unsafe { window::create_surface(instance, window, window) }?)
+impl Drop for VkInstance {
+    fn drop(&mut self) {
+        unsafe {
+            self.device.device_wait_idle().unwrap();
+
+            self.destroy_swapchain();
+            let device = &self.device;
+
+            device.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
+            device.destroy_command_pool(self.command_pool, None);
+            device.destroy_device(None);
+            std::ptr::drop_in_place(&mut self.surface);
+
+            if let Some(debug_utils) = self.debug_utils.as_mut() {
+                debug_utils.destroy();
+            }
+
+            self.instance.destroy_instance(None);
+        }
+    }
+}
+
+fn create_descriptor_set_layout(device: &Device) -> Result<vk::DescriptorSetLayout, VkError> {
+    let ubo_binding = vk::DescriptorSetLayoutBinding::default()
+        .binding(0)
+        .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+        .descriptor_count(1)
+        .stage_flags(vk::ShaderStageFlags::VERTEX);
+
+    let bindings = &[ubo_binding];
+    let info = vk::DescriptorSetLayoutCreateInfo::default().bindings(bindings);
+
+    let descriptor_set_layout = unsafe { device.create_descriptor_set_layout(&info, None) }?;
+
+    Ok(descriptor_set_layout)
+}
+
+fn create_command_pool(
+    instance: &Instance,
+    device: &Device,
+    surface: &VkSurface,
+    physical_device: PhysicalDevice,
+) -> Result<vk::CommandPool, VkError> {
+    let indices = QueueFamilyIndices::get(instance, surface, physical_device)?;
+
+    let info = vk::CommandPoolCreateInfo::default()
+        .queue_family_index(indices.graphics)
+        .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER);
+
+    let command_pool = unsafe { device.create_command_pool(&info, None) }?;
+    Ok(command_pool)
 }

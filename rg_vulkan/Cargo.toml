@@ -5,9 +5,12 @@ edition = "2024"
 
 [dependencies]
 rg_common = { path="../rg_common" }
-vulkanalia = { version="0.34.0", features = ["libloading", "provisional", "window"] }
-winit = "0.30.12"
+ash = "0.38.0"
+winit = "0.30.13"
+winapi = "0.3.9"
+raw-window-handle = "0.6.2"
+ash-window = "0.13.0"
 log = "0.4.21"
 cgmath = "0.18.0"
 thiserror = "2.0.17"
-png ={ version = "0.18.0"}
+png = { version = "0.18.0"}

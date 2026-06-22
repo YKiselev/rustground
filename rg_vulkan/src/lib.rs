@@ -12,3 +12,5 @@ mod device;
 mod create_instance;
 mod triangle;
 mod image;
+mod debug;
+mod surface;

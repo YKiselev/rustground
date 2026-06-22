@@ -1,16 +1,13 @@
+use ash::Device;
+use ash::vk;
 use cgmath::{Deg, point3, vec2, vec3};
 use log::error;
-use vulkanalia::{
-    Device,
-    vk::{
-        self, CommandBuffer, DescriptorSet, DeviceSize, DeviceV1_0, Handle, HasBuilder,
-    },
-};
 
 use crate::{
     error::{VkError, to_generic},
     instance::VkInstance,
     pipeline::create_shader_module,
+    swapchain::Swapchain,
     types::Mat4,
     uniform::UniformBufferObject,
     vertex::Vertex,
@@ -23,7 +20,7 @@ static VERTICES: [Vertex; 4] = [
     Vertex::new(vec2(0.5, 0.5), vec3(0.0, 0.0, 1.0)),
     Vertex::new(vec2(-0.5, 0.5), vec3(1.0, 1.0, 1.0)),
 ];
-const INDICES: &[u16] = &[0, 1, 2, 2, 3, 0];
+const INDICES: [u16; 6] = [0, 1, 2, 2, 3, 0];
 
 #[derive(Debug, Default)]
 pub struct Triangle {
@@ -48,34 +45,37 @@ impl Triangle {
         Ok(result)
     }
 
-    fn init_pipeline(&mut self, instance: &VkInstance) -> Result<(), VkError> {
+    fn init_pipeline(
+        &mut self,
+        instance: &VkInstance
+    ) -> Result<(), VkError> {
         let vert = include_bytes!("../../base/resources/shaders/shader.vert.spv");
         let frag = include_bytes!("../../base/resources/shaders/shader.frag.spv");
 
         let vert_shader_module = create_shader_module(&instance.device, &vert[..])?;
         let frag_shader_module = create_shader_module(&instance.device, &frag[..])?;
 
-        let vert_stage = vk::PipelineShaderStageCreateInfo::builder()
+        let vert_stage = vk::PipelineShaderStageCreateInfo::default()
             .stage(vk::ShaderStageFlags::VERTEX)
             .module(vert_shader_module)
-            .name(b"main\0");
+            .name(c"main");
 
-        let frag_stage = vk::PipelineShaderStageCreateInfo::builder()
+        let frag_stage = vk::PipelineShaderStageCreateInfo::default()
             .stage(vk::ShaderStageFlags::FRAGMENT)
             .module(frag_shader_module)
-            .name(b"main\0");
+            .name(c"main");
 
         let binding_descriptions = &[Vertex::binding_description()];
         let attribute_descriptions = Vertex::attribute_descriptions();
-        let vertex_input_state = vk::PipelineVertexInputStateCreateInfo::builder()
+        let vertex_input_state = vk::PipelineVertexInputStateCreateInfo::default()
             .vertex_binding_descriptions(binding_descriptions)
             .vertex_attribute_descriptions(&attribute_descriptions);
 
-        let input_assembly_state = vk::PipelineInputAssemblyStateCreateInfo::builder()
+        let input_assembly_state = vk::PipelineInputAssemblyStateCreateInfo::default()
             .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
             .primitive_restart_enable(false);
 
-        let viewport = vk::Viewport::builder()
+        let viewport = vk::Viewport::default()
             .x(0.0)
             .y(0.0)
             .width(instance.swapchain.extent.width as f32)
@@ -83,17 +83,17 @@ impl Triangle {
             .min_depth(0.0)
             .max_depth(1.0);
 
-        let scissor = vk::Rect2D::builder()
+        let scissor = vk::Rect2D::default()
             .offset(vk::Offset2D { x: 0, y: 0 })
             .extent(instance.swapchain.extent);
 
         let viewports = &[viewport];
         let scissors = &[scissor];
-        let viewport_state = vk::PipelineViewportStateCreateInfo::builder()
+        let viewport_state = vk::PipelineViewportStateCreateInfo::default()
             .viewports(viewports)
             .scissors(scissors);
 
-        let rasterization_state = vk::PipelineRasterizationStateCreateInfo::builder()
+        let rasterization_state = vk::PipelineRasterizationStateCreateInfo::default()
             .depth_clamp_enable(false)
             .rasterizer_discard_enable(false)
             .polygon_mode(vk::PolygonMode::FILL)
@@ -102,27 +102,27 @@ impl Triangle {
             .front_face(vk::FrontFace::COUNTER_CLOCKWISE)
             .depth_bias_enable(false);
 
-        let multisample_state = vk::PipelineMultisampleStateCreateInfo::builder()
+        let multisample_state = vk::PipelineMultisampleStateCreateInfo::default()
             .sample_shading_enable(false)
-            .rasterization_samples(vk::SampleCountFlags::_1);
+            .rasterization_samples(vk::SampleCountFlags::TYPE_1);
 
-        let attachment = vk::PipelineColorBlendAttachmentState::builder()
-            .color_write_mask(vk::ColorComponentFlags::all())
+        let attachment = vk::PipelineColorBlendAttachmentState::default()
+            .color_write_mask(vk::ColorComponentFlags::RGBA)
             .blend_enable(false);
 
         let attachments = &[attachment];
-        let color_blend_state = vk::PipelineColorBlendStateCreateInfo::builder()
+        let color_blend_state = vk::PipelineColorBlendStateCreateInfo::default()
             .logic_op_enable(false)
             .logic_op(vk::LogicOp::COPY)
             .attachments(attachments)
             .blend_constants([0.0, 0.0, 0.0, 0.0]);
 
         let layouts = &[instance.descriptor_set_layout];
-        let layout_info = vk::PipelineLayoutCreateInfo::builder().set_layouts(layouts);
+        let layout_info = vk::PipelineLayoutCreateInfo::default().set_layouts(layouts);
         let layout = unsafe { instance.device.create_pipeline_layout(&layout_info, None) }?;
 
         let stages = &[vert_stage, frag_stage];
-        let info = vk::GraphicsPipelineCreateInfo::builder()
+        let info = vk::GraphicsPipelineCreateInfo::default()
             .stages(stages)
             .vertex_input_state(&vertex_input_state)
             .input_assembly_state(&input_assembly_state)
@@ -134,18 +134,22 @@ impl Triangle {
             .render_pass(instance.swapchain.render_pass)
             .subpass(0);
 
+        let infos = [info];
         let result = unsafe {
-            instance
-                .device
-                .create_graphics_pipelines(vk::PipelineCache::null(), &[info], None)
-        }?;
+            instance.device.create_graphics_pipelines(
+                vk::PipelineCache::null(),
+                infos.as_slice(),
+                None,
+            )
+        }
+        .unwrap();
 
-        if result.0.is_empty() {
+        if result.is_empty() {
             error!("No pipeline in result!");
             return Err(to_generic("No pipeline in result!"));
         }
 
-        let pipeline = result.0[0];
+        let pipeline = result.first().expect("No pipelines!");
 
         unsafe {
             instance
@@ -159,7 +163,7 @@ impl Triangle {
         };
 
         self.layout = layout;
-        self.pipeline = pipeline;
+        self.pipeline = *pipeline;
 
         Ok(())
     }
@@ -243,7 +247,10 @@ impl Triangle {
         Ok(())
     }
 
-    fn init_uniform_buffers(&mut self, instance: &VkInstance) -> Result<(), VkError> {
+    fn init_uniform_buffers(
+        &mut self,
+        instance: &VkInstance
+    ) -> Result<(), VkError> {
         for _ in 0..instance.swapchain.images.len() {
             let (uniform_buffer, uniform_buffer_memory) = instance.create_buffer(
                 size_of::<UniformBufferObject>() as u64,
@@ -273,14 +280,9 @@ impl Triangle {
             vec3(0.0, 0.0, 1.0),
         );
 
-        let mut proj = cgmath::perspective(
-            Deg(45.0),
-            ratio,
-            0.1,
-            10.0,
-        );
+        let mut proj = cgmath::perspective(Deg(45.0), ratio, 0.1, 10.0);
 
-        proj[1][1] *= -1.0; // OGL legacy)
+        proj.y.y *= -1.0; // OGL legacy)
 
         let ubo = UniformBufferObject { model, view, proj };
         let buf_memory = self.uniform_buffers_memory[image_index];
@@ -288,7 +290,7 @@ impl Triangle {
         instance.copy_memory(
             buf_memory,
             0,
-            size_of::<UniformBufferObject>() as DeviceSize,
+            size_of::<UniformBufferObject>() as vk::DeviceSize,
             vk::MemoryMapFlags::empty(),
             &ubo,
             1,
@@ -297,17 +299,20 @@ impl Triangle {
         Ok(())
     }
 
-    pub fn update_descriptor_sets(&mut self, instance: &VkInstance) -> Result<(), VkError> {
+    pub fn update_descriptor_sets(
+        &mut self,
+        instance: &VkInstance
+    ) -> Result<(), VkError> {
         assert_eq!(self.uniform_buffers.len(), instance.swapchain.descriptor_sets.len());
 
         for i in 0..self.uniform_buffers.len() {
-            let info = vk::DescriptorBufferInfo::builder()
+            let info = vk::DescriptorBufferInfo::default()
                 .buffer(self.uniform_buffers[i])
                 .offset(0)
                 .range(size_of::<UniformBufferObject>() as u64);
 
             let buffer_info = &[info];
-            let ubo_write = vk::WriteDescriptorSet::builder()
+            let ubo_write = vk::WriteDescriptorSet::default()
                 .dst_set(instance.swapchain.descriptor_sets[i])
                 .dst_binding(0)
                 .dst_array_element(0)
@@ -328,13 +333,13 @@ impl Triangle {
         &mut self,
         instance: &VkInstance,
         image_index: usize,
-        command_buffer: vk::CommandBuffer
+        command_buffer: vk::CommandBuffer,
     ) -> Result<(), VkError> {
-        let info = vk::CommandBufferBeginInfo::builder();
+        let info = vk::CommandBufferBeginInfo::default();
 
         unsafe { instance.device.begin_command_buffer(command_buffer, &info) }?;
 
-        let render_area = vk::Rect2D::builder()
+        let render_area = vk::Rect2D::default()
             .offset(vk::Offset2D::default())
             .extent(instance.swapchain.extent);
 
@@ -345,15 +350,23 @@ impl Triangle {
         };
 
         let clear_values = &[color_clear_value];
-        let info = vk::RenderPassBeginInfo::builder()
+        let info = vk::RenderPassBeginInfo::default()
             .render_pass(instance.swapchain.render_pass)
             .framebuffer(instance.swapchain.framebuffers[image_index])
             .render_area(render_area)
             .clear_values(clear_values);
 
         unsafe {
-            instance.device.cmd_begin_render_pass(command_buffer, &info, vk::SubpassContents::INLINE);
-            self.render(&instance.device, &command_buffer, instance.swapchain.descriptor_sets[image_index])?;
+            instance.device.cmd_begin_render_pass(
+                command_buffer,
+                &info,
+                vk::SubpassContents::INLINE,
+            );
+            self.render(
+                &instance.device,
+                &command_buffer,
+                instance.swapchain.descriptor_sets[image_index],
+            )?;
             instance.device.cmd_end_render_pass(command_buffer);
             instance.device.end_command_buffer(command_buffer)?;
         }
@@ -363,8 +376,8 @@ impl Triangle {
     fn render(
         &mut self,
         device: &Device,
-        command_buffer: &CommandBuffer,
-        descriptor_set: DescriptorSet,
+        command_buffer: &vk::CommandBuffer,
+        descriptor_set: vk::DescriptorSet,
     ) -> Result<(), VkError> {
         unsafe {
             device.cmd_bind_pipeline(
@@ -373,20 +386,24 @@ impl Triangle {
                 self.pipeline,
             );
 
-            device.cmd_bind_vertex_buffers(*command_buffer, 0, &[self.vertex_buffer], &[0]);
+            let buffers = [self.vertex_buffer];
+            let offsets = [0];
+            device.cmd_bind_vertex_buffers(*command_buffer, 0, buffers.as_slice(), offsets.as_slice());
             device.cmd_bind_index_buffer(
                 *command_buffer,
                 self.index_buffer,
                 0,
                 vk::IndexType::UINT16,
             );
+            let descriptor_sets = [descriptor_set];
+            let dyn_offsets = [];
             device.cmd_bind_descriptor_sets(
                 *command_buffer,
                 vk::PipelineBindPoint::GRAPHICS,
                 self.layout,
                 0,
-                &[descriptor_set],
-                &[],
+                descriptor_sets.as_slice(),
+                dyn_offsets.as_slice(),
             );
 
             device.cmd_draw_indexed(*command_buffer, INDICES.len() as u32, 1, 0, 0, 0);

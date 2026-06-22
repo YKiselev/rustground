@@ -1,7 +1,9 @@
-use vulkanalia::{vk::{self, InstanceV1_0, KhrSurfaceExtensionInstanceCommands}, Instance};
+use ash::{Instance, vk};
 
-use crate::error::{to_suitability, VkError};
-
+use crate::{
+    error::{VkError, to_suitability},
+    surface::VkSurface,
+};
 
 #[derive(Copy, Clone, Debug)]
 pub(crate) struct QueueFamilyIndices {
@@ -12,7 +14,7 @@ pub(crate) struct QueueFamilyIndices {
 impl QueueFamilyIndices {
     pub fn get(
         instance: &Instance,
-        surface: vk::SurfaceKHR,
+        surface: &VkSurface,
         physical_device: vk::PhysicalDevice,
     ) -> Result<Self, VkError> {
         let properties =
@@ -20,13 +22,7 @@ impl QueueFamilyIndices {
 
         let mut present = None;
         for (index, _) in properties.iter().enumerate() {
-            if unsafe {
-                instance.get_physical_device_surface_support_khr(
-                    physical_device,
-                    index as u32,
-                    surface,
-                )?
-            } {
+            if surface.get_support(physical_device, index as u32)? {
                 present = Some(index as u32);
                 break;
             }

@@ -1,12 +1,13 @@
-use vulkanalia::vk::{DeviceMemory, Image};
+use ash::vk;
+
 
 pub struct VkImage {
-    image: Image,
-    memory: DeviceMemory,
+    image: vk::Image,
+    memory: vk::DeviceMemory,
 }
 
 impl VkImage {
-    pub fn new(image: Image, memory: DeviceMemory) -> VkImage {
+    pub fn new(image: vk::Image, memory: vk::DeviceMemory) -> VkImage {
         Self { image, memory }
     }
 }

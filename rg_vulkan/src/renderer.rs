@@ -2,45 +2,31 @@ use std::{sync::Arc, time::Instant};
 
 use log::{info, warn};
 use rg_common::App;
-use vulkanalia::{
-    Entry,
-    loader::{LIBRARY, LibloadingLoader},
-};
 use winit::window::Window;
 
-use crate::{
-    error::{VkError, to_generic},
-    instance::VkInstance,
-    triangle::Triangle,
-};
+use crate::{error::VkError, instance::VkInstance, triangle::Triangle};
 
 pub struct VulkanRenderer {
-    entry: Entry,
     instance: VkInstance,
     resized: bool,
     start: Instant,
     triangle: Triangle,
-    app: Arc<App>
+    app: Arc<App>,
 }
 
 impl VulkanRenderer {
     pub fn new(app: &Arc<App>, window: &Window) -> Result<Self, VkError> {
-        unsafe {
-            let loader = LibloadingLoader::new(LIBRARY).map_err(to_generic)?;
-            let entry = Entry::new(loader).map_err(to_generic)?;
-            let instance = VkInstance::new(window, &entry)?;
-            let mut triangle = Triangle::new(&instance)?;
-            triangle.update_descriptor_sets(&instance)?;
-            info!("Vulkan renderer initialzied");
-            Ok(Self {
-                entry,
-                instance,
-                resized: false,
-                start: Instant::now(),
-                triangle,
-                app: Arc::clone(app)
-            })
-        }
+        let instance = VkInstance::new(window)?;
+        let mut triangle = Triangle::new(&instance)?;
+        triangle.update_descriptor_sets(&instance)?;
+        info!("Vulkan renderer initialzied");
+        Ok(Self {
+            instance,
+            resized: false,
+            start: Instant::now(),
+            triangle,
+            app: Arc::clone(app),
+        })
     }
 
     pub fn render(&mut self, window: &Window) {
@@ -60,7 +46,8 @@ impl VulkanRenderer {
             }
         }
         if recreate_swapchain {
-            let _ = self.recreate_swapchain(window)
+            let _ = self
+                .recreate_swapchain(window)
                 .inspect_err(|e| warn!("Failed to recreate swapchain: {:?}", e));
         }
     }
@@ -71,11 +58,16 @@ impl VulkanRenderer {
         self.triangle.destroy(&self.instance.device);
         self.triangle = Triangle::new(&self.instance)?;
         self.triangle.update_descriptor_sets(&self.instance)?;
+
         Ok(())
     }
 
     fn render_frame(&mut self, image_index: usize) {
-        match self.triangle.draw_to_buffer(&self.instance, image_index, self.instance.command_buffer()) {
+        match self.triangle.draw_to_buffer(
+            &self.instance,
+            image_index,
+            self.instance.swapchain.frames_in_flight.command_buffer(),
+        ) {
             Ok(_) => {
                 let time = self.start.elapsed().as_secs_f32();
                 let extent = self.instance.swapchain.extent;
@@ -91,11 +83,12 @@ impl VulkanRenderer {
     pub fn mark_resized(&mut self) {
         self.resized = true;
     }
+}
 
-    pub fn destroy(&mut self) {
+impl Drop for VulkanRenderer {
+    fn drop(&mut self) {
         info!("Destroing renderer");
         self.instance.wait_idle().unwrap();
         self.triangle.destroy(&self.instance.device);
-        self.instance.destroy();
     }
 }

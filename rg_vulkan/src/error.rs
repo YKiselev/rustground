@@ -1,16 +1,21 @@
+use ash::vk;
+use raw_window_handle::HandleError;
 use thiserror::Error;
-use vulkanalia::vk;
 
-#[derive(Debug, Error, PartialEq)]
+#[derive(Debug, Error)]
 pub enum VkError {
     #[error("Vulkan error code: {0}")]
-    VkErrorCode(#[from] vk::ErrorCode),
+    VkErrorCode(#[from] vk::Result),
     #[error("Generic error: {0}")]
     GenericError(String),
     #[error("Suitability error: {0}")]
     SuitabilityError(&'static str),
     #[error("Swapchain has changed!")]
     SwapchainChanged,
+    #[error("String contained an invalid null byte: {0}")]
+    InvalidString(#[from] std::ffi::NulError), 
+    #[error("Handle error: {0}")]
+    HandleError(#[from] HandleError)
 }
 
 pub fn to_generic<E>(e: E) -> VkError
