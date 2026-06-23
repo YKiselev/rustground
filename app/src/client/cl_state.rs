@@ -51,17 +51,22 @@ impl ClientState {
 
     fn run_frame(&mut self) {
         self.ensure_renderer();
-
         self.frame_stats.add_sample();
+
+        // Start frame
         self.net.frame_start(&self.app);
 
+        // Update
         self.net.update(&self.app);
 
-        if let (Some(renderer), Some(window)) = (self.renderer.as_mut(), self.window.as_ref()) {
-            renderer.render(window);
+        if let Some(window) = self.window.as_ref() {
+            if let Some(renderer) = self.renderer.as_mut() {
+                renderer.render(window);
+            }
             window.request_redraw();
         }
-
+        
+        // End frame
         self.net.frame_end(&self.app);
     }
 

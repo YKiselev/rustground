@@ -2,6 +2,7 @@ use ash::Device;
 use ash::vk;
 use cgmath::{Deg, point3, vec2, vec3};
 use log::error;
+use log::info;
 
 use crate::{
     error::{VkError, to_generic},
@@ -45,10 +46,7 @@ impl Triangle {
         Ok(result)
     }
 
-    fn init_pipeline(
-        &mut self,
-        instance: &VkInstance
-    ) -> Result<(), VkError> {
+    fn init_pipeline(&mut self, instance: &VkInstance) -> Result<(), VkError> {
         let vert = include_bytes!("../../base/resources/shaders/shader.vert.spv");
         let frag = include_bytes!("../../base/resources/shaders/shader.frag.spv");
 
@@ -75,14 +73,7 @@ impl Triangle {
             .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
             .primitive_restart_enable(false);
 
-        let viewport = vk::Viewport::default()
-            .x(0.0)
-            .y(0.0)
-            .width(instance.swapchain.extent.width as f32)
-            .height(instance.swapchain.extent.height as f32)
-            .min_depth(0.0)
-            .max_depth(1.0);
-
+        let viewport = create_viewport_from_extent(instance.swapchain.extent);
         let scissor = vk::Rect2D::default()
             .offset(vk::Offset2D { x: 0, y: 0 })
             .extent(instance.swapchain.extent);
@@ -90,8 +81,8 @@ impl Triangle {
         let viewports = &[viewport];
         let scissors = &[scissor];
         let viewport_state = vk::PipelineViewportStateCreateInfo::default()
-            .viewports(viewports)
-            .scissors(scissors);
+             .viewports(viewports)
+             .scissors(scissors);
 
         let rasterization_state = vk::PipelineRasterizationStateCreateInfo::default()
             .depth_clamp_enable(false)
@@ -120,6 +111,12 @@ impl Triangle {
         let layouts = &[instance.descriptor_set_layout];
         let layout_info = vk::PipelineLayoutCreateInfo::default().set_layouts(layouts);
         let layout = unsafe { instance.device.create_pipeline_layout(&layout_info, None) }?;
+        let dynamic_states = [
+            ash::vk::DynamicState::VIEWPORT,
+            ash::vk::DynamicState::SCISSOR,
+        ];
+        let dynamic_state =
+            vk::PipelineDynamicStateCreateInfo::default().dynamic_states(&dynamic_states);
 
         let stages = &[vert_stage, frag_stage];
         let info = vk::GraphicsPipelineCreateInfo::default()
@@ -127,6 +124,7 @@ impl Triangle {
             .vertex_input_state(&vertex_input_state)
             .input_assembly_state(&input_assembly_state)
             .viewport_state(&viewport_state)
+            .dynamic_state(&dynamic_state)
             .rasterization_state(&rasterization_state)
             .multisample_state(&multisample_state)
             .color_blend_state(&color_blend_state)
@@ -247,10 +245,7 @@ impl Triangle {
         Ok(())
     }
 
-    fn init_uniform_buffers(
-        &mut self,
-        instance: &VkInstance
-    ) -> Result<(), VkError> {
+    fn init_uniform_buffers(&mut self, instance: &VkInstance) -> Result<(), VkError> {
         for _ in 0..instance.swapchain.images.len() {
             let (uniform_buffer, uniform_buffer_memory) = instance.create_buffer(
                 size_of::<UniformBufferObject>() as u64,
@@ -299,11 +294,11 @@ impl Triangle {
         Ok(())
     }
 
-    pub fn update_descriptor_sets(
-        &mut self,
-        instance: &VkInstance
-    ) -> Result<(), VkError> {
-        assert_eq!(self.uniform_buffers.len(), instance.swapchain.descriptor_sets.len());
+    pub fn update_descriptor_sets(&mut self, instance: &VkInstance) -> Result<(), VkError> {
+        assert_eq!(
+            self.uniform_buffers.len(),
+            instance.swapchain.descriptor_sets.len()
+        );
 
         for i in 0..self.uniform_buffers.len() {
             let info = vk::DescriptorBufferInfo::default()
@@ -362,6 +357,16 @@ impl Triangle {
                 &info,
                 vk::SubpassContents::INLINE,
             );
+            let scissors = [render_area];
+            instance
+                .device
+                .cmd_set_scissor(command_buffer, 0, scissors.as_slice());
+            let viewport = create_viewport_from_extent(instance.swapchain.extent);
+            let viewports = [viewport];
+            instance
+                .device
+                .cmd_set_viewport(command_buffer, 0, viewports.as_slice());
+
             self.render(
                 &instance.device,
                 &command_buffer,
@@ -388,7 +393,12 @@ impl Triangle {
 
             let buffers = [self.vertex_buffer];
             let offsets = [0];
-            device.cmd_bind_vertex_buffers(*command_buffer, 0, buffers.as_slice(), offsets.as_slice());
+            device.cmd_bind_vertex_buffers(
+                *command_buffer,
+                0,
+                buffers.as_slice(),
+                offsets.as_slice(),
+            );
             device.cmd_bind_index_buffer(
                 *command_buffer,
                 self.index_buffer,
@@ -429,4 +439,24 @@ impl Triangle {
             device.destroy_pipeline_layout(self.layout, None);
         }
     }
+}
+
+fn create_viewport(width: u32, height: u32) -> vk::Viewport {
+    vk::Viewport::default()
+        .x(0.0)
+        .y(0.0)
+        .width(width as f32)
+        .height(height as f32)
+        .min_depth(0.0)
+        .max_depth(1.0)
+}
+
+fn create_viewport_from_extent(extent: vk::Extent2D) -> vk::Viewport {
+    create_viewport(extent.width, extent.height)
+}
+
+fn create_scissor_from_extent(extent: vk::Extent2D) -> vk::Rect2D {
+    vk::Rect2D::default()
+        .offset(vk::Offset2D { x: 0, y: 0 })
+        .extent(extent)
 }

@@ -201,7 +201,7 @@ impl Plugin for ClientNetwork {
     fn frame_start(&mut self, _app: &Arc<App>) {
         match self.socket.take_error() {
             Ok(Some(error)) => error!("Socket error: {error:?}"),
-            Ok(None) => {}
+            Ok(_) => {}
             Err(error) => error!("Unable to take error: {error:?}"),
         }
     }

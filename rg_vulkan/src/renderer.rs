@@ -1,14 +1,14 @@
 use std::{sync::Arc, time::Instant};
 
 use log::{info, warn};
-use rg_common::App;
+use rg_common::{App, Plugin};
 use winit::window::Window;
 
 use crate::{error::VkError, instance::VkInstance, triangle::Triangle};
 
 pub struct VulkanRenderer {
     instance: VkInstance,
-    resized: bool,
+    window_resized: bool,
     start: Instant,
     triangle: Triangle,
     app: Arc<App>,
@@ -22,7 +22,7 @@ impl VulkanRenderer {
         info!("Vulkan renderer initialzied");
         Ok(Self {
             instance,
-            resized: false,
+            window_resized: false,
             start: Instant::now(),
             triangle,
             app: Arc::clone(app),
@@ -30,7 +30,7 @@ impl VulkanRenderer {
     }
 
     pub fn render(&mut self, window: &Window) {
-        let mut recreate_swapchain = self.resized;
+        let mut recreate_swapchain = self.window_resized;
         if !recreate_swapchain {
             match self.instance.begin_frame() {
                 Ok(image_index) => {
@@ -53,11 +53,11 @@ impl VulkanRenderer {
     }
 
     fn recreate_swapchain(&mut self, window: &Window) -> Result<(), VkError> {
-        self.resized = false;
+        self.window_resized = false;
         self.instance.recreate_swapchain(window)?;
-        self.triangle.destroy(&self.instance.device);
-        self.triangle = Triangle::new(&self.instance)?;
+
         self.triangle.update_descriptor_sets(&self.instance)?;
+
         info!("Swapchain recreated");
         Ok(())
     }
@@ -81,7 +81,7 @@ impl VulkanRenderer {
     }
 
     pub fn mark_resized(&mut self) {
-        self.resized = true;
+        self.window_resized = true;
     }
 }
 
