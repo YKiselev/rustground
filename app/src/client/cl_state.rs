@@ -5,14 +5,14 @@ use rg_common::{App, Plugin};
 use rg_vulkan::renderer::VulkanRenderer;
 use winit::{
     application::ApplicationHandler,
-    event::WindowEvent,
+    event::{MouseScrollDelta, WindowEvent},
     event_loop::ActiveEventLoop,
-    keyboard::{KeyCode, PhysicalKey},
-    window::WindowId,
+    keyboard::{KeyCode, ModifiersState, PhysicalKey},
+    window::{Window, WindowId},
 };
 
 use crate::{
-    client::{cl_net::ClientNetwork, cl_window::ClientWindow},
+    client::{cl_net::ClientNetwork, cl_window::create_window_attributes},
     error::AppError,
     fps::FrameStats,
 };
@@ -20,25 +20,26 @@ use crate::{
 pub(super) struct ClientState {
     pub app: Arc<App>,
     net: ClientNetwork,
-    window: ClientWindow,
+    window: Option<Window>,
     renderer: Option<VulkanRenderer>,
     renderer_failed: bool,
     max_fps: f32,
     frame_stats: FrameStats,
+    modifiers: ModifiersState,
 }
 
 impl ClientState {
     pub(super) fn new(app: &Arc<App>) -> Result<Self, AppError> {
         let net = ClientNetwork::new(app)?;
-        let window = ClientWindow::new(app)?;
         Ok(Self {
             app: Arc::clone(&app),
             net,
-            window,
+            window: None,
             renderer: None,
             renderer_failed: false,
             max_fps: 60.0,
             frame_stats: FrameStats::default(),
+            modifiers: ModifiersState::default(),
         })
     }
 
@@ -49,32 +50,34 @@ impl ClientState {
     }
 
     fn run_frame(&mut self) {
+        self.ensure_renderer();
+
         self.frame_stats.add_sample();
         self.net.frame_start(&self.app);
 
         self.net.update(&self.app);
 
-        if let (Some(renderer), Some(window)) =
-            (self.renderer.as_mut(), self.window.window.as_ref())
-        {
+        if let (Some(renderer), Some(window)) = (self.renderer.as_mut(), self.window.as_ref()) {
             renderer.render(window);
+            window.request_redraw();
         }
 
         self.net.frame_end(&self.app);
     }
 
     fn ensure_renderer(&mut self) {
-        if self.renderer_failed {
+        if self.renderer_failed || self.window.is_none() {
             return;
         }
         if self.renderer.is_none() {
-            if let Some(window) = self.window.window.as_ref() {
+            if let Some(window) = self.window.as_ref() {
                 info!("Initializing renderer...");
-                match VulkanRenderer::new(&self.app, window) {
-                    Ok(renderer) => self.renderer = Some(renderer),
+                self.renderer = match VulkanRenderer::new(&self.app, window) {
+                    Ok(renderer) => Some(renderer),
                     Err(e) => {
                         error!("Renderer initialization failed: {}", e);
                         self.renderer_failed = true;
+                        None
                     }
                 }
             }
@@ -84,7 +87,14 @@ impl ClientState {
 
 impl ApplicationHandler for ClientState {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        self.window.resumed(event_loop);
+        let attrs = create_window_attributes(event_loop);
+        self.window = match event_loop.create_window(attrs) {
+            Ok(wnd) => Some(wnd),
+            Err(e) => {
+                error!("Unable to create window: {e:?}");
+                None
+            }
+        };
     }
 
     fn window_event(
@@ -99,12 +109,39 @@ impl ApplicationHandler for ClientState {
                     renderer.mark_resized();
                 }
             }
+            WindowEvent::Focused(focused) => {
+                if focused {
+                    info!("Window={window_id:?} focused");
+                } else {
+                    info!("Window={window_id:?} unfocused");
+                }
+            }
+            WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
+                info!("Window={window_id:?} changed scale to {scale_factor}");
+            }
+            WindowEvent::ModifiersChanged(modifiers) => {
+                self.modifiers = modifiers.state();
+            }
+            WindowEvent::MouseWheel { delta, .. } => match delta {
+                MouseScrollDelta::LineDelta(x, y) => {
+                    info!("Mouse wheel Line Delta: ({x},{y})");
+                }
+                MouseScrollDelta::PixelDelta(px) => {
+                    info!("Mouse wheel Pixel Delta: ({},{})", px.x, px.y);
+                }
+            },
+            WindowEvent::ActivationTokenDone { token: _token, .. } => {
+                #[cfg(any(x11_platform, wayland_platform))]
+                {
+                    startup_notify::set_activation_token_env(_token);
+                    if let Err(err) = self.create_window(event_loop, None) {
+                        error!("Error creating new window: {err}");
+                    }
+                }
+            }
             WindowEvent::RedrawRequested => {
                 if !event_loop.exiting() {
-                    self.ensure_renderer();
-                    if self.renderer.is_some() {
-                        self.run_frame();
-                    }
+                    self.run_frame();
                 }
             }
             WindowEvent::KeyboardInput {
@@ -121,7 +158,5 @@ impl ApplicationHandler for ClientState {
             },
             _ => (),
         }
-
-        self.window.window_event(event_loop, window_id, event);
     }
 }

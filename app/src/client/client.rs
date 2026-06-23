@@ -1,9 +1,11 @@
-use std::sync::{atomic::Ordering, Arc, RwLock};
+use std::sync::{Arc, RwLock, atomic::Ordering};
 
 use log::{info, warn};
-use rg_common::{save_config, wrap_var_bag, App};
+use rg_common::{App, save_config, wrap_var_bag};
 use winit::{
-    application::ApplicationHandler, event::WindowEvent, event_loop::ActiveEventLoop,
+    application::ApplicationHandler,
+    event::{Event::UserEvent, WindowEvent},
+    event_loop::ActiveEventLoop,
     window::WindowId,
 };
 
@@ -11,6 +13,8 @@ use crate::{
     client::{cl_config::ClientConfig, cl_state::ClientState},
     error::AppError,
 };
+
+pub struct ClientEvent();
 
 pub struct Client(Arc<RwLock<ClientConfig>>, Option<ClientState>);
 
@@ -24,7 +28,7 @@ impl Client {
     }
 }
 
-impl ApplicationHandler for Client {
+impl ApplicationHandler<ClientEvent> for Client {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if let Some(state) = self.1.as_mut() {
             state.resumed(event_loop);
@@ -61,3 +65,4 @@ impl ApplicationHandler for Client {
         }
     }
 }
+

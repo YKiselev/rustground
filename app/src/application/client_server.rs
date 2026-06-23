@@ -3,7 +3,11 @@ use rg_common::Arguments;
 use winit::event_loop::{ControlFlow, EventLoop};
 
 use crate::{
-    app_logger, application::app_host::AppHost, client::Client, error::AppError, server,
+    app_logger,
+    application::app_host::AppHost,
+    client::{Client, ClientEvent},
+    error::AppError,
+    server,
 };
 
 pub(crate) fn run_client_server(args: Arguments) -> Result<(), AppError> {
@@ -15,7 +19,9 @@ pub(crate) fn run_client_server(args: Arguments) -> Result<(), AppError> {
     let app = host.app.clone();
     app.load_config("config.toml");
     let (server, sv_handle) = server::init(&app)?;
-    let event_loop = EventLoop::new()?;
+    let event_loop = EventLoop::<ClientEvent>::with_user_event().build()?;
+    //let proxy = event_loop.create_proxy();
+    //proxy.send_event(ClientEvent::new());
     let mut client = Client::new(&app)?;
     event_loop.set_control_flow(ControlFlow::Poll);
 

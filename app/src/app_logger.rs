@@ -16,10 +16,34 @@ use crate::error::AppError;
 const CONSOLE_PATTERN: &str = "{d(%H:%M:%S%.3f)} {h({l})} [{T}] {M} - {m}{n}";
 const PATTERN: &str = "{d(%Y-%m-%d %H:%M:%S%.3f)} {l} [{T}] {M} - {m}{n}";
 
+//
+//  App logger
+//
 #[derive(Debug)]
 pub(crate) struct AppLogger {
     tx: SyncSender<String>,
 }
+
+impl Append for AppLogger {
+    fn append(&self, record: &Record) -> anyhow::Result<()> {
+        let msg = format!("{} - {}", record.level(), record.args());
+        match self.tx.try_send(msg) {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                match e {
+                    mpsc::TrySendError::Full(_) => Ok(()), // drop message
+                    mpsc::TrySendError::Disconnected(_) => Err(anyhow::Error::from(e)),
+                }
+            }
+        }
+    }
+
+    fn flush(&self) {}
+}
+
+//
+// App logger buffer
+//
 
 pub(crate) struct AppLoggerBuffer {
     rx: Receiver<String>,
@@ -27,7 +51,24 @@ pub(crate) struct AppLoggerBuffer {
     buffer: VecDeque<String>,
 }
 
-impl AppLoggerBuffer {}
+impl AppLoggerBuffer {
+    pub fn update(&mut self) {
+        while let Ok(msg) = self.rx.try_recv() {
+            if self.buffer.len() == self.max_size {
+                self.buffer.pop_front();
+            }
+            self.buffer.push_back(msg);
+        }
+    }
+
+    pub(crate) fn iter(&self) -> Iter<'_, String> {
+        self.buffer.iter()
+    }
+}
+
+//
+// Functions
+//
 
 fn create_app_logger(max_size: usize) -> (AppLogger, AppLoggerBuffer) {
     let (tx, rx): (SyncSender<String>, Receiver<String>) = mpsc::sync_channel(max_size);
@@ -82,38 +123,6 @@ pub(crate) fn build_dedicated_config() -> Result<Config, AppError> {
         )?;
 
     Ok(config)
-}
-
-impl Append for AppLogger {
-    fn append(&self, record: &Record) -> anyhow::Result<()> {
-        let msg = format!("{} - {}", record.level(), record.args());
-        match self.tx.try_send(msg) {
-            Ok(_) => Ok(()),
-            Err(e) => {
-                match e {
-                    mpsc::TrySendError::Full(_) => Ok(()), // drop message
-                    mpsc::TrySendError::Disconnected(_) => Err(anyhow::Error::from(e)),
-                }
-            }
-        }
-    }
-
-    fn flush(&self) {}
-}
-
-impl AppLoggerBuffer {
-    pub fn update(&mut self) {
-        while let Ok(msg) = self.rx.try_recv() {
-            if self.buffer.len() == self.max_size {
-                self.buffer.pop_front();
-            }
-            self.buffer.push_back(msg);
-        }
-    }
-
-    pub(crate) fn iter(&self) -> Iter<'_, String> {
-        self.buffer.iter()
-    }
 }
 
 #[cfg(test)]

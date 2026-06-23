@@ -84,8 +84,9 @@ impl VkInstance {
         self.swapchain.acquire_next_image(&self.device)
     }
 
-    pub fn end_frame(&mut self, image_index: usize) -> Result<bool, VkError> {
+    pub fn end_frame(&mut self, image_index: usize, window: &Window) -> Result<bool, VkError> {
         let result = self.swapchain.present(
+            window,
             &self.device,
             self.graphics_queue,
             self.present_queue,

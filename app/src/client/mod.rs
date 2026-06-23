@@ -6,3 +6,4 @@ mod cl_state;
 mod cl_config;
 
 pub(crate) use client::Client;
+pub(crate) use client::ClientEvent;

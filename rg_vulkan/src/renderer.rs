@@ -36,7 +36,7 @@ impl VulkanRenderer {
                 Ok(image_index) => {
                     self.render_frame(image_index);
 
-                    match self.instance.end_frame(image_index) {
+                    match self.instance.end_frame(image_index, window) {
                         Ok(changed) => recreate_swapchain = changed,
                         Err(e) => warn!("Failed to end frame: {:?}", e),
                     }
@@ -58,7 +58,7 @@ impl VulkanRenderer {
         self.triangle.destroy(&self.instance.device);
         self.triangle = Triangle::new(&self.instance)?;
         self.triangle.update_descriptor_sets(&self.instance)?;
-
+        info!("Swapchain recreated");
         Ok(())
     }
 

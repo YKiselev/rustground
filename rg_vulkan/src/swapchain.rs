@@ -144,6 +144,7 @@ impl Swapchain {
 
     pub fn present(
         &self,
+        window: &Window,
         device: &Device,
         graphics_queue: vk::Queue,
         present_queue: vk::Queue,
@@ -164,6 +165,8 @@ impl Swapchain {
             device.queue_submit(graphics_queue, infos, self.frames_in_flight.frence())?;
         }
 
+        window.pre_present_notify();
+        
         let swapchains = &[self.swapchain];
         let image_indices = &[image_index as u32];
         let present_info = vk::PresentInfoKHR::default()

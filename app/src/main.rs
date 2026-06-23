@@ -1,4 +1,3 @@
-extern crate core;
 
 use error::AppError;
 
