@@ -33,13 +33,12 @@ impl Swapchain {
         device: &Device,
         physical_device: vk::PhysicalDevice,
         window: &Window,
-        descriptor_set_layout: vk::DescriptorSetLayout,
-        command_pool: vk::CommandPool,
+        descriptor_set_layout: vk::DescriptorSetLayout
     ) -> Result<Swapchain, VkError> {
         let indices = QueueFamilyIndices::get(instance, surface, physical_device)?;
         let support = SwapchainSupport::get(surface, physical_device)?;
         let surface_format = get_swapchain_surface_format(&support.formats);
-        let present_mode = get_swapchain_present_mode(&support.present_modes);
+        let present_mode = find_best_swapchain_present_mode(&support.present_modes);
         let extent = support.get_swapchain_extent(window);
         let image_count = support.get_optimal_image_count();
         let mut queue_family_indices = vec![];
@@ -76,7 +75,7 @@ impl Swapchain {
         let descriptor_pool = create_descriptor_pool(device, images.len())?;
         let descriptor_sets =
             create_descriptor_sets(device, descriptor_set_layout, descriptor_pool, images.len())?;
-        let frames_in_flight = FramesInFlight::new(device, command_pool)?;
+        let frames_in_flight = FramesInFlight::new(device, indices.graphics)?;
         Ok(Swapchain {
             format: surface_format.format,
             extent,
@@ -93,8 +92,8 @@ impl Swapchain {
         })
     }
 
-    pub fn destroy(&mut self, device: &Device, pool: vk::CommandPool) {
-        self.frames_in_flight.destroy(device, pool);
+    pub fn destroy(&mut self, device: &Device) {
+        self.frames_in_flight.destroy(device);
 
         unsafe {
             device.destroy_descriptor_pool(self.descriptor_pool, None);
@@ -117,16 +116,18 @@ impl Swapchain {
     }
 
     pub fn acquire_next_image(&self, device: &Device) -> Result<usize, VkError> {
-        let fences = &[self.frames_in_flight.frence()];
+        let frame = self.frames_in_flight.frame();
+        let fences = &[frame.in_flight_fence];
         unsafe {
             device.wait_for_fences(fences, true, u64::MAX)?;
             device.reset_fences(fences)?;
         };
+        frame.reset_buffers(device)?;
         match unsafe {
             self.swapchain_device.acquire_next_image(
                 self.swapchain,
                 u64::MAX,
-                self.frames_in_flight.image_available_semaphore(),
+                frame.image_available,
                 vk::Fence::null(),
             )
         } {
@@ -150,9 +151,10 @@ impl Swapchain {
         present_queue: vk::Queue,
         image_index: usize,
     ) -> Result<bool, vk::Result> {
-        let wait_semaphores = &[self.frames_in_flight.image_available_semaphore()];
+        let frame = self.frames_in_flight.frame();
+        let wait_semaphores = &[frame.image_available];
         let wait_stages = &[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
-        let command_buffers = &[self.frames_in_flight.command_buffer()];
+        let command_buffers = &[frame.command_buffer];
         let signal_semaphores = &[self.render_finished[image_index]];
         let submit_info = vk::SubmitInfo::default()
             .wait_semaphores(wait_semaphores)
@@ -162,7 +164,7 @@ impl Swapchain {
 
         unsafe {
             let infos = &[submit_info];
-            device.queue_submit(graphics_queue, infos, self.frames_in_flight.frence())?;
+            device.queue_submit(graphics_queue, infos, frame.in_flight_fence)?;
         }
 
         window.pre_present_notify();
@@ -185,6 +187,9 @@ impl Swapchain {
     }
 }
 
+///
+/// Swapchain support
+/// 
 #[derive(Clone, Debug)]
 pub(crate) struct SwapchainSupport {
     pub capabilities: vk::SurfaceCapabilitiesKHR,
@@ -211,7 +216,7 @@ impl SwapchainSupport {
     }
 
     fn get_swapchain_extent(&self, window: &Window) -> vk::Extent2D {
-        get_swapchain_extent(window, self.capabilities)
+        get_swapchain_extent(window, &self.capabilities)
     }
 }
 
@@ -226,7 +231,7 @@ fn get_swapchain_surface_format(formats: &[vk::SurfaceFormatKHR]) -> vk::Surface
         .unwrap_or_else(|| *formats.first().expect("No format available!"))
 }
 
-fn get_swapchain_present_mode(present_modes: &[vk::PresentModeKHR]) -> vk::PresentModeKHR {
+fn find_best_swapchain_present_mode(present_modes: &[vk::PresentModeKHR]) -> vk::PresentModeKHR {
     present_modes
         .iter()
         .cloned()
@@ -234,7 +239,7 @@ fn get_swapchain_present_mode(present_modes: &[vk::PresentModeKHR]) -> vk::Prese
         .unwrap_or(vk::PresentModeKHR::FIFO)
 }
 
-fn get_swapchain_extent(window: &Window, capabilities: vk::SurfaceCapabilitiesKHR) -> vk::Extent2D {
+fn get_swapchain_extent(window: &Window, capabilities: &vk::SurfaceCapabilitiesKHR) -> vk::Extent2D {
     if capabilities.current_extent.width != u32::MAX {
         capabilities.current_extent
     } else {

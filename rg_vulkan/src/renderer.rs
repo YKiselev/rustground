@@ -66,7 +66,7 @@ impl VulkanRenderer {
         match self.triangle.draw_to_buffer(
             &self.instance,
             image_index,
-            self.instance.swapchain.frames_in_flight.command_buffer(),
+            self.instance.swapchain.frames_in_flight.frame().command_buffer,
         ) {
             Ok(_) => {
                 let time = self.start.elapsed().as_secs_f32();

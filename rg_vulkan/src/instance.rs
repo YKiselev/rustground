@@ -1,10 +1,9 @@
 use std::ffi::CStr;
 use std::io::BufReader;
 
-use ash::khr::{surface, swapchain};
+use ash::khr::swapchain;
 use ash::vk::PhysicalDevice;
 use ash::{Device, Entry, Instance, vk};
-use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use rg_common::Files;
 use winit::window::Window;
 
@@ -12,7 +11,7 @@ use crate::debug::DebugUtils;
 use crate::surface::VkSurface;
 use crate::{
     create_instance::create_instance,
-    device::{VALIDATION_ENABLED, create_logical_device, pick_physical_device},
+    device::{create_logical_device, pick_physical_device},
     error::{VkError, to_generic},
     image::VkImage,
     queue_family::QueueFamilyIndices,
@@ -55,7 +54,6 @@ impl VkInstance {
             physical_device,
             window,
             descriptor_set_layout,
-            command_pool,
         )?;
         let result = Self {
             entry,
@@ -115,7 +113,6 @@ impl VkInstance {
             self.physical_device,
             window,
             self.descriptor_set_layout,
-            self.command_pool,
         )?;
 
         Ok(())
@@ -511,7 +508,7 @@ impl VkInstance {
     }
 
     fn destroy_swapchain(&mut self) {
-        self.swapchain.destroy(&self.device, self.command_pool);
+        self.swapchain.destroy(&self.device);
     }
 }
 
