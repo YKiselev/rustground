@@ -3,7 +3,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-const WINDOW: usize = 200;
+const WINDOW: usize = 60;
 
 #[derive(Debug, Default)]
 pub struct FrameStats {

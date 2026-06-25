@@ -16,7 +16,7 @@ pub struct VulkanRenderer {
 
 impl VulkanRenderer {
     pub fn new(app: &Arc<App>, window: &Window) -> Result<Self, VkError> {
-        let instance = VkInstance::new(window)?;
+        let instance = VkInstance::new(window, app)?;
         let mut triangle = Triangle::new(&instance)?;
         triangle.update_descriptor_sets(&instance)?;
         info!("Vulkan renderer initialzied");

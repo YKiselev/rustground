@@ -1,10 +1,11 @@
 use std::ffi::CStr;
 use std::io::BufReader;
+use std::sync::Arc;
 
 use ash::khr::swapchain;
 use ash::vk::PhysicalDevice;
 use ash::{Device, Entry, Instance, vk};
-use rg_common::Files;
+use rg_common::{App, Files};
 use winit::window::Window;
 
 use crate::debug::DebugUtils;
@@ -38,7 +39,7 @@ pub struct VkInstance {
 }
 
 impl VkInstance {
-    pub fn new(window: &Window) -> Result<Self, VkError> {
+    pub fn new(window: &Window, app: &Arc<App>) -> Result<Self, VkError> {
         let entry = unsafe { Entry::load().map_err(to_generic)? };
         let (instance, debug_utils) = create_instance(window, &entry)?;
         let surface = VkSurface::new(&entry, &instance, window)?;

@@ -12,7 +12,7 @@ mod fps;
 
 fn main() -> Result<(), AppError> {
     let args: Arguments = argh::from_env();
-    if args.dedicated() {
+    if args.dedicated {
         todo!("Not implemented!");
     } else {
         application::run_client_server(args)

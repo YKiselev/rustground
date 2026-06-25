@@ -1,32 +1,32 @@
-
-use argh::FromArgs;
+use argh::{FromArgValue, FromArgs};
 use log::LevelFilter;
 
+#[derive(FromArgValue, Debug)]
+pub enum VSyncMode {
+    Off,
+    Triple,
+    Adaptive,
+    On,
+}
+
+///
 /// Program arguments
+///
 #[derive(FromArgs, Debug)]
 pub struct Arguments {
     /// run dedicated server
     #[argh(switch)]
-    dedicated: bool,
+    pub dedicated: bool,
+
     /// run client in windowed mode
     #[argh(switch)]
-    windowed: bool,
+    pub windowed: bool,
+
+    /// v-sync mode
+    #[argh(option, default = "VSyncMode::Triple")]
+    pub v_sync: VSyncMode,
 
     /// log level filter
-    #[argh(option, default="LevelFilter::Debug")]
-    log_level: LevelFilter
-}
-
-impl Arguments {
-    pub fn dedicated(&self) -> bool {
-        self.dedicated
-    }
-
-    pub fn windowed(&self) -> bool {
-        self.windowed
-    }
-
-    pub fn log_level(&self) -> LevelFilter {
-        self.log_level
-    }
+    #[argh(option, default = "LevelFilter::Debug")]
+    pub log_level: LevelFilter,
 }

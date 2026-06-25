@@ -7,9 +7,9 @@ edition = "2024"
 log = "0.4.21"
 dirs = "6.0.0"
 toml = "0.9.5"
-serde = {  version = "1.0.204", features = ["derive", "rc"] }
-erased-serde = "0.4.6"
+serde = {  version = "1.0.228", features = ["derive", "rc"] }
+erased-serde = "0.4.10"
 rg_macros = { path = "../rg_macros" }
-argh = "0.1.13"
+argh = "0.1.19"
 uuid = {version = "1.18.1", features = ["v4"]}
-thiserror = "2.0.17"
+thiserror = "2.0.18"
