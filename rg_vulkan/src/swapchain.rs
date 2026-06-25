@@ -1,6 +1,6 @@
 use ash::{
-    Device, Entry, Instance,
-    khr::{self, surface, swapchain},
+    Device, Instance,
+    khr::{self},
     vk,
 };
 use winit::window::Window;
@@ -10,19 +10,67 @@ use crate::{
     queue_family::QueueFamilyIndices, surface::VkSurface,
 };
 
+///
+/// Image objects
+///
+pub(crate) struct ImageObjects {
+    pub image: vk::Image,
+    pub view: vk::ImageView,
+    pub descriptor_set: vk::DescriptorSet,
+    pub framebuffer: vk::Framebuffer,
+    pub render_finished: vk::Semaphore,
+}
+
+impl ImageObjects {
+    fn new(
+        device: &Device,
+        format: vk::Format,
+        image: vk::Image,
+        descriptor_set: vk::DescriptorSet,
+        pass: vk::RenderPass,
+        extent: vk::Extent2D,
+    ) -> Result<Self, VkError> {
+        let view = create_swapchain_image_view(image, format, device)?;
+        let semaphore_info = vk::SemaphoreCreateInfo::default();
+        let attachments = &[view];
+        let create_info = vk::FramebufferCreateInfo::default()
+            .render_pass(pass)
+            .attachments(attachments)
+            .width(extent.width)
+            .height(extent.height)
+            .layers(1);
+        let framebuffer = unsafe { device.create_framebuffer(&create_info, None) }?;
+        let render_finished = unsafe { device.create_semaphore(&semaphore_info, None) }?;
+        Ok(Self {
+            image,
+            view,
+            descriptor_set,
+            framebuffer,
+            render_finished,
+        })
+    }
+
+    fn destroy(&self, device: &Device) {
+        unsafe {
+            device.destroy_semaphore(self.render_finished, None);
+            device.destroy_framebuffer(self.framebuffer, None);
+            device.destroy_image_view(self.view, None);
+        }
+    }
+}
+
+///
+/// Swapchain
+///
 #[derive()]
 pub(crate) struct Swapchain {
     pub format: vk::Format,
     pub extent: vk::Extent2D,
-    swapchain_device: swapchain::Device,
+    swapchain_device: khr::swapchain::Device,
     pub swapchain: vk::SwapchainKHR,
-    pub images: Vec<vk::Image>,
-    pub views: Vec<vk::ImageView>,
+    pub images: Vec<ImageObjects>,
     pub render_pass: vk::RenderPass,
-    pub framebuffers: Vec<vk::Framebuffer>,
-    pub render_finished: Vec<vk::Semaphore>,
     pub descriptor_pool: vk::DescriptorPool,
-    pub descriptor_sets: Vec<vk::DescriptorSet>,
     pub frames_in_flight: FramesInFlight,
 }
 
@@ -33,7 +81,7 @@ impl Swapchain {
         device: &Device,
         physical_device: vk::PhysicalDevice,
         window: &Window,
-        descriptor_set_layout: vk::DescriptorSetLayout
+        descriptor_set_layout: vk::DescriptorSetLayout,
     ) -> Result<Swapchain, VkError> {
         let indices = QueueFamilyIndices::get(instance, surface, physical_device)?;
         let support = SwapchainSupport::get(surface, physical_device)?;
@@ -68,13 +116,24 @@ impl Swapchain {
 
         let swapchain = unsafe { swapchain_device.create_swapchain(&info, None) }?;
         let images = unsafe { swapchain_device.get_swapchain_images(swapchain) }?;
-        let views = create_swapchain_image_views(&images, surface_format.format, device)?;
         let render_pass = create_render_pass(device, surface_format.format)?;
-        let framebuffers = create_framebuffers(&views, render_pass, &extent, device)?;
-        let render_finished = create_semaphores(device, images.len())?;
         let descriptor_pool = create_descriptor_pool(device, images.len())?;
         let descriptor_sets =
             create_descriptor_sets(device, descriptor_set_layout, descriptor_pool, images.len())?;
+        let images = images
+            .into_iter()
+            .zip(descriptor_sets.into_iter())
+            .map(|(img, dsc_set)| {
+                ImageObjects::new(
+                    device,
+                    surface_format.format,
+                    img,
+                    dsc_set,
+                    render_pass,
+                    extent,
+                )
+            })
+            .collect::<Result<Vec<ImageObjects>, VkError>>()?;
         let frames_in_flight = FramesInFlight::new(device, indices.graphics)?;
         Ok(Swapchain {
             format: surface_format.format,
@@ -82,34 +141,20 @@ impl Swapchain {
             swapchain_device,
             swapchain,
             images,
-            views,
             render_pass,
-            framebuffers,
-            render_finished,
             descriptor_pool,
-            descriptor_sets,
             frames_in_flight,
         })
     }
 
     pub fn destroy(&mut self, device: &Device) {
         self.frames_in_flight.destroy(device);
+        self.images.iter().for_each(|img| img.destroy(device));
+        self.images.clear();
 
         unsafe {
             device.destroy_descriptor_pool(self.descriptor_pool, None);
-            self.render_finished
-                .iter()
-                .for_each(|s| device.destroy_semaphore(*s, None));
-            self.render_finished.clear();
-            self.framebuffers
-                .iter()
-                .for_each(|f| device.destroy_framebuffer(*f, None));
-            self.framebuffers.clear();
             device.destroy_render_pass(self.render_pass, None);
-            self.views
-                .iter()
-                .for_each(|v| device.destroy_image_view(*v, None));
-            self.views.clear();
             self.swapchain_device
                 .destroy_swapchain(self.swapchain, None);
         }
@@ -155,7 +200,7 @@ impl Swapchain {
         let wait_semaphores = &[frame.image_available];
         let wait_stages = &[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
         let command_buffers = &[frame.command_buffer];
-        let signal_semaphores = &[self.render_finished[image_index]];
+        let signal_semaphores = &[self.images[image_index].render_finished];
         let submit_info = vk::SubmitInfo::default()
             .wait_semaphores(wait_semaphores)
             .wait_dst_stage_mask(wait_stages)
@@ -168,7 +213,7 @@ impl Swapchain {
         }
 
         window.pre_present_notify();
-        
+
         let swapchains = &[self.swapchain];
         let image_indices = &[image_index as u32];
         let present_info = vk::PresentInfoKHR::default()
@@ -189,7 +234,7 @@ impl Swapchain {
 
 ///
 /// Swapchain support
-/// 
+///
 #[derive(Clone, Debug)]
 pub(crate) struct SwapchainSupport {
     pub capabilities: vk::SurfaceCapabilitiesKHR,
@@ -239,7 +284,10 @@ fn find_best_swapchain_present_mode(present_modes: &[vk::PresentModeKHR]) -> vk:
         .unwrap_or(vk::PresentModeKHR::FIFO)
 }
 
-fn get_swapchain_extent(window: &Window, capabilities: &vk::SurfaceCapabilitiesKHR) -> vk::Extent2D {
+fn get_swapchain_extent(
+    window: &Window,
+    capabilities: &vk::SurfaceCapabilitiesKHR,
+) -> vk::Extent2D {
     if capabilities.current_extent.width != u32::MAX {
         capabilities.current_extent
     } else {
@@ -255,39 +303,34 @@ fn get_swapchain_extent(window: &Window, capabilities: &vk::SurfaceCapabilitiesK
     }
 }
 
-fn create_swapchain_image_views(
-    images: &Vec<vk::Image>,
+fn create_swapchain_image_view(
+    image: vk::Image,
     format: vk::Format,
     device: &Device,
-) -> Result<Vec<vk::ImageView>, VkError> {
-    let image_views = images
-        .iter()
-        .map(|i| {
-            let components = vk::ComponentMapping::default()
-                .r(vk::ComponentSwizzle::IDENTITY)
-                .g(vk::ComponentSwizzle::IDENTITY)
-                .b(vk::ComponentSwizzle::IDENTITY)
-                .a(vk::ComponentSwizzle::IDENTITY);
+) -> Result<vk::ImageView, VkError> {
+    let components = vk::ComponentMapping::default()
+        .r(vk::ComponentSwizzle::IDENTITY)
+        .g(vk::ComponentSwizzle::IDENTITY)
+        .b(vk::ComponentSwizzle::IDENTITY)
+        .a(vk::ComponentSwizzle::IDENTITY);
 
-            let subresource_range = vk::ImageSubresourceRange::default()
-                .aspect_mask(vk::ImageAspectFlags::COLOR)
-                .base_mip_level(0)
-                .level_count(1)
-                .base_array_layer(0)
-                .layer_count(1);
+    let subresource_range = vk::ImageSubresourceRange::default()
+        .aspect_mask(vk::ImageAspectFlags::COLOR)
+        .base_mip_level(0)
+        .level_count(1)
+        .base_array_layer(0)
+        .layer_count(1);
 
-            let info = vk::ImageViewCreateInfo::default()
-                .image(*i)
-                .view_type(vk::ImageViewType::TYPE_2D)
-                .format(format)
-                .components(components)
-                .subresource_range(subresource_range);
+    let info = vk::ImageViewCreateInfo::default()
+        .image(image)
+        .view_type(vk::ImageViewType::TYPE_2D)
+        .format(format)
+        .components(components)
+        .subresource_range(subresource_range);
 
-            unsafe { device.create_image_view(&info, None) }
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+    let view = unsafe { device.create_image_view(&info, None) }?;
 
-    Ok(image_views)
+    Ok(view)
 }
 
 fn create_framebuffers(

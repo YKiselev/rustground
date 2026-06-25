@@ -8,7 +8,7 @@ use crate::{error::VkError, instance::MAX_FRAMES_IN_FLIGHT};
 #[derive(Debug, Default)]
 pub(crate) struct FrameObjects {
     pub in_flight_fence: Fence,
-    pub image_available: Semaphore,
+    pub image_available: Semaphore, // present semaphore
     command_pool: vk::CommandPool,
     pub command_buffer: CommandBuffer,
 }
@@ -18,8 +18,6 @@ impl FrameObjects {
         let fence_info = vk::FenceCreateInfo::default().flags(vk::FenceCreateFlags::SIGNALED);
         let semaphore_info = vk::SemaphoreCreateInfo::default();
         let info = vk::CommandPoolCreateInfo::default().queue_family_index(queue_family_index);
-        //.flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER);
-
         let command_pool = unsafe { device.create_command_pool(&info, None) }?;
         let allocate_info = vk::CommandBufferAllocateInfo::default()
             .command_pool(command_pool)
@@ -59,7 +57,7 @@ impl FrameObjects {
 ///
 #[derive(Debug, Default)]
 pub(crate) struct FramesInFlight {
-    frame: usize,
+    current_frame: usize,
     frames: Vec<FrameObjects>,
 }
 
@@ -70,7 +68,7 @@ impl FramesInFlight {
             .into_iter()
             .collect::<Result<Vec<FrameObjects>, VkError>>()?;
         Ok(Self {
-            frame: 0,
+            current_frame: 0,
             frames: frames,
         })
     }
@@ -81,10 +79,10 @@ impl FramesInFlight {
     }
 
     pub fn advance_frame_index(&mut self) {
-        self.frame = (self.frame + 1) % MAX_FRAMES_IN_FLIGHT;
+        self.current_frame = (self.current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
     }
 
     pub fn frame(&self) -> &FrameObjects {
-        &self.frames[self.frame]
+        &self.frames[self.current_frame]
     }
 }

@@ -81,8 +81,8 @@ impl Triangle {
         let viewports = &[viewport];
         let scissors = &[scissor];
         let viewport_state = vk::PipelineViewportStateCreateInfo::default()
-             .viewports(viewports)
-             .scissors(scissors);
+            .viewports(viewports)
+            .scissors(scissors);
 
         let rasterization_state = vk::PipelineRasterizationStateCreateInfo::default()
             .depth_clamp_enable(false)
@@ -295,10 +295,10 @@ impl Triangle {
     }
 
     pub fn update_descriptor_sets(&mut self, instance: &VkInstance) -> Result<(), VkError> {
-        assert_eq!(
-            self.uniform_buffers.len(),
-            instance.swapchain.descriptor_sets.len()
-        );
+        if self.uniform_buffers.len() != instance.swapchain.images.len() {
+            self.destroy_uniform_buffers(&instance.device);
+            self.init_uniform_buffers(instance)?;
+        }
 
         for i in 0..self.uniform_buffers.len() {
             let info = vk::DescriptorBufferInfo::default()
@@ -308,7 +308,7 @@ impl Triangle {
 
             let buffer_info = &[info];
             let ubo_write = vk::WriteDescriptorSet::default()
-                .dst_set(instance.swapchain.descriptor_sets[i])
+                .dst_set(instance.swapchain.images[i].descriptor_set)
                 .dst_binding(0)
                 .dst_array_element(0)
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
@@ -344,10 +344,11 @@ impl Triangle {
             },
         };
 
+        let image = &instance.swapchain.images[image_index];
         let clear_values = &[color_clear_value];
         let info = vk::RenderPassBeginInfo::default()
             .render_pass(instance.swapchain.render_pass)
-            .framebuffer(instance.swapchain.framebuffers[image_index])
+            .framebuffer(image.framebuffer)
             .render_area(render_area)
             .clear_values(clear_values);
 
@@ -367,11 +368,7 @@ impl Triangle {
                 .device
                 .cmd_set_viewport(command_buffer, 0, viewports.as_slice());
 
-            self.render(
-                &instance.device,
-                &command_buffer,
-                instance.swapchain.descriptor_sets[image_index],
-            )?;
+            self.render(&instance.device, &command_buffer, image.descriptor_set)?;
             instance.device.cmd_end_render_pass(command_buffer);
             instance.device.end_command_buffer(command_buffer)?;
         }
@@ -421,7 +418,7 @@ impl Triangle {
         Ok(())
     }
 
-    pub fn destroy(&mut self, device: &Device) {
+    pub fn destroy_uniform_buffers(&mut self, device: &Device) {
         unsafe {
             self.uniform_buffers
                 .iter()
@@ -431,6 +428,12 @@ impl Triangle {
                 .iter()
                 .for_each(|m| device.free_memory(*m, None));
             self.uniform_buffers_memory.clear();
+        }
+    }
+
+    pub fn destroy(&mut self, device: &Device) {
+        self.destroy_uniform_buffers(device);
+        unsafe {
             device.destroy_buffer(self.index_buffer, None);
             device.free_memory(self.index_buffer_memory, None);
             device.destroy_buffer(self.vertex_buffer, None);
