@@ -17,7 +17,9 @@ impl FrameObjects {
     fn new(device: &Device, queue_family_index: u32) -> Result<Self, VkError> {
         let fence_info = vk::FenceCreateInfo::default().flags(vk::FenceCreateFlags::SIGNALED);
         let semaphore_info = vk::SemaphoreCreateInfo::default();
-        let info = vk::CommandPoolCreateInfo::default().queue_family_index(queue_family_index);
+        let info = vk::CommandPoolCreateInfo::default()
+            .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
+            .queue_family_index(queue_family_index);
         let command_pool = unsafe { device.create_command_pool(&info, None) }?;
         let allocate_info = vk::CommandBufferAllocateInfo::default()
             .command_pool(command_pool)

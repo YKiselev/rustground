@@ -4,13 +4,14 @@ use log::{info, warn};
 use rg_common::{App, Plugin};
 use winit::window::Window;
 
-use crate::{error::VkError, instance::VkInstance, triangle::Triangle};
+use crate::{error::VkError, instance::VkInstance, textured_triangle::TexturedTriangle, triangle::Triangle};
 
 pub struct VulkanRenderer {
     instance: VkInstance,
     window_resized: bool,
     start: Instant,
     triangle: Triangle,
+    tex_triangle: TexturedTriangle,
     app: Arc<App>,
 }
 
@@ -19,12 +20,14 @@ impl VulkanRenderer {
         let instance = VkInstance::new(window, app)?;
         let mut triangle = Triangle::new(&instance)?;
         triangle.update_descriptor_sets(&instance)?;
+        let mut tex_triangle = TexturedTriangle::new(&instance)?;
         info!("Vulkan renderer initialzied");
         Ok(Self {
             instance,
             window_resized: false,
             start: Instant::now(),
             triangle,
+            tex_triangle,
             app: Arc::clone(app),
         })
     }
@@ -63,10 +66,11 @@ impl VulkanRenderer {
     }
 
     fn render_frame(&mut self, image_index: usize) {
+        let command_buffer = self.instance.swapchain.frames_in_flight.frame().command_buffer;
         match self.triangle.draw_to_buffer(
             &self.instance,
             image_index,
-            self.instance.swapchain.frames_in_flight.frame().command_buffer,
+            command_buffer,
         ) {
             Ok(_) => {
                 let time = self.start.elapsed().as_secs_f32();
@@ -74,6 +78,22 @@ impl VulkanRenderer {
                 let ratio = extent.width as f32 / extent.height as f32;
                 let _ =
                     self.triangle
+                        .update_uniform_buffer(&self.instance, image_index, time, ratio);
+            }
+            Err(e) => warn!("Failed to draw to command buffer: {:?}", e),
+        }
+
+        match self.tex_triangle.draw_to_buffer(
+            &self.instance,
+            image_index,
+            command_buffer,
+        ) {
+            Ok(_) => {
+                let time = 3.0 + self.start.elapsed().as_secs_f32();
+                let extent = self.instance.swapchain.extent;
+                let ratio = extent.width as f32 / extent.height as f32;
+                let _ =
+                    self.tex_triangle
                         .update_uniform_buffer(&self.instance, image_index, time, ratio);
             }
             Err(e) => warn!("Failed to draw to command buffer: {:?}", e),
@@ -90,5 +110,6 @@ impl Drop for VulkanRenderer {
         info!("Destroing renderer");
         self.instance.wait_idle().unwrap();
         self.triangle.destroy(&self.instance.device);
+        self.tex_triangle.destroy(&self.instance.device);
     }
 }

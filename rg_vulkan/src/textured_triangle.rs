@@ -4,26 +4,26 @@ use cgmath::{Deg, point3, vec2, vec3};
 use log::error;
 use log::info;
 
+use crate::vertex::Pos2Color3Tex2Vertex;
 use crate::{
     error::{VkError, to_generic},
     instance::VkInstance,
     pipeline::create_shader_module,
     types::Mat4,
     uniform::UniformBufferObject,
-    vertex::Pos2Color3Vertex,
 };
 
 #[rustfmt::skip]
-static VERTICES: [Pos2Color3Vertex; 4] = [
-    Pos2Color3Vertex::new(vec2(-0.5, -0.5), vec3(1.0, 0.0, 0.0)),
-    Pos2Color3Vertex::new(vec2(0.5, -0.5), vec3(0.0, 1.0, 0.0)),
-    Pos2Color3Vertex::new(vec2(0.5, 0.5), vec3(0.0, 0.0, 1.0)),
-    Pos2Color3Vertex::new(vec2(-0.5, 0.5), vec3(1.0, 1.0, 1.0)),
+static VERTICES: [Pos2Color3Tex2Vertex; 4] = [
+    Pos2Color3Tex2Vertex::new(vec2(-0.5, -0.5), vec3(1.0, 0.0, 0.0), vec2(0.0, 0.0)),
+    Pos2Color3Tex2Vertex::new(vec2(0.5, -0.5), vec3(0.0, 1.0, 0.0), vec2(1.0, 0.0)),
+    Pos2Color3Tex2Vertex::new(vec2(0.5, 0.5), vec3(0.0, 0.0, 1.0), vec2(1.0, 1.0)),
+    Pos2Color3Tex2Vertex::new(vec2(-0.5, 0.5), vec3(1.0, 1.0, 1.0), vec2(0.0, 1.0)),
 ];
 const INDICES: [u16; 6] = [0, 1, 2, 2, 3, 0];
 
 #[derive(Debug, Default)]
-pub struct Triangle {
+pub struct TexturedTriangle {
     pub layout: vk::PipelineLayout,
     pub pipeline: vk::Pipeline,
     pub vertex_buffer: vk::Buffer,
@@ -32,22 +32,24 @@ pub struct Triangle {
     index_buffer_memory: vk::DeviceMemory,
     uniform_buffers: Vec<vk::Buffer>,
     uniform_buffers_memory: Vec<vk::DeviceMemory>,
+    sampler: vk::Sampler,
 }
 
-impl Triangle {
+impl TexturedTriangle {
     pub fn new(instance: &VkInstance) -> Result<Self, VkError> {
         let mut result = Self::default();
         result.init_pipeline(instance)?;
         result.init_vertex_buffer(instance)?;
         result.init_index_buffer(instance)?;
         result.init_uniform_buffers(instance)?;
+        result.init_sampler(&instance.device)?;
 
         Ok(result)
     }
 
     fn init_pipeline(&mut self, instance: &VkInstance) -> Result<(), VkError> {
-        let vert = include_bytes!("../../base/resources/shaders/shader.vert.spv");
-        let frag = include_bytes!("../../base/resources/shaders/shader.frag.spv");
+        let vert = include_bytes!("../../base/resources/shaders/tex-shader.vert.spv");
+        let frag = include_bytes!("../../base/resources/shaders/tex-shader.frag.spv");
 
         let vert_shader_module = create_shader_module(&instance.device, &vert[..])?;
         let frag_shader_module = create_shader_module(&instance.device, &frag[..])?;
@@ -62,8 +64,8 @@ impl Triangle {
             .module(frag_shader_module)
             .name(c"main");
 
-        let binding_descriptions = &[Pos2Color3Vertex::binding_description()];
-        let attribute_descriptions = Pos2Color3Vertex::attribute_descriptions();
+        let binding_descriptions = &[Pos2Color3Tex2Vertex::binding_description()];
+        let attribute_descriptions = Pos2Color3Tex2Vertex::attribute_descriptions();
         let vertex_input_state = vk::PipelineVertexInputStateCreateInfo::default()
             .vertex_binding_descriptions(binding_descriptions)
             .vertex_attribute_descriptions(&attribute_descriptions);
@@ -166,7 +168,7 @@ impl Triangle {
     }
 
     fn init_vertex_buffer(&mut self, instance: &VkInstance) -> Result<(), VkError> {
-        let size = (size_of::<Pos2Color3Vertex>() * VERTICES.len()) as u64;
+        let size = (size_of::<Pos2Color3Tex2Vertex>() * VERTICES.len()) as u64;
 
         let (staging_buffer, staging_buffer_memory) = instance.create_buffer(
             size,
@@ -255,7 +257,20 @@ impl Triangle {
             self.uniform_buffers.push(uniform_buffer);
             self.uniform_buffers_memory.push(uniform_buffer_memory);
         }
+        Ok(())
+    }
 
+    fn init_sampler(&mut self, device: &Device) -> Result<(), VkError> {
+        let sampler_info = vk::SamplerCreateInfo::default()
+            .mag_filter(vk::Filter::LINEAR)
+            .min_filter(vk::Filter::LINEAR)
+            .address_mode_u(vk::SamplerAddressMode::REPEAT)
+            .address_mode_v(vk::SamplerAddressMode::REPEAT)
+            .address_mode_w(vk::SamplerAddressMode::REPEAT)
+            .anisotropy_enable(false)
+            .unnormalized_coordinates(false);
+
+        self.sampler = unsafe { device.create_sampler(&sampler_info, None) }?;
         Ok(())
     }
 
@@ -305,18 +320,37 @@ impl Triangle {
                 .offset(0)
                 .range(size_of::<UniformBufferObject>() as u64);
 
+            let descriptor_set = instance.swapchain.images[i].descriptor_set;
             let buffer_info = &[info];
             let ubo_write = vk::WriteDescriptorSet::default()
-                .dst_set(instance.swapchain.images[i].descriptor_set)
+                .dst_set(descriptor_set)
                 .dst_binding(0)
                 .dst_array_element(0)
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
                 .buffer_info(buffer_info);
 
+            let image_info = [vk::DescriptorImageInfo::default()
+                .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                .image_view(instance.texture.view)
+                //.sampler(self.sampler)
+                ];
+            let sampler_write = vk::WriteDescriptorSet::default()
+                .dst_set(descriptor_set)
+                .dst_binding(1)
+                .dst_array_element(0)
+                .descriptor_type(vk::DescriptorType::SAMPLER);
+            let image_write = vk::WriteDescriptorSet::default()
+                .dst_set(descriptor_set)
+                .dst_binding(2)
+                .dst_array_element(0)
+                .descriptor_type(vk::DescriptorType::SAMPLED_IMAGE)
+                .image_info(&image_info);
+
             unsafe {
-                instance
-                    .device
-                    .update_descriptor_sets(&[ubo_write], &[] as &[vk::CopyDescriptorSet])
+                instance.device.update_descriptor_sets(
+                    &[ubo_write, sampler_write, image_write],
+                    &[] as &[vk::CopyDescriptorSet],
+                )
             };
         }
 
@@ -433,6 +467,7 @@ impl Triangle {
     pub fn destroy(&mut self, device: &Device) {
         self.destroy_uniform_buffers(device);
         unsafe {
+            device.destroy_sampler(self.sampler, None);
             device.destroy_buffer(self.index_buffer, None);
             device.free_memory(self.index_buffer_memory, None);
             device.destroy_buffer(self.vertex_buffer, None);

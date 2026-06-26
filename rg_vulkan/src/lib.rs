@@ -11,6 +11,7 @@ mod queue_family;
 mod device;
 mod create_instance;
 mod triangle;
+mod textured_triangle;
 mod image;
 mod debug;
 mod surface;

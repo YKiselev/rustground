@@ -36,6 +36,7 @@ pub struct VkInstance {
     pub swapchain: Swapchain,
     pub descriptor_set_layout: vk::DescriptorSetLayout,
     pub command_pool: vk::CommandPool,
+    pub texture: VkImage,
 }
 
 impl VkInstance {
@@ -56,7 +57,7 @@ impl VkInstance {
             window,
             descriptor_set_layout,
         )?;
-        let result = Self {
+        let mut result = Self {
             entry,
             instance,
             debug_utils,
@@ -68,7 +69,9 @@ impl VkInstance {
             swapchain,
             descriptor_set_layout,
             command_pool,
+            texture: VkImage::default(),
         };
+        result.texture = result.create_texture_image(&app.files)?;
         Ok(result)
     }
 
@@ -258,9 +261,6 @@ impl VkInstance {
             vk::MemoryPropertyFlags::DEVICE_LOCAL,
         )?;
 
-        //data.texture_image = texture_image;
-        //data.texture_image_memory = texture_image_memory;
-
         // Transition + Copy (image)
 
         self.transition_image_layout(
@@ -283,7 +283,25 @@ impl VkInstance {
             device.destroy_buffer(staging_buffer, None);
             device.free_memory(staging_buffer_memory, None)
         };
-        Ok(VkImage::new(texture_image, texture_image_memory))
+        let view_info = vk::ImageViewCreateInfo::default()
+            .image(texture_image)
+            .view_type(vk::ImageViewType::TYPE_2D)
+            .format(vk::Format::R8G8B8A8_SRGB)
+            .subresource_range(vk::ImageSubresourceRange {
+                aspect_mask: vk::ImageAspectFlags::COLOR,
+                base_mip_level: 0,
+                level_count: 1,
+                base_array_layer: 0,
+                layer_count: 1,
+            });
+
+        let texture_image_view = unsafe { device.create_image_view(&view_info, None) }?;
+
+        Ok(VkImage::new(
+            texture_image,
+            texture_image_memory,
+            texture_image_view,
+        ))
     }
 
     pub fn copy_memory<T>(
@@ -521,6 +539,7 @@ impl Drop for VkInstance {
             self.destroy_swapchain();
             let device = &self.device;
 
+            self.texture.destroy(device);
             device.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
             device.destroy_command_pool(self.command_pool, None);
             device.destroy_device(None);
@@ -541,8 +560,13 @@ fn create_descriptor_set_layout(device: &Device) -> Result<vk::DescriptorSetLayo
         .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
         .descriptor_count(1)
         .stage_flags(vk::ShaderStageFlags::VERTEX);
+    let texture_layout_binding = vk::DescriptorSetLayoutBinding::default()
+        .binding(1)
+        .descriptor_type(vk::DescriptorType::SAMPLED_IMAGE)
+        .descriptor_count(1)
+        .stage_flags(vk::ShaderStageFlags::FRAGMENT);
 
-    let bindings = &[ubo_binding];
+    let bindings = &[ubo_binding, texture_layout_binding];
     let info = vk::DescriptorSetLayoutCreateInfo::default().bindings(bindings);
 
     let descriptor_set_layout = unsafe { device.create_descriptor_set_layout(&info, None) }?;
