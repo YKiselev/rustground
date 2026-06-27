@@ -1,5 +1,7 @@
 use ash::{
-    Device, Instance, khr::{self}, vk::{self, PresentModeKHR},
+    Device, Instance,
+    khr::{self},
+    vk::{self},
 };
 use log::info;
 use winit::window::Window;
@@ -370,8 +372,14 @@ fn create_descriptor_pool(device: &Device, count: usize) -> Result<vk::Descripto
     let ubo_size = vk::DescriptorPoolSize::default()
         .ty(vk::DescriptorType::UNIFORM_BUFFER)
         .descriptor_count(count as u32);
+    let sampler_size = vk::DescriptorPoolSize::default()
+        .ty(vk::DescriptorType::SAMPLER)
+        .descriptor_count(count as u32);
+    let image_size = vk::DescriptorPoolSize::default()
+        .ty(vk::DescriptorType::SAMPLED_IMAGE)
+        .descriptor_count(count as u32);
 
-    let pool_sizes = &[ubo_size];
+    let pool_sizes = &[ubo_size, sampler_size, image_size];
     let info = vk::DescriptorPoolCreateInfo::default()
         .pool_sizes(pool_sizes)
         .max_sets(count as u32);

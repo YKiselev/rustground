@@ -21,6 +21,7 @@ impl VulkanRenderer {
         let mut triangle = Triangle::new(&instance)?;
         triangle.update_descriptor_sets(&instance)?;
         let mut tex_triangle = TexturedTriangle::new(&instance)?;
+        tex_triangle.update_descriptor_sets(&instance)?;
         info!("Vulkan renderer initialzied");
         Ok(Self {
             instance,
@@ -60,6 +61,7 @@ impl VulkanRenderer {
         self.instance.recreate_swapchain(window)?;
 
         self.triangle.update_descriptor_sets(&self.instance)?;
+        self.tex_triangle.update_descriptor_sets(&self.instance)?;
 
         info!("Swapchain recreated");
         Ok(())

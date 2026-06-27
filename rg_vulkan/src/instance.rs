@@ -9,6 +9,7 @@ use rg_common::{App, Files};
 use winit::window::Window;
 
 use crate::debug::DebugUtils;
+use crate::layouts::create_descriptor_set_layout;
 use crate::surface::VkSurface;
 use crate::{
     create_instance::create_instance,
@@ -37,6 +38,7 @@ pub struct VkInstance {
     pub descriptor_set_layout: vk::DescriptorSetLayout,
     pub command_pool: vk::CommandPool,
     pub texture: VkImage,
+    pub sampler: vk::Sampler,
 }
 
 impl VkInstance {
@@ -57,6 +59,7 @@ impl VkInstance {
             window,
             descriptor_set_layout,
         )?;
+        let sampler = create_sampler(&device)?;
         let mut result = Self {
             entry,
             instance,
@@ -70,6 +73,7 @@ impl VkInstance {
             descriptor_set_layout,
             command_pool,
             texture: VkImage::default(),
+            sampler
         };
         result.texture = result.create_texture_image(&app.files)?;
         Ok(result)
@@ -539,6 +543,7 @@ impl Drop for VkInstance {
             self.destroy_swapchain();
             let device = &self.device;
 
+            device.destroy_sampler(self.sampler, None);
             self.texture.destroy(device);
             device.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
             device.destroy_command_pool(self.command_pool, None);
@@ -552,26 +557,6 @@ impl Drop for VkInstance {
             self.instance.destroy_instance(None);
         }
     }
-}
-
-fn create_descriptor_set_layout(device: &Device) -> Result<vk::DescriptorSetLayout, VkError> {
-    let ubo_binding = vk::DescriptorSetLayoutBinding::default()
-        .binding(0)
-        .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-        .descriptor_count(1)
-        .stage_flags(vk::ShaderStageFlags::VERTEX);
-    let texture_layout_binding = vk::DescriptorSetLayoutBinding::default()
-        .binding(1)
-        .descriptor_type(vk::DescriptorType::SAMPLED_IMAGE)
-        .descriptor_count(1)
-        .stage_flags(vk::ShaderStageFlags::FRAGMENT);
-
-    let bindings = &[ubo_binding, texture_layout_binding];
-    let info = vk::DescriptorSetLayoutCreateInfo::default().bindings(bindings);
-
-    let descriptor_set_layout = unsafe { device.create_descriptor_set_layout(&info, None) }?;
-
-    Ok(descriptor_set_layout)
 }
 
 fn create_command_pool(
@@ -588,4 +573,18 @@ fn create_command_pool(
 
     let command_pool = unsafe { device.create_command_pool(&info, None) }?;
     Ok(command_pool)
+}
+
+fn create_sampler(device: &Device) -> Result<vk::Sampler, VkError> {
+    let sampler_info = vk::SamplerCreateInfo::default()
+        .mag_filter(vk::Filter::LINEAR)
+        .min_filter(vk::Filter::LINEAR)
+        .address_mode_u(vk::SamplerAddressMode::REPEAT)
+        .address_mode_v(vk::SamplerAddressMode::REPEAT)
+        .address_mode_w(vk::SamplerAddressMode::REPEAT)
+        .anisotropy_enable(false)
+        .unnormalized_coordinates(false);
+
+    let sampler = unsafe { device.create_sampler(&sampler_info, None) }?;
+    Ok(sampler)
 }

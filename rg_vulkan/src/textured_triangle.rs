@@ -31,8 +31,7 @@ pub struct TexturedTriangle {
     pub index_buffer: vk::Buffer,
     index_buffer_memory: vk::DeviceMemory,
     uniform_buffers: Vec<vk::Buffer>,
-    uniform_buffers_memory: Vec<vk::DeviceMemory>,
-    sampler: vk::Sampler,
+    uniform_buffers_memory: Vec<vk::DeviceMemory>
 }
 
 impl TexturedTriangle {
@@ -42,7 +41,6 @@ impl TexturedTriangle {
         result.init_vertex_buffer(instance)?;
         result.init_index_buffer(instance)?;
         result.init_uniform_buffers(instance)?;
-        result.init_sampler(&instance.device)?;
 
         Ok(result)
     }
@@ -260,20 +258,6 @@ impl TexturedTriangle {
         Ok(())
     }
 
-    fn init_sampler(&mut self, device: &Device) -> Result<(), VkError> {
-        let sampler_info = vk::SamplerCreateInfo::default()
-            .mag_filter(vk::Filter::LINEAR)
-            .min_filter(vk::Filter::LINEAR)
-            .address_mode_u(vk::SamplerAddressMode::REPEAT)
-            .address_mode_v(vk::SamplerAddressMode::REPEAT)
-            .address_mode_w(vk::SamplerAddressMode::REPEAT)
-            .anisotropy_enable(false)
-            .unnormalized_coordinates(false);
-
-        self.sampler = unsafe { device.create_sampler(&sampler_info, None) }?;
-        Ok(())
-    }
-
     pub fn update_uniform_buffer(
         &self,
         instance: &VkInstance,
@@ -329,16 +313,17 @@ impl TexturedTriangle {
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
                 .buffer_info(buffer_info);
 
-            let image_info = [vk::DescriptorImageInfo::default()
-                .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-                .image_view(instance.texture.view)
-                //.sampler(self.sampler)
-                ];
+            let sampler_info = [vk::DescriptorImageInfo::default().sampler(instance.sampler)];
             let sampler_write = vk::WriteDescriptorSet::default()
                 .dst_set(descriptor_set)
                 .dst_binding(1)
                 .dst_array_element(0)
-                .descriptor_type(vk::DescriptorType::SAMPLER);
+                .descriptor_type(vk::DescriptorType::SAMPLER)
+                .image_info(&sampler_info);
+
+            let image_info = [vk::DescriptorImageInfo::default()
+                .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                .image_view(instance.texture.view)];
             let image_write = vk::WriteDescriptorSet::default()
                 .dst_set(descriptor_set)
                 .dst_binding(2)
@@ -467,7 +452,6 @@ impl TexturedTriangle {
     pub fn destroy(&mut self, device: &Device) {
         self.destroy_uniform_buffers(device);
         unsafe {
-            device.destroy_sampler(self.sampler, None);
             device.destroy_buffer(self.index_buffer, None);
             device.free_memory(self.index_buffer_memory, None);
             device.destroy_buffer(self.vertex_buffer, None);

@@ -305,18 +305,37 @@ impl Triangle {
                 .offset(0)
                 .range(size_of::<UniformBufferObject>() as u64);
 
+            let descriptor_set = instance.swapchain.images[i].descriptor_set;
             let buffer_info = &[info];
             let ubo_write = vk::WriteDescriptorSet::default()
-                .dst_set(instance.swapchain.images[i].descriptor_set)
+                .dst_set(descriptor_set)
                 .dst_binding(0)
                 .dst_array_element(0)
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
                 .buffer_info(buffer_info);
+            let sampler_info = [vk::DescriptorImageInfo::default().sampler(instance.sampler)];
+            let sampler_write = vk::WriteDescriptorSet::default()
+                .dst_set(descriptor_set)
+                .dst_binding(1)
+                .dst_array_element(0)
+                .descriptor_type(vk::DescriptorType::SAMPLER)
+                .image_info(&sampler_info);
+
+            let image_info = [vk::DescriptorImageInfo::default()
+                .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                .image_view(instance.texture.view)];
+            let image_write = vk::WriteDescriptorSet::default()
+                .dst_set(descriptor_set)
+                .dst_binding(2)
+                .dst_array_element(0)
+                .descriptor_type(vk::DescriptorType::SAMPLED_IMAGE)
+                .image_info(&image_info);
 
             unsafe {
-                instance
-                    .device
-                    .update_descriptor_sets(&[ubo_write], &[] as &[vk::CopyDescriptorSet])
+                instance.device.update_descriptor_sets(
+                    &[ubo_write, sampler_write, image_write],
+                    &[] as &[vk::CopyDescriptorSet],
+                )
             };
         }
 
