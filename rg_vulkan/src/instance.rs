@@ -9,7 +9,7 @@ use rg_common::{App, Files};
 use winit::window::Window;
 
 use crate::debug::DebugUtils;
-use crate::layouts::create_descriptor_set_layout;
+use crate::layouts::{VkDescriptorSetLayouts};
 use crate::surface::VkSurface;
 use crate::{
     create_instance::create_instance,
@@ -35,7 +35,6 @@ pub struct VkInstance {
     pub graphics_queue: vk::Queue,
     pub present_queue: vk::Queue,
     pub swapchain: Swapchain,
-    pub descriptor_set_layout: vk::DescriptorSetLayout,
     pub command_pool: vk::CommandPool,
     pub texture: VkImage,
     pub sampler: vk::Sampler,
@@ -49,15 +48,13 @@ impl VkInstance {
         let physical_device = pick_physical_device(&instance, &surface)?;
         let (device, graphics_queue, present_queue) =
             create_logical_device(&instance, &surface, physical_device)?;
-        let descriptor_set_layout = create_descriptor_set_layout(&device)?;
         let command_pool = create_command_pool(&instance, &device, &surface, physical_device)?;
         let swapchain = Swapchain::new(
             &instance,
             &surface,
             &device,
             physical_device,
-            window,
-            descriptor_set_layout,
+            window
         )?;
         let sampler = create_sampler(&device)?;
         let mut result = Self {
@@ -70,7 +67,6 @@ impl VkInstance {
             graphics_queue,
             present_queue,
             swapchain,
-            descriptor_set_layout,
             command_pool,
             texture: VkImage::default(),
             sampler
@@ -119,8 +115,7 @@ impl VkInstance {
             &self.surface,
             &self.device,
             self.physical_device,
-            window,
-            self.descriptor_set_layout,
+            window
         )?;
 
         Ok(())
@@ -545,7 +540,6 @@ impl Drop for VkInstance {
 
             device.destroy_sampler(self.sampler, None);
             self.texture.destroy(device);
-            device.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
             device.destroy_command_pool(self.command_pool, None);
             device.destroy_device(None);
             std::ptr::drop_in_place(&mut self.surface);

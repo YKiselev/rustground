@@ -17,7 +17,6 @@ use crate::{
 pub(crate) struct ImageObjects {
     pub image: vk::Image,
     pub view: vk::ImageView,
-    pub descriptor_set: vk::DescriptorSet,
     pub framebuffer: vk::Framebuffer,
     pub render_finished: vk::Semaphore,
 }
@@ -27,7 +26,6 @@ impl ImageObjects {
         device: &Device,
         format: vk::Format,
         image: vk::Image,
-        descriptor_set: vk::DescriptorSet,
         pass: vk::RenderPass,
         extent: vk::Extent2D,
     ) -> Result<Self, VkError> {
@@ -45,7 +43,6 @@ impl ImageObjects {
         Ok(Self {
             image,
             view,
-            descriptor_set,
             framebuffer,
             render_finished,
         })
@@ -71,7 +68,6 @@ pub(crate) struct Swapchain {
     pub swapchain: vk::SwapchainKHR,
     pub images: Vec<ImageObjects>,
     pub render_pass: vk::RenderPass,
-    pub descriptor_pool: vk::DescriptorPool,
     pub frames_in_flight: FramesInFlight,
 }
 
@@ -81,8 +77,7 @@ impl Swapchain {
         surface: &VkSurface,
         device: &Device,
         physical_device: vk::PhysicalDevice,
-        window: &Window,
-        descriptor_set_layout: vk::DescriptorSetLayout,
+        window: &Window
     ) -> Result<Swapchain, VkError> {
         let indices = QueueFamilyIndices::get(instance, surface, physical_device)?;
         let support = SwapchainSupport::get(surface, physical_device)?;
@@ -118,18 +113,13 @@ impl Swapchain {
         let swapchain = unsafe { swapchain_device.create_swapchain(&info, None) }?;
         let images = unsafe { swapchain_device.get_swapchain_images(swapchain) }?;
         let render_pass = create_render_pass(device, surface_format.format)?;
-        let descriptor_pool = create_descriptor_pool(device, images.len())?;
-        let descriptor_sets =
-            create_descriptor_sets(device, descriptor_set_layout, descriptor_pool, images.len())?;
         let images = images
             .into_iter()
-            .zip(descriptor_sets.into_iter())
-            .map(|(img, dsc_set)| {
+            .map(|img| {
                 ImageObjects::new(
                     device,
                     surface_format.format,
                     img,
-                    dsc_set,
                     render_pass,
                     extent,
                 )
@@ -143,7 +133,6 @@ impl Swapchain {
             swapchain,
             images,
             render_pass,
-            descriptor_pool,
             frames_in_flight,
         })
     }
@@ -154,7 +143,6 @@ impl Swapchain {
         self.images.clear();
 
         unsafe {
-            device.destroy_descriptor_pool(self.descriptor_pool, None);
             device.destroy_render_pass(self.render_pass, None);
             self.swapchain_device
                 .destroy_swapchain(self.swapchain, None);
@@ -368,35 +356,3 @@ fn create_semaphores(device: &Device, count: usize) -> Result<Vec<vk::Semaphore>
         .collect()
 }
 
-fn create_descriptor_pool(device: &Device, count: usize) -> Result<vk::DescriptorPool, VkError> {
-    let ubo_size = vk::DescriptorPoolSize::default()
-        .ty(vk::DescriptorType::UNIFORM_BUFFER)
-        .descriptor_count(count as u32);
-    let sampler_size = vk::DescriptorPoolSize::default()
-        .ty(vk::DescriptorType::SAMPLER)
-        .descriptor_count(count as u32);
-    let image_size = vk::DescriptorPoolSize::default()
-        .ty(vk::DescriptorType::SAMPLED_IMAGE)
-        .descriptor_count(count as u32);
-
-    let pool_sizes = &[ubo_size, sampler_size, image_size];
-    let info = vk::DescriptorPoolCreateInfo::default()
-        .pool_sizes(pool_sizes)
-        .max_sets(count as u32);
-
-    Ok(unsafe { device.create_descriptor_pool(&info, None) }?)
-}
-
-fn create_descriptor_sets(
-    device: &Device,
-    layout: vk::DescriptorSetLayout,
-    pool: vk::DescriptorPool,
-    count: usize,
-) -> Result<Vec<vk::DescriptorSet>, VkError> {
-    let layouts = vec![layout; count];
-    let info = vk::DescriptorSetAllocateInfo::default()
-        .descriptor_pool(pool)
-        .set_layouts(&layouts);
-
-    unsafe { device.allocate_descriptor_sets(&info) }.map_err(|e| VkError::VkErrorCode(e))
-}

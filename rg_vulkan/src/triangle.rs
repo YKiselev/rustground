@@ -4,6 +4,7 @@ use cgmath::{Deg, point3, vec2, vec3};
 use log::error;
 use log::info;
 
+use crate::renderer::create_default_viewport_and_scissor;
 use crate::{
     error::{VkError, to_generic},
     instance::VkInstance,
@@ -32,6 +33,9 @@ pub struct Triangle {
     index_buffer_memory: vk::DeviceMemory,
     uniform_buffers: Vec<vk::Buffer>,
     uniform_buffers_memory: Vec<vk::DeviceMemory>,
+    descriptor_set_layout: vk::DescriptorSetLayout,
+    descriptor_pool: vk::DescriptorPool,
+    descriptor_sets: Vec<vk::DescriptorSet>,
 }
 
 impl Triangle {
@@ -72,11 +76,7 @@ impl Triangle {
             .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
             .primitive_restart_enable(false);
 
-        let viewport = create_viewport_from_extent(instance.swapchain.extent);
-        let scissor = vk::Rect2D::default()
-            .offset(vk::Offset2D { x: 0, y: 0 })
-            .extent(instance.swapchain.extent);
-
+        let (viewport, scissor) = create_default_viewport_and_scissor(instance.swapchain.extent);
         let viewports = &[viewport];
         let scissors = &[scissor];
         let viewport_state = vk::PipelineViewportStateCreateInfo::default()
@@ -107,7 +107,8 @@ impl Triangle {
             .attachments(attachments)
             .blend_constants([0.0, 0.0, 0.0, 0.0]);
 
-        let layouts = &[instance.descriptor_set_layout];
+        let descriptor_set_layout = create_descriptor_set_layout(&instance.device)?;
+        let layouts = &[descriptor_set_layout];
         let layout_info = vk::PipelineLayoutCreateInfo::default().set_layouts(layouts);
         let layout = unsafe { instance.device.create_pipeline_layout(&layout_info, None) }?;
         let dynamic_states = [
@@ -159,8 +160,20 @@ impl Triangle {
                 .destroy_shader_module(frag_shader_module, None)
         };
 
+        let descriptor_set_count = instance.swapchain.images.len();
+        let descriptor_pool = create_descriptor_pool(&instance.device, descriptor_set_count)?;
+        let descriptor_sets = create_descriptor_sets(
+            &instance.device,
+            descriptor_set_layout,
+            descriptor_pool,
+            descriptor_set_count,
+        )?;
+
         self.layout = layout;
         self.pipeline = *pipeline;
+        self.descriptor_set_layout = descriptor_set_layout;
+        self.descriptor_pool = descriptor_pool;
+        self.descriptor_sets = descriptor_sets;
 
         Ok(())
     }
@@ -305,7 +318,7 @@ impl Triangle {
                 .offset(0)
                 .range(size_of::<UniformBufferObject>() as u64);
 
-            let descriptor_set = instance.swapchain.images[i].descriptor_set;
+            let descriptor_set = self.descriptor_sets[i];
             let buffer_info = &[info];
             let ubo_write = vk::WriteDescriptorSet::default()
                 .dst_set(descriptor_set)
@@ -313,27 +326,10 @@ impl Triangle {
                 .dst_array_element(0)
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
                 .buffer_info(buffer_info);
-            let sampler_info = [vk::DescriptorImageInfo::default().sampler(instance.sampler)];
-            let sampler_write = vk::WriteDescriptorSet::default()
-                .dst_set(descriptor_set)
-                .dst_binding(1)
-                .dst_array_element(0)
-                .descriptor_type(vk::DescriptorType::SAMPLER)
-                .image_info(&sampler_info);
-
-            let image_info = [vk::DescriptorImageInfo::default()
-                .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-                .image_view(instance.texture.view)];
-            let image_write = vk::WriteDescriptorSet::default()
-                .dst_set(descriptor_set)
-                .dst_binding(2)
-                .dst_array_element(0)
-                .descriptor_type(vk::DescriptorType::SAMPLED_IMAGE)
-                .image_info(&image_info);
 
             unsafe {
                 instance.device.update_descriptor_sets(
-                    &[ubo_write, sampler_write, image_write],
+                    &[ubo_write],
                     &[] as &[vk::CopyDescriptorSet],
                 )
             };
@@ -348,60 +344,11 @@ impl Triangle {
         image_index: usize,
         command_buffer: vk::CommandBuffer,
     ) -> Result<(), VkError> {
-        let info = vk::CommandBufferBeginInfo::default();
-
-        unsafe { instance.device.begin_command_buffer(command_buffer, &info) }?;
-
-        let render_area = vk::Rect2D::default()
-            .offset(vk::Offset2D::default())
-            .extent(instance.swapchain.extent);
-
-        let color_clear_value = vk::ClearValue {
-            color: vk::ClearColorValue {
-                float32: [0.0, 0.0, 0.1, 1.0],
-            },
-        };
-
         let image = &instance.swapchain.images[image_index];
-        let clear_values = &[color_clear_value];
-        let info = vk::RenderPassBeginInfo::default()
-            .render_pass(instance.swapchain.render_pass)
-            .framebuffer(image.framebuffer)
-            .render_area(render_area)
-            .clear_values(clear_values);
-
-        unsafe {
-            instance.device.cmd_begin_render_pass(
-                command_buffer,
-                &info,
-                vk::SubpassContents::INLINE,
-            );
-            let scissors = [render_area];
-            instance
-                .device
-                .cmd_set_scissor(command_buffer, 0, scissors.as_slice());
-            let viewport = create_viewport_from_extent(instance.swapchain.extent);
-            let viewports = [viewport];
-            instance
-                .device
-                .cmd_set_viewport(command_buffer, 0, viewports.as_slice());
-
-            self.render(&instance.device, &command_buffer, image.descriptor_set)?;
-            instance.device.cmd_end_render_pass(command_buffer);
-            instance.device.end_command_buffer(command_buffer)?;
-        }
-        Ok(())
-    }
-
-    fn render(
-        &mut self,
-        device: &Device,
-        command_buffer: &vk::CommandBuffer,
-        descriptor_set: vk::DescriptorSet,
-    ) -> Result<(), VkError> {
+        let device = &instance.device;
         unsafe {
             device.cmd_bind_pipeline(
-                *command_buffer,
+                command_buffer,
                 vk::PipelineBindPoint::GRAPHICS,
                 self.pipeline,
             );
@@ -409,21 +356,21 @@ impl Triangle {
             let buffers = [self.vertex_buffer];
             let offsets = [0];
             device.cmd_bind_vertex_buffers(
-                *command_buffer,
+                command_buffer,
                 0,
                 buffers.as_slice(),
                 offsets.as_slice(),
             );
             device.cmd_bind_index_buffer(
-                *command_buffer,
+                command_buffer,
                 self.index_buffer,
                 0,
                 vk::IndexType::UINT16,
             );
-            let descriptor_sets = [descriptor_set];
+            let descriptor_sets = [self.descriptor_sets[image_index]];
             let dyn_offsets = [];
             device.cmd_bind_descriptor_sets(
-                *command_buffer,
+                command_buffer,
                 vk::PipelineBindPoint::GRAPHICS,
                 self.layout,
                 0,
@@ -431,7 +378,7 @@ impl Triangle {
                 dyn_offsets.as_slice(),
             );
 
-            device.cmd_draw_indexed(*command_buffer, INDICES.len() as u32, 1, 0, 0, 0);
+            device.cmd_draw_indexed(command_buffer, INDICES.len() as u32, 1, 0, 0, 0);
         }
         Ok(())
     }
@@ -452,6 +399,8 @@ impl Triangle {
     pub fn destroy(&mut self, device: &Device) {
         self.destroy_uniform_buffers(device);
         unsafe {
+            device.destroy_descriptor_pool(self.descriptor_pool, None);
+            device.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
             device.destroy_buffer(self.index_buffer, None);
             device.free_memory(self.index_buffer_memory, None);
             device.destroy_buffer(self.vertex_buffer, None);
@@ -462,22 +411,42 @@ impl Triangle {
     }
 }
 
-fn create_viewport(width: u32, height: u32) -> vk::Viewport {
-    vk::Viewport::default()
-        .x(0.0)
-        .y(0.0)
-        .width(width as f32)
-        .height(height as f32)
-        .min_depth(0.0)
-        .max_depth(1.0)
+fn create_descriptor_set_layout(device: &Device) -> Result<vk::DescriptorSetLayout, VkError> {
+    let ubo_binding = vk::DescriptorSetLayoutBinding::default()
+        .binding(0)
+        .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+        .descriptor_count(1)
+        .stage_flags(vk::ShaderStageFlags::VERTEX);
+
+    let bindings = &[ubo_binding];
+    let info = vk::DescriptorSetLayoutCreateInfo::default().bindings(bindings);
+    let layout = unsafe { device.create_descriptor_set_layout(&info, None) }?;
+    Ok(layout)
 }
 
-fn create_viewport_from_extent(extent: vk::Extent2D) -> vk::Viewport {
-    create_viewport(extent.width, extent.height)
+fn create_descriptor_pool(device: &Device, count: usize) -> Result<vk::DescriptorPool, VkError> {
+    let ubo_size = vk::DescriptorPoolSize::default()
+        .ty(vk::DescriptorType::UNIFORM_BUFFER)
+        .descriptor_count(count as u32);
+
+    let pool_sizes = &[ubo_size];
+    let info = vk::DescriptorPoolCreateInfo::default()
+        .pool_sizes(pool_sizes)
+        .max_sets(count as u32);
+
+    Ok(unsafe { device.create_descriptor_pool(&info, None) }?)
 }
 
-fn create_scissor_from_extent(extent: vk::Extent2D) -> vk::Rect2D {
-    vk::Rect2D::default()
-        .offset(vk::Offset2D { x: 0, y: 0 })
-        .extent(extent)
+fn create_descriptor_sets(
+    device: &Device,
+    layout: vk::DescriptorSetLayout,
+    pool: vk::DescriptorPool,
+    count: usize,
+) -> Result<Vec<vk::DescriptorSet>, VkError> {
+    let layouts = vec![layout; count];
+    let info = vk::DescriptorSetAllocateInfo::default()
+        .descriptor_pool(pool)
+        .set_layouts(&layouts);
+
+    unsafe { device.allocate_descriptor_sets(&info) }.map_err(|e| VkError::VkErrorCode(e))
 }
