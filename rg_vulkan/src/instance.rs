@@ -34,7 +34,6 @@ pub struct VkInstance {
     pub present_queue: vk::Queue,
     pub swapchain: Swapchain,
     pub command_pool: vk::CommandPool,
-    pub texture: VkImage,
     pub sampler: vk::Sampler,
 }
 
@@ -64,10 +63,8 @@ impl VkInstance {
             present_queue,
             swapchain,
             command_pool,
-            texture: VkImage::default(),
             sampler
         };
-        result.texture = result.create_texture_image(&app.files)?;
         Ok(result)
     }
 
@@ -206,7 +203,7 @@ impl VkInstance {
         Ok((buffer, buffer_memory))
     }
 
-    fn create_texture_image(&self, files: &Files) -> Result<VkImage, VkError> {
+    pub fn create_texture_image(&self, files: &Files) -> Result<VkImage, VkError> {
         let file = files
             .read("textures/tex1.png")
             .map_err(|_| VkError::GenericError("Not found".to_string()))?;
@@ -535,7 +532,6 @@ impl Drop for VkInstance {
             let device = &self.device;
 
             device.destroy_sampler(self.sampler, None);
-            self.texture.destroy(device);
             device.destroy_command_pool(self.command_pool, None);
             device.destroy_device(None);
             std::ptr::drop_in_place(&mut self.surface);

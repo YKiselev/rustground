@@ -128,7 +128,7 @@ mod tests {
 
     #[test]
     fn asset_loaders() {
-        let resolver = |_: &str| Some(BufReader::new(SeekAndRead::Virtual(())));
+        let resolver = |_: &str| Some(BufReader::new(SeekAndRead::Virtual(std::io::Cursor::default())));
         let assets = Assets::new();
         let first = assets.load("first", &resolver, &loader_1).unwrap();
         let second = assets.load("first", &resolver, &loader_1).unwrap();

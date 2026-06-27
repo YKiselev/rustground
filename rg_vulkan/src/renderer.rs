@@ -23,9 +23,9 @@ impl VulkanRenderer {
     pub fn new(app: &Arc<App>, window: &Window) -> Result<Self, VkError> {
         let entry = unsafe { Entry::load().map_err(to_generic)? };
         let instance = VkInstance::new(&entry, window, app)?;
-        let mut triangle = Triangle::new(&instance)?;
+        let mut triangle = Triangle::new(&instance, app)?;
         triangle.update_descriptor_sets(&instance)?;
-        let mut tex_triangle = TexturedTriangle::new(&instance)?;
+        let mut tex_triangle = TexturedTriangle::new(&instance, app)?;
         tex_triangle.update_descriptor_sets(&instance)?;
         info!("Vulkan renderer initialzied");
         Ok(Self {

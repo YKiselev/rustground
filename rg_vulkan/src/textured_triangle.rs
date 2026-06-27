@@ -2,8 +2,11 @@ use ash::Device;
 use ash::vk;
 use cgmath::{Deg, point3, vec2, vec3};
 use log::error;
-use log::info;
+use rg_common::App;
+use std::sync::Arc;
 
+use crate::image::VkImage;
+use crate::renderer::create_default_viewport_and_scissor;
 use crate::vertex::Pos2Color3Tex2Vertex;
 use crate::{
     error::{VkError, to_generic},
@@ -22,8 +25,9 @@ static VERTICES: [Pos2Color3Tex2Vertex; 4] = [
 ];
 const INDICES: [u16; 6] = [0, 1, 2, 2, 3, 0];
 
-#[derive(Debug, Default)]
+#[derive()]
 pub struct TexturedTriangle {
+    app: Arc<App>,
     pub layout: vk::PipelineLayout,
     pub pipeline: vk::Pipeline,
     pub vertex_buffer: vk::Buffer,
@@ -35,20 +39,11 @@ pub struct TexturedTriangle {
     descriptor_set_layout: vk::DescriptorSetLayout,
     descriptor_pool: vk::DescriptorPool,
     descriptor_sets: Vec<vk::DescriptorSet>,
+    texture: VkImage,
 }
 
 impl TexturedTriangle {
-    pub fn new(instance: &VkInstance) -> Result<Self, VkError> {
-        let mut result = Self::default();
-        result.init_pipeline(instance)?;
-        result.init_vertex_buffer(instance)?;
-        result.init_index_buffer(instance)?;
-        result.init_uniform_buffers(instance)?;
-
-        Ok(result)
-    }
-
-    fn init_pipeline(&mut self, instance: &VkInstance) -> Result<(), VkError> {
+    pub fn new(instance: &VkInstance, app: &Arc<App>) -> Result<Self, VkError> {
         let vert = include_bytes!("../../base/resources/shaders/tex-shader.vert.spv");
         let frag = include_bytes!("../../base/resources/shaders/tex-shader.frag.spv");
 
@@ -75,11 +70,7 @@ impl TexturedTriangle {
             .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
             .primitive_restart_enable(false);
 
-        let viewport = create_viewport_from_extent(instance.swapchain.extent);
-        let scissor = vk::Rect2D::default()
-            .offset(vk::Offset2D { x: 0, y: 0 })
-            .extent(instance.swapchain.extent);
-
+        let (viewport, scissor) = create_default_viewport_and_scissor(instance.swapchain.extent);
         let viewports = &[viewport];
         let scissors = &[scissor];
         let viewport_state = vk::PipelineViewportStateCreateInfo::default()
@@ -136,7 +127,7 @@ impl TexturedTriangle {
             .subpass(0);
 
         let infos = [info];
-        let result = unsafe {
+        let mut result = unsafe {
             instance.device.create_graphics_pipelines(
                 vk::PipelineCache::null(),
                 infos.as_slice(),
@@ -150,7 +141,7 @@ impl TexturedTriangle {
             return Err(to_generic("No pipeline in result!"));
         }
 
-        let pipeline = result.first().expect("No pipelines!");
+        let pipeline = result.remove(0);
 
         unsafe {
             instance
@@ -171,107 +162,26 @@ impl TexturedTriangle {
             descriptor_pool,
             descriptor_set_count,
         )?;
+        let texture = instance.create_texture_image(&app.files)?;
+        let (vertex_buffer, vertex_buffer_memory) = create_vertex_buffer(instance)?;
+        let (index_buffer, index_buffer_memory) = create_index_buffer(instance)?;
+        let (uniform_buffers, uniform_buffers_memory) = create_uniform_buffers(instance)?;
 
-        self.layout = layout;
-        self.pipeline = *pipeline;
-        self.descriptor_set_layout = descriptor_set_layout;
-        self.descriptor_pool = descriptor_pool;
-        self.descriptor_sets = descriptor_sets;
-
-        Ok(())
-    }
-
-    fn init_vertex_buffer(&mut self, instance: &VkInstance) -> Result<(), VkError> {
-        let size = (size_of::<Pos2Color3Tex2Vertex>() * VERTICES.len()) as u64;
-
-        let (staging_buffer, staging_buffer_memory) = instance.create_buffer(
-            size,
-            vk::BufferUsageFlags::TRANSFER_SRC,
-            vk::MemoryPropertyFlags::HOST_COHERENT | vk::MemoryPropertyFlags::HOST_VISIBLE,
-        )?;
-
-        instance.copy_memory(
-            staging_buffer_memory,
-            0,
-            size,
-            vk::MemoryMapFlags::empty(),
-            VERTICES.as_ptr(),
-            VERTICES.len(),
-        )?;
-
-        let (vertex_buffer, vertex_buffer_memory) = instance.create_buffer(
-            size,
-            vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::VERTEX_BUFFER,
-            vk::MemoryPropertyFlags::DEVICE_LOCAL,
-        )?;
-
-        self.vertex_buffer = vertex_buffer;
-        self.vertex_buffer_memory = vertex_buffer_memory;
-
-        instance.copy_buffer(staging_buffer, vertex_buffer, size)?;
-
-        unsafe {
-            instance.device.destroy_buffer(staging_buffer, None);
-            instance.device.free_memory(staging_buffer_memory, None);
-        }
-
-        Ok(())
-    }
-
-    fn init_index_buffer(&mut self, instance: &VkInstance) -> Result<(), VkError> {
-        // Create (staging)
-
-        let size = (size_of::<u16>() * INDICES.len()) as u64;
-
-        let (staging_buffer, staging_buffer_memory) = instance.create_buffer(
-            size,
-            vk::BufferUsageFlags::TRANSFER_SRC,
-            vk::MemoryPropertyFlags::HOST_COHERENT | vk::MemoryPropertyFlags::HOST_VISIBLE,
-        )?;
-
-        // Copy (staging)
-        instance.copy_memory(
-            staging_buffer_memory,
-            0,
-            size,
-            vk::MemoryMapFlags::empty(),
-            INDICES.as_ptr(),
-            INDICES.len(),
-        )?;
-
-        // Create (index)
-
-        let (index_buffer, index_buffer_memory) = instance.create_buffer(
-            size,
-            vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::INDEX_BUFFER,
-            vk::MemoryPropertyFlags::DEVICE_LOCAL,
-        )?;
-
-        self.index_buffer = index_buffer;
-        self.index_buffer_memory = index_buffer_memory;
-
-        instance.copy_buffer(staging_buffer, index_buffer, size)?;
-
-        unsafe {
-            instance.device.destroy_buffer(staging_buffer, None);
-            instance.device.free_memory(staging_buffer_memory, None);
-        }
-
-        Ok(())
-    }
-
-    fn init_uniform_buffers(&mut self, instance: &VkInstance) -> Result<(), VkError> {
-        for _ in 0..instance.swapchain.images.len() {
-            let (uniform_buffer, uniform_buffer_memory) = instance.create_buffer(
-                size_of::<UniformBufferObject>() as u64,
-                vk::BufferUsageFlags::UNIFORM_BUFFER,
-                vk::MemoryPropertyFlags::HOST_COHERENT | vk::MemoryPropertyFlags::HOST_VISIBLE,
-            )?;
-
-            self.uniform_buffers.push(uniform_buffer);
-            self.uniform_buffers_memory.push(uniform_buffer_memory);
-        }
-        Ok(())
+        Ok(Self {
+            app: Arc::clone(app),
+            layout,
+            pipeline,
+            vertex_buffer,
+            vertex_buffer_memory,
+            index_buffer,
+            index_buffer_memory,
+            uniform_buffers,
+            uniform_buffers_memory,
+            descriptor_set_layout,
+            descriptor_pool,
+            descriptor_sets,
+            texture,
+        })
     }
 
     pub fn update_uniform_buffer(
@@ -311,7 +221,9 @@ impl TexturedTriangle {
     pub fn update_descriptor_sets(&mut self, instance: &VkInstance) -> Result<(), VkError> {
         if self.uniform_buffers.len() != instance.swapchain.images.len() {
             self.destroy_uniform_buffers(&instance.device);
-            self.init_uniform_buffers(instance)?;
+            let (uniform_buffers, uniform_buffers_memory) = create_uniform_buffers(instance)?;
+            self.uniform_buffers = uniform_buffers;
+            self.uniform_buffers_memory = uniform_buffers_memory;
         }
 
         for i in 0..self.uniform_buffers.len() {
@@ -339,7 +251,7 @@ impl TexturedTriangle {
 
             let image_info = [vk::DescriptorImageInfo::default()
                 .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-                .image_view(instance.texture.view)];
+                .image_view(self.texture.view)];
             let image_write = vk::WriteDescriptorSet::default()
                 .dst_set(descriptor_set)
                 .dst_binding(2)
@@ -419,6 +331,7 @@ impl TexturedTriangle {
     pub fn destroy(&mut self, device: &Device) {
         self.destroy_uniform_buffers(device);
         unsafe {
+            self.texture.destroy(device);
             device.destroy_descriptor_pool(self.descriptor_pool, None);
             device.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
             device.destroy_buffer(self.index_buffer, None);
@@ -429,26 +342,6 @@ impl TexturedTriangle {
             device.destroy_pipeline_layout(self.layout, None);
         }
     }
-}
-
-fn create_viewport(width: u32, height: u32) -> vk::Viewport {
-    vk::Viewport::default()
-        .x(0.0)
-        .y(0.0)
-        .width(width as f32)
-        .height(height as f32)
-        .min_depth(0.0)
-        .max_depth(1.0)
-}
-
-fn create_viewport_from_extent(extent: vk::Extent2D) -> vk::Viewport {
-    create_viewport(extent.width, extent.height)
-}
-
-fn create_scissor_from_extent(extent: vk::Extent2D) -> vk::Rect2D {
-    vk::Rect2D::default()
-        .offset(vk::Offset2D { x: 0, y: 0 })
-        .extent(extent)
 }
 
 fn create_descriptor_set_layout(device: &Device) -> Result<vk::DescriptorSetLayout, VkError> {
@@ -506,4 +399,94 @@ fn create_descriptor_sets(
         .set_layouts(&layouts);
 
     unsafe { device.allocate_descriptor_sets(&info) }.map_err(|e| VkError::VkErrorCode(e))
+}
+
+fn create_vertex_buffer(instance: &VkInstance) -> Result<(vk::Buffer, vk::DeviceMemory), VkError> {
+    let size = (size_of::<Pos2Color3Tex2Vertex>() * VERTICES.len()) as u64;
+
+    let (staging_buffer, staging_buffer_memory) = instance.create_buffer(
+        size,
+        vk::BufferUsageFlags::TRANSFER_SRC,
+        vk::MemoryPropertyFlags::HOST_COHERENT | vk::MemoryPropertyFlags::HOST_VISIBLE,
+    )?;
+
+    instance.copy_memory(
+        staging_buffer_memory,
+        0,
+        size,
+        vk::MemoryMapFlags::empty(),
+        VERTICES.as_ptr(),
+        VERTICES.len(),
+    )?;
+
+    let (vertex_buffer, vertex_buffer_memory) = instance.create_buffer(
+        size,
+        vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::VERTEX_BUFFER,
+        vk::MemoryPropertyFlags::DEVICE_LOCAL,
+    )?;
+
+    instance.copy_buffer(staging_buffer, vertex_buffer, size)?;
+
+    unsafe {
+        instance.device.destroy_buffer(staging_buffer, None);
+        instance.device.free_memory(staging_buffer_memory, None);
+    }
+
+    Ok((vertex_buffer, vertex_buffer_memory))
+}
+
+fn create_index_buffer(instance: &VkInstance) -> Result<(vk::Buffer, vk::DeviceMemory), VkError> {
+    // Create (staging)
+
+    let size = (size_of::<u16>() * INDICES.len()) as u64;
+
+    let (staging_buffer, staging_buffer_memory) = instance.create_buffer(
+        size,
+        vk::BufferUsageFlags::TRANSFER_SRC,
+        vk::MemoryPropertyFlags::HOST_COHERENT | vk::MemoryPropertyFlags::HOST_VISIBLE,
+    )?;
+
+    // Copy (staging)
+    instance.copy_memory(
+        staging_buffer_memory,
+        0,
+        size,
+        vk::MemoryMapFlags::empty(),
+        INDICES.as_ptr(),
+        INDICES.len(),
+    )?;
+
+    // Create (index)
+
+    let (index_buffer, index_buffer_memory) = instance.create_buffer(
+        size,
+        vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::INDEX_BUFFER,
+        vk::MemoryPropertyFlags::DEVICE_LOCAL,
+    )?;
+
+    instance.copy_buffer(staging_buffer, index_buffer, size)?;
+
+    unsafe {
+        instance.device.destroy_buffer(staging_buffer, None);
+        instance.device.free_memory(staging_buffer_memory, None);
+    }
+
+    Ok((index_buffer, index_buffer_memory))
+}
+
+fn create_uniform_buffers(
+    instance: &VkInstance,
+) -> Result<(Vec<vk::Buffer>, Vec<vk::DeviceMemory>), VkError> {
+    let mut uniform_buffers = Vec::new();
+    let mut uniform_buffers_memory = Vec::new();
+    for _ in 0..instance.swapchain.images.len() {
+        let (uniform_buffer, uniform_buffer_memory) = instance.create_buffer(
+            size_of::<UniformBufferObject>() as u64,
+            vk::BufferUsageFlags::UNIFORM_BUFFER,
+            vk::MemoryPropertyFlags::HOST_COHERENT | vk::MemoryPropertyFlags::HOST_VISIBLE,
+        )?;
+        uniform_buffers.push(uniform_buffer);
+        uniform_buffers_memory.push(uniform_buffer_memory);
+    }
+    Ok((uniform_buffers, uniform_buffers_memory))
 }
