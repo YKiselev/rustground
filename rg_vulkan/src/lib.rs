@@ -15,3 +15,4 @@ mod textured_triangle;
 mod image;
 mod debug;
 mod surface;
+mod buffer;
