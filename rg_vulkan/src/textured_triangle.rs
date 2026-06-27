@@ -164,8 +164,7 @@ impl TexturedTriangle {
         let vertex_buffer = VkBuffer::vertex(instance, VERTICES.as_ptr(), VERTICES.len())?;
         let index_buffer = VkBuffer::index(instance, INDICES.as_ptr(), INDICES.len())?;
         let uniform_buffers = create_uniform_buffers(instance)?;
-
-        Ok(Self {
+        let mut result = Self {
             app: Arc::clone(app),
             layout,
             pipeline,
@@ -176,7 +175,10 @@ impl TexturedTriangle {
             descriptor_pool,
             descriptor_sets,
             texture,
-        })
+        };
+        result.update_descriptor_sets(instance)?;
+
+        Ok(result)
     }
 
     pub fn update_uniform_buffer(
@@ -213,7 +215,11 @@ impl TexturedTriangle {
         Ok(())
     }
 
-    pub fn update_descriptor_sets(&mut self, instance: &VkInstance) -> Result<(), VkError> {
+    pub fn on_swapchain_recreated(&mut self, instance: &VkInstance) -> Result<(), VkError> {
+        self.update_descriptor_sets(instance)
+    }
+
+    fn update_descriptor_sets(&mut self, instance: &VkInstance) -> Result<(), VkError> {
         if self.uniform_buffers.len() != instance.swapchain.images.len() {
             self.destroy_uniform_buffers(&instance.device);
             self.uniform_buffers = create_uniform_buffers(instance)?;
@@ -269,7 +275,6 @@ impl TexturedTriangle {
         image_index: usize,
         command_buffer: vk::CommandBuffer,
     ) -> Result<(), VkError> {
-        let image = &instance.swapchain.images[image_index];
         let device = &instance.device;
         unsafe {
             device.cmd_bind_pipeline(

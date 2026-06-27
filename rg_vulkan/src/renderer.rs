@@ -24,9 +24,7 @@ impl VulkanRenderer {
         let entry = unsafe { Entry::load().map_err(to_generic)? };
         let instance = VkInstance::new(&entry, window, app)?;
         let mut triangle = Triangle::new(&instance, app)?;
-        triangle.update_descriptor_sets(&instance)?;
         let mut tex_triangle = TexturedTriangle::new(&instance, app)?;
-        tex_triangle.update_descriptor_sets(&instance)?;
         info!("Vulkan renderer initialzied");
         Ok(Self {
             entry,
@@ -66,8 +64,8 @@ impl VulkanRenderer {
         self.window_resized = false;
         self.instance.recreate_swapchain(window)?;
 
-        self.triangle.update_descriptor_sets(&self.instance)?;
-        self.tex_triangle.update_descriptor_sets(&self.instance)?;
+        self.triangle.on_swapchain_recreated(&self.instance)?;
+        self.tex_triangle.on_swapchain_recreated(&self.instance)?;
 
         info!("Swapchain recreated");
         Ok(())

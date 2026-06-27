@@ -6,6 +6,7 @@ use rg_common::App;
 use std::sync::Arc;
 
 use crate::buffer::VkBuffer;
+use crate::instance;
 use crate::renderer::create_default_viewport_and_scissor;
 use crate::{
     error::{VkError, to_generic},
@@ -161,8 +162,7 @@ impl Triangle {
         let vertex_buffer = VkBuffer::vertex(instance, VERTICES.as_ptr(), VERTICES.len())?;
         let index_buffer = VkBuffer::index(instance, INDICES.as_ptr(), INDICES.len())?;
         let uniform_buffers = create_uniform_buffers(instance)?;
-
-        Ok(Self {
+        let mut result = Self {
             app: Arc::clone(app),
             layout,
             pipeline,
@@ -172,7 +172,9 @@ impl Triangle {
             descriptor_sets,
             descriptor_pool,
             descriptor_set_layout,
-        })
+        };
+        result.update_descriptor_sets(instance)?;
+        Ok(result)
     }
 
     pub fn update_uniform_buffer(
@@ -209,7 +211,11 @@ impl Triangle {
         Ok(())
     }
 
-    pub fn update_descriptor_sets(&mut self, instance: &VkInstance) -> Result<(), VkError> {
+    pub fn on_swapchain_recreated(&mut self, instance: &VkInstance) -> Result<(), VkError> {
+        self.update_descriptor_sets(instance)
+    }
+
+    fn update_descriptor_sets(&mut self, instance: &VkInstance) -> Result<(), VkError> {
         if self.uniform_buffers.len() != instance.swapchain.images.len() {
             self.destroy_uniform_buffers(&instance.device);
             self.uniform_buffers = create_uniform_buffers(instance)?;
@@ -246,7 +252,6 @@ impl Triangle {
         image_index: usize,
         command_buffer: vk::CommandBuffer,
     ) -> Result<(), VkError> {
-        let image = &instance.swapchain.images[image_index];
         let device = &instance.device;
         unsafe {
             device.cmd_bind_pipeline(
