@@ -9,7 +9,7 @@ use std::{
 
 use thiserror::Error;
 
-use crate::{Loader, LoaderError};
+use crate::{Loader, LoaderError, files::SeekAndRead};
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
 pub struct Key(Box<str>, TypeId);
@@ -44,7 +44,7 @@ impl Assets {
     where
         A: Send + Sync + 'static,
         S: Into<Box<str>> + Borrow<str>,
-        R: Fn(&str) -> Option<Box<dyn BufRead + Send>>,
+        R: Fn(&str) -> Option< std::io::BufReader<SeekAndRead>>,
         L: Loader<A> + 'static,
     {
         let guard = self.0.read()?;
@@ -120,7 +120,7 @@ mod tests {
 
     static mut L1_COUNTER: i32 = 0;
 
-    fn loader_1(read: &mut Box<dyn BufRead + Send>) -> Result<String, LoaderError> {
+    fn loader_1(read: &mut std::io::BufReader<SeekAndRead>) -> Result<String, LoaderError> {
         unsafe { L1_COUNTER += 1 };
 
         Ok(String::from("value"))
@@ -128,7 +128,7 @@ mod tests {
 
     #[test]
     fn asset_loaders() {
-        let resolver = |_: &str| Some(Box::new(BufReader::new(b"test" as &[u8])) as _);
+        let resolver = |_: &str| Some(BufReader::new(SeekAndRead::Virtual(())));
         let assets = Assets::new();
         let first = assets.load("first", &resolver, &loader_1).unwrap();
         let second = assets.load("first", &resolver, &loader_1).unwrap();

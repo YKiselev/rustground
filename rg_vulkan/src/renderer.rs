@@ -1,15 +1,16 @@
 use std::{sync::Arc, time::Instant};
 
-use ash::{Instance, vk};
+use ash::{Entry, Instance, vk};
 use log::{info, warn};
 use rg_common::{App, Plugin};
 use winit::window::Window;
 
 use crate::{
-    error::VkError, instance::VkInstance, textured_triangle::TexturedTriangle, triangle::Triangle,
+    error::{VkError, to_generic}, instance::VkInstance, textured_triangle::TexturedTriangle, triangle::Triangle,
 };
 
 pub struct VulkanRenderer {
+    entry: Entry,
     instance: VkInstance,
     window_resized: bool,
     start: Instant,
@@ -20,13 +21,15 @@ pub struct VulkanRenderer {
 
 impl VulkanRenderer {
     pub fn new(app: &Arc<App>, window: &Window) -> Result<Self, VkError> {
-        let instance = VkInstance::new(window, app)?;
+        let entry = unsafe { Entry::load().map_err(to_generic)? };
+        let instance = VkInstance::new(&entry, window, app)?;
         let mut triangle = Triangle::new(&instance)?;
         triangle.update_descriptor_sets(&instance)?;
         let mut tex_triangle = TexturedTriangle::new(&instance)?;
         tex_triangle.update_descriptor_sets(&instance)?;
         info!("Vulkan renderer initialzied");
         Ok(Self {
+            entry,
             instance,
             window_resized: false,
             start: Instant::now(),

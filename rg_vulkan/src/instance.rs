@@ -9,7 +9,6 @@ use rg_common::{App, Files};
 use winit::window::Window;
 
 use crate::debug::DebugUtils;
-use crate::layouts::{VkDescriptorSetLayouts};
 use crate::surface::VkSurface;
 use crate::{
     create_instance::create_instance,
@@ -26,7 +25,6 @@ pub(crate) const MAX_FRAMES_IN_FLIGHT: usize = 2;
 
 #[derive()]
 pub struct VkInstance {
-    pub entry: Entry,
     pub instance: Instance,
     debug_utils: Option<DebugUtils>,
     surface: VkSurface,
@@ -41,8 +39,7 @@ pub struct VkInstance {
 }
 
 impl VkInstance {
-    pub fn new(window: &Window, app: &Arc<App>) -> Result<Self, VkError> {
-        let entry = unsafe { Entry::load().map_err(to_generic)? };
+    pub fn new(entry: &Entry, window: &Window, app: &Arc<App>) -> Result<Self, VkError> {
         let (instance, debug_utils) = create_instance(window, &entry)?;
         let surface = VkSurface::new(&entry, &instance, window)?;
         let physical_device = pick_physical_device(&instance, &surface)?;
@@ -58,7 +55,6 @@ impl VkInstance {
         )?;
         let sampler = create_sampler(&device)?;
         let mut result = Self {
-            entry,
             instance,
             debug_utils,
             surface,

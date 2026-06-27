@@ -1,7 +1,7 @@
 use std::borrow::Borrow;
 use std::fmt::{Display, Formatter};
 use std::fs::{File, read};
-use std::io::{BufRead, BufReader, Error, ErrorKind, Read, Seek, Write};
+use std::io::{BufRead, BufReader, Error, ErrorKind, Read, Seek, Write, Cursor};
 use std::path::{Path, PathBuf};
 use std::sync::{PoisonError, RwLock};
 use std::{env, fs};
@@ -29,15 +29,59 @@ impl<T> From<PoisonError<T>> for FileError {
 }
 
 ///
-/// Readable and Writable resources
+/// Readable resource
 ///
-pub trait SeekAndRead: Read + Seek {}
+pub enum SeekAndRead {
+    Physical(File),
+    Virtual(Cursor<Vec<u8>>),
+}
 
-pub trait SeekAndWrite: Write + Seek {}
+impl Read for SeekAndRead {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, std::io::Error> {
+        match self {
+            Self::Physical(file) => file.read(buf),
+            Self::Virtual(cur) => cur.read(buf),
+        }
+    }
+}
 
-impl SeekAndRead for File {}
+impl Seek for SeekAndRead {
+    fn seek(&mut self, seek_from: std::io::SeekFrom) -> Result<u64, std::io::Error> {
+        match self {
+            Self::Physical(file) => file.seek(seek_from),
+            Self::Virtual(cur) => cur.seek(seek_from),
+        }
+    }
+}
 
-impl SeekAndWrite for File {}
+///
+/// Writable resource
+///
+pub enum SeekAndWrite {
+    Physical(File),
+}
+
+impl Write for SeekAndWrite {
+    fn write(&mut self, buf: &[u8]) -> Result<usize, std::io::Error> {
+        match self {
+            Self::Physical(file) => file.write(buf),
+        }
+    }
+
+    fn flush(&mut self) -> Result<(), std::io::Error> {
+        match self {
+            Self::Physical(file) => file.flush(),
+        }
+    }
+}
+
+impl Seek for SeekAndWrite {
+    fn seek(&mut self, seek_from: std::io::SeekFrom) -> Result<u64, std::io::Error> {
+        match self {
+            Self::Physical(file) => file.seek(seek_from),
+        }
+    }
+}
 
 ///
 /// File root
@@ -65,13 +109,13 @@ impl FileRoot {
         self.readonly
     }
 
-    fn read(&self, path: &str) -> Result<Box<dyn SeekAndRead + Send>, FileError> {
+    fn read(&self, path: &str) -> Result<SeekAndRead, FileError> {
         let mut buf = self.path.clone();
         buf.push(path);
         match File::open(&buf) {
             Ok(file) => {
                 debug!("open({:?})", &buf);
-                Ok(Box::new(file))
+                Ok(SeekAndRead::Physical(file))
             }
             Err(e) => {
                 debug!("File not found: {:?}, {:?}", buf, e);
@@ -80,13 +124,13 @@ impl FileRoot {
         }
     }
 
-    fn write(&self, path: &str) -> Result<Box<dyn SeekAndWrite + Send>, FileError> {
+    fn write(&self, path: &str) -> Result<SeekAndWrite, FileError> {
         let mut buf = self.path.clone();
         buf.push(path);
         match File::create(&buf) {
             Ok(file) => {
                 debug!("create({:?})", &file);
-                Ok(Box::new(file))
+                Ok(SeekAndWrite::Physical(file))
             }
             Err(e) => {
                 warn!("Unable to create file: {:?}, {:?}", buf, e);
@@ -147,7 +191,7 @@ impl Files {
         }
     }
 
-    pub fn read<S>(&self, path: S) -> Result<Box<dyn SeekAndRead + Send>, FileError>
+    pub fn read<S>(&self, path: S) -> Result<SeekAndRead, FileError>
     where
         S: AsRef<str>,
     {
@@ -163,14 +207,14 @@ impl Files {
         Err(last_err.unwrap_or_else(|| FileError::IoError(Error::from(ErrorKind::NotFound))))
     }
 
-    pub fn buf_read<S>(&self, path: S) -> Result<Box<dyn BufRead + Send>, FileError>
+    pub fn buf_read<S>(&self, path: S) -> Result<BufReader<SeekAndRead>, FileError>
     where
         S: AsRef<str>,
     {
-        Ok(self.read(path).map(BufReader::new).map(Box::new)?)
+        Ok(self.read(path).map(BufReader::new)?)
     }
 
-    pub fn write<S>(&self, path: S) -> Result<Box<dyn SeekAndWrite + Send>, FileError>
+    pub fn write<S>(&self, path: S) -> Result< SeekAndWrite, FileError>
     where
         S: AsRef<str>,
     {

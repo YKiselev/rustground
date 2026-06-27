@@ -1,8 +1,9 @@
-use std::io::BufRead;
 
 use thiserror::Error;
 
-pub trait Loader<A>: Fn(&mut Box<dyn BufRead + Send>) -> Result<A, LoaderError>
+use crate::files::SeekAndRead;
+
+pub trait Loader<A>: Fn(&mut std::io::BufReader<SeekAndRead>) -> Result<A, LoaderError>
 where
     A: Send + Sync,
 {
@@ -11,7 +12,7 @@ where
 impl<A, T> Loader<A> for T
 where
     A: Send + Sync,
-    T: Fn(&mut Box<dyn BufRead + Send>) -> Result<A, LoaderError>,
+    T: Fn(&mut std::io::BufReader<SeekAndRead>) -> Result<A, LoaderError>,
 {
 }
 
