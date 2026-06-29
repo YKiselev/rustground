@@ -38,12 +38,4 @@ impl FrameStats {
         }
         (1_000_000.0 / avg_frame_micros) as f32
     }
-
-    pub fn last_frame_millis(&self) -> Duration {
-        if self.samples.is_empty() {
-            Duration::ZERO
-        } else {
-            self.samples[self.samples.len() - 1]
-        }
-    }
 }
