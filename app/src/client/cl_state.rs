@@ -1,6 +1,6 @@
-use std::sync::Arc;
+use std::{sync::Arc, thread, time::{Duration, Instant}};
 
-use log::{error, info};
+use log::{debug, error, info};
 use rg_common::{App, Plugin};
 use rg_vulkan::renderer::VulkanRenderer;
 use winit::{
@@ -48,6 +48,7 @@ impl ClientState {
     }
 
     fn run_frame(&mut self) {
+        let started = Instant::now();
         self.ensure_renderer();
         self.frame_stats.add_sample();
 
@@ -66,6 +67,21 @@ impl ClientState {
         
         // End frame
         self.net.frame_end(&self.app);
+        self.cap_fps(Instant::now() - started);
+    }
+
+    fn cap_fps(&self, frame_time: Duration) {
+        let min_frame_time = if self.max_fps > 0.0 {
+            Duration::from_millis((1000.0 / self.max_fps).round() as u64)
+        } else {
+            Duration::ZERO
+        };
+        if !min_frame_time.is_zero() && frame_time < min_frame_time {
+            let delta = min_frame_time - frame_time;
+            if delta.as_millis() > 0 {
+                thread::sleep(delta);
+            }
+        }
     }
 
     fn ensure_renderer(&mut self) {
