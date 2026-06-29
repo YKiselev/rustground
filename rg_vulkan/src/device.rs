@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, ffi::CString, ops::Deref};
 
 use ash::{
     Device, Instance,
@@ -63,9 +63,9 @@ pub(crate) fn check_physical_device_extensions(
 ) -> Result<(), VkError> {
     let extensions = unsafe { instance.enumerate_device_extension_properties(physical_device) }?
         .iter()
-        .map(|e| unsafe { CStr::from_ptr(e.extension_name.as_ptr()) })
+        .map(|e| unsafe { CStr::from_ptr(e.extension_name.as_ptr()).to_owned() })
         .collect::<HashSet<_>>();
-    if DEVICE_EXTENSIONS.iter().all(|e| extensions.contains(e)) {
+    if DEVICE_EXTENSIONS.iter().all(|e| extensions.contains(*e)) {
         Ok(())
     } else {
         Err(to_suitability("Missing required device extensions."))

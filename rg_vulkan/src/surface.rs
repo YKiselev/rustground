@@ -64,10 +64,8 @@ impl VkSurface {
                 .get_physical_device_surface_present_modes(device, self.surface)?
         })
     }
-}
 
-impl Drop for VkSurface {
-    fn drop(&mut self) {
+    pub fn destroy(&mut self) {
         unsafe {
             self.loader.destroy_surface(self.surface, None);
         }

@@ -1,16 +1,17 @@
 use ash::{
     Device,
-    vk::{self, CommandBuffer, Fence, Semaphore},
+    vk::{self},
 };
 
 use crate::{error::VkError, instance::MAX_FRAMES_IN_FLIGHT};
 
 #[derive(Debug, Default)]
 pub(crate) struct FrameObjects {
-    pub in_flight_fence: Fence,
-    pub image_available: Semaphore, // present semaphore
+    pub in_flight_fence: vk::Fence,
+    pub image_available: vk::Semaphore, // present semaphore
+    pub render_finished: vk::Semaphore,
     command_pool: vk::CommandPool,
-    pub command_buffer: CommandBuffer,
+    pub command_buffer: vk::CommandBuffer,
 }
 
 impl FrameObjects {
@@ -29,6 +30,7 @@ impl FrameObjects {
         Ok(FrameObjects {
             in_flight_fence: unsafe { device.create_fence(&fence_info, None) }?,
             image_available: unsafe { device.create_semaphore(&semaphore_info, None) }?,
+            render_finished: unsafe { device.create_semaphore(&semaphore_info, None) }?,
             command_pool: command_pool,
             command_buffer: command_buffers[0],
         })
@@ -49,6 +51,7 @@ impl FrameObjects {
             );
             device.destroy_command_pool(self.command_pool, None);
             device.destroy_semaphore(self.image_available, None);
+            device.destroy_semaphore(self.render_finished, None);
             device.destroy_fence(self.in_flight_fence, None);
         }
     }

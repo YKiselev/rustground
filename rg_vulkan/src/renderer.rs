@@ -6,7 +6,10 @@ use rg_common::{App, Plugin};
 use winit::window::Window;
 
 use crate::{
-    error::{VkError, to_generic}, instance::VkInstance, textured_triangle::TexturedTriangle, triangle::Triangle,
+    error::{VkError, to_generic},
+    instance::VkInstance,
+    textured_triangle::TexturedTriangle,
+    triangle::Triangle,
 };
 
 pub struct VulkanRenderer {
@@ -61,6 +64,12 @@ impl VulkanRenderer {
     }
 
     fn recreate_swapchain(&mut self, window: &Window) -> Result<(), VkError> {
+        // Do not recreate swapchain on window minimize
+        let size = window.inner_size();
+        if size.width == 0 || size.height == 0 {
+            return Ok(());
+        }
+
         self.window_resized = false;
         self.instance.recreate_swapchain(window)?;
 
@@ -185,6 +194,7 @@ impl Drop for VulkanRenderer {
         self.instance.wait_idle().unwrap();
         self.triangle.destroy(&self.instance.device);
         self.tex_triangle.destroy(&self.instance.device);
+        self.instance.destroy();
     }
 }
 

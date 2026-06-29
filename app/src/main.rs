@@ -8,7 +8,6 @@ mod application;
 mod client;
 mod error;
 mod server;
-mod fps;
 
 fn main() -> Result<(), AppError> {
     let args: Arguments = argh::from_env();

@@ -12,9 +12,7 @@ use winit::{
 };
 
 use crate::{
-    client::{cl_net::ClientNetwork, cl_window::create_window_attributes},
-    error::AppError,
-    fps::FrameStats,
+    client::{cl_fps::FrameStats, cl_net::ClientNetwork, cl_window::create_window_attributes}, error::AppError
 };
 
 pub(super) struct ClientState {
@@ -37,7 +35,7 @@ impl ClientState {
             window: None,
             renderer: None,
             renderer_failed: false,
-            max_fps: 60.0,
+            max_fps: 200.0,
             frame_stats: FrameStats::default(),
             modifiers: ModifiersState::default(),
         })
@@ -135,15 +133,6 @@ impl ApplicationHandler for ClientState {
                     info!("Mouse wheel Pixel Delta: ({},{})", px.x, px.y);
                 }
             },
-            WindowEvent::ActivationTokenDone { token: _token, .. } => {
-                #[cfg(any(x11_platform, wayland_platform))]
-                {
-                    startup_notify::set_activation_token_env(_token);
-                    if let Err(err) = self.create_window(event_loop, None) {
-                        error!("Error creating new window: {err}");
-                    }
-                }
-            }
             WindowEvent::RedrawRequested => {
                 if !event_loop.exiting() {
                     self.run_frame();

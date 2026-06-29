@@ -18,7 +18,7 @@ pub(crate) struct ImageObjects {
     pub image: vk::Image,
     pub view: vk::ImageView,
     pub framebuffer: vk::Framebuffer,
-    pub render_finished: vk::Semaphore,
+    render_finished: vk::Semaphore,
 }
 
 impl ImageObjects {
@@ -189,7 +189,7 @@ impl Swapchain {
         let wait_semaphores = &[frame.image_available];
         let wait_stages = &[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
         let command_buffers = &[frame.command_buffer];
-        let signal_semaphores = &[self.images[image_index].render_finished];
+        let signal_semaphores =&[frame.render_finished];// &[self.images[image_index].render_finished];
         let submit_info = vk::SubmitInfo::default()
             .wait_semaphores(wait_semaphores)
             .wait_dst_stage_mask(wait_stages)

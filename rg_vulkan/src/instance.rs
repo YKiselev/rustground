@@ -1,4 +1,4 @@
-use std::ffi::CStr;
+use std::ffi::{CStr, CString};
 use std::io::BufReader;
 use std::sync::Arc;
 
@@ -45,15 +45,9 @@ impl VkInstance {
         let (device, graphics_queue, present_queue) =
             create_logical_device(&instance, &surface, physical_device)?;
         let command_pool = create_command_pool(&instance, &device, &surface, physical_device)?;
-        let swapchain = Swapchain::new(
-            &instance,
-            &surface,
-            &device,
-            physical_device,
-            window
-        )?;
+        let swapchain = Swapchain::new(&instance, &surface, &device, physical_device, window)?;
         let sampler = create_sampler(&device)?;
-        let mut result = Self {
+        let result = Self {
             instance,
             debug_utils,
             surface,
@@ -63,7 +57,7 @@ impl VkInstance {
             present_queue,
             swapchain,
             command_pool,
-            sampler
+            sampler,
         };
         Ok(result)
     }
@@ -108,7 +102,7 @@ impl VkInstance {
             &self.surface,
             &self.device,
             self.physical_device,
-            window
+            window,
         )?;
 
         Ok(())
@@ -521,10 +515,8 @@ impl VkInstance {
     fn destroy_swapchain(&mut self) {
         self.swapchain.destroy(&self.device);
     }
-}
 
-impl Drop for VkInstance {
-    fn drop(&mut self) {
+    pub fn destroy(&mut self) {
         unsafe {
             self.device.device_wait_idle().unwrap();
 
@@ -540,6 +532,7 @@ impl Drop for VkInstance {
                 debug_utils.destroy();
             }
 
+            self.surface.destroy();
             self.instance.destroy_instance(None);
         }
     }
