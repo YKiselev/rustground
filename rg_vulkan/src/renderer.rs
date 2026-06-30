@@ -1,18 +1,16 @@
-use std::{sync::Arc, time::Instant};
+use std::{sync::{Arc, RwLock}, time::Instant};
 
-use ash::{Entry, Instance, vk};
+use ash::{Entry, vk};
 use log::{info, warn};
-use rg_common::{App, Plugin};
+use rg_common::{App, wrap_var_bag};
 use winit::window::Window;
 
 use crate::{
-    error::{VkError, to_generic},
-    instance::VkInstance,
-    textured_triangle::TexturedTriangle,
-    triangle::Triangle,
+    config::Config, error::{VkError, to_generic}, instance::VkInstance, textured_triangle::TexturedTriangle, triangle::Triangle,
 };
 
 pub struct VulkanRenderer {
+    config: Arc<RwLock<Config>>,
     entry: Entry,
     instance: VkInstance,
     window_resized: bool,
@@ -24,12 +22,15 @@ pub struct VulkanRenderer {
 
 impl VulkanRenderer {
     pub fn new(app: &Arc<App>, window: &Window) -> Result<Self, VkError> {
+        let config = wrap_var_bag(Config::default());
+        app.vars.add("gfx", &config).map_err(|e| to_generic(e))?;
         let entry = unsafe { Entry::load().map_err(to_generic)? };
         let instance = VkInstance::new(&entry, window, app)?;
-        let mut triangle = Triangle::new(&instance, app)?;
-        let mut tex_triangle = TexturedTriangle::new(&instance, app)?;
+        let triangle = Triangle::new(&instance, app)?;
+        let tex_triangle = TexturedTriangle::new(&instance, app)?;
         info!("Vulkan renderer initialzied");
         Ok(Self {
+            config,
             entry,
             instance,
             window_resized: false,

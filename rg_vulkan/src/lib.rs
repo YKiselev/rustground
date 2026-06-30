@@ -16,3 +16,4 @@ mod image;
 mod debug;
 mod surface;
 mod buffer;
+mod config;

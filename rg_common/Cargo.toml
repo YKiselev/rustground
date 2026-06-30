@@ -4,12 +4,12 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-log = "0.4.21"
-dirs = "6.0.0"
-toml = "0.9.5"
-serde = {  version = "1.0.228", features = ["derive", "rc"] }
-erased-serde = "0.4.10"
+log = { workspace = true }
+dirs = { workspace = true }
+toml = { workspace = true }
+serde = { workspace = true, features = ["derive", "rc"] }
+erased-serde = { workspace = true }
 rg_macros = { path = "../rg_macros" }
-argh = "0.1.19"
-uuid = {version = "1.18.1", features = ["v4"]}
-thiserror = "2.0.18"
+argh = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+thiserror = { workspace = true }

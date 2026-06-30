@@ -4,13 +4,16 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-rg_common = { path="../rg_common" }
-ash = "0.38.0"
-winit = "0.30.13"
-winapi = "0.3.9"
-raw-window-handle = "0.6.2"
-ash-window = "0.13.0"
-log = "0.4.21"
-cgmath = "0.18.0"
-thiserror = "2.0.17"
-png = { version = "0.18.0"}
+rg_common = { path = "../rg_common" }
+rg_macros = { path = "../rg_macros" }
+ash = { workspace = true }
+winit = { workspace = true }
+winapi = { workspace = true }
+raw-window-handle = { workspace = true }
+ash-window = { workspace = true }
+log = { workspace = true }
+cgmath = { workspace = true }
+thiserror = { workspace = true }
+png = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+toml = { workspace = true }
