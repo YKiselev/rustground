@@ -1,3 +1,5 @@
+use std::default;
+
 use argh::{FromArgValue, FromArgs};
 use log::LevelFilter;
 
@@ -7,6 +9,14 @@ pub enum VSyncMode {
     Triple,
     Adaptive,
     On,
+}
+
+fn def_width() -> u32 {
+    1024
+}
+
+fn def_height() -> u32 {
+    768
 }
 
 ///
@@ -21,6 +31,14 @@ pub struct Arguments {
     /// run client in windowed mode
     #[argh(switch)]
     pub windowed: bool,
+
+    /// window width
+    #[argh(option, default = "def_width()")]
+    pub width: u32,
+    
+    /// window height
+    #[argh(option, default = "def_height()")]
+    pub height: u32,
 
     /// v-sync mode
     #[argh(option, default = "VSyncMode::Triple")]

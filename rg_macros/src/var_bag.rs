@@ -1,6 +1,5 @@
 use proc_macro::TokenStream;
 
-//use syn::__private::quote::quote;
 use quote::quote;
 use syn::{Data, DeriveInput};
 

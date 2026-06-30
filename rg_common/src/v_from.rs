@@ -1,8 +1,5 @@
 use std::borrow::Cow;
 use std::fmt::{Display, Formatter};
-use std::ops::Deref;
-
-use serde::Serialize;
 
 use crate::vars::Variable;
 use crate::VarBag;
@@ -76,6 +73,30 @@ impl From<&i32> for Variable<'_> {
 
 impl From<&mut i32> for Variable<'_> {
     fn from(value: &mut i32) -> Self {
+        Variable::Integer(*value as i64)
+    }
+}
+
+impl From<&u64> for Variable<'_> {
+    fn from(value: &u64) -> Self {
+        Variable::Integer(*value as i64)
+    }
+}
+
+impl From<&mut u64> for Variable<'_> {
+    fn from(value: &mut u64) -> Self {
+        Variable::Integer(*value as i64)
+    }
+}
+
+impl From<&u32> for Variable<'_> {
+    fn from(value: &u32) -> Self {
+        Variable::Integer(*value as i64)
+    }
+}
+
+impl From<&mut u32> for Variable<'_> {
+    fn from(value: &mut u32) -> Self {
         Variable::Integer(*value as i64)
     }
 }

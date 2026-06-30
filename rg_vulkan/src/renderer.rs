@@ -1,12 +1,19 @@
-use std::{sync::{Arc, RwLock}, time::Instant};
+use std::{
+    sync::{Arc, RwLock},
+    time::Instant,
+};
 
 use ash::{Entry, vk};
 use log::{info, warn};
 use rg_common::{App, wrap_var_bag};
-use winit::window::Window;
+use winit::{dpi::PhysicalSize, window::Window};
 
 use crate::{
-    config::Config, error::{VkError, to_generic}, instance::VkInstance, textured_triangle::TexturedTriangle, triangle::Triangle,
+    config::Config,
+    error::{VkError, to_generic},
+    instance::VkInstance,
+    textured_triangle::TexturedTriangle,
+    triangle::Triangle,
 };
 
 pub struct VulkanRenderer {
@@ -22,8 +29,7 @@ pub struct VulkanRenderer {
 
 impl VulkanRenderer {
     pub fn new(app: &Arc<App>, window: &Window) -> Result<Self, VkError> {
-        let config = wrap_var_bag(Config::default());
-        app.vars.add("gfx", &config).map_err(|e| to_generic(e))?;
+        let config = prepare_config(app)?;
         let entry = unsafe { Entry::load().map_err(to_generic)? };
         let instance = VkInstance::new(&entry, window, app)?;
         let triangle = Triangle::new(&instance, app)?;
@@ -228,4 +234,24 @@ pub(crate) fn create_default_viewport_and_scissor(
         .extent(extent);
 
     (viewport, scissor)
+}
+
+fn prepare_config(app: &Arc<App>) -> Result<Arc<RwLock<Config>>, VkError> {
+    let mut config = Config::default();
+
+    config.windowed = app.arguments.windowed;
+    config.width = app.arguments.width;
+    config.height = app.arguments.height;
+
+    let config = wrap_var_bag(config);
+    app.vars.add("gfx", &config).map_err(|e| to_generic(e))?;
+    let mut guard = config.write().expect("Unable to lock config!");
+    if guard.width < 400 {
+        guard.width = 400;
+    }
+    if guard.height < 300 {
+        guard.height = 300;
+    }
+    std::mem::drop(guard);
+    Ok(config)
 }
