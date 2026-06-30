@@ -139,7 +139,7 @@ impl VulkanRenderer {
         unsafe { instance.device.begin_command_buffer(command_buffer, &info) }?;
 
         let render_area = vk::Rect2D::default()
-            .offset(vk::Offset2D::default())
+            //.offset(vk::Offset2D::default())
             .extent(instance.swapchain.extent);
 
         let color_clear_value = vk::ClearValue {

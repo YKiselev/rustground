@@ -31,10 +31,10 @@ impl ImageObjects {
     ) -> Result<Self, VkError> {
         let view = create_swapchain_image_view(image, format, device)?;
         let semaphore_info = vk::SemaphoreCreateInfo::default();
-        let attachments = &[view];
+        let attachments = [view];
         let create_info = vk::FramebufferCreateInfo::default()
             .render_pass(pass)
-            .attachments(attachments)
+            .attachments(&attachments)
             .width(extent.width)
             .height(extent.height)
             .layers(1);
@@ -77,7 +77,7 @@ impl Swapchain {
         surface: &VkSurface,
         device: &Device,
         physical_device: vk::PhysicalDevice,
-        window: &Window
+        window: &Window,
     ) -> Result<Swapchain, VkError> {
         let indices = QueueFamilyIndices::get(instance, surface, physical_device)?;
         let support = SwapchainSupport::get(surface, physical_device)?;
@@ -115,15 +115,7 @@ impl Swapchain {
         let render_pass = create_render_pass(device, surface_format.format)?;
         let images = images
             .into_iter()
-            .map(|img| {
-                ImageObjects::new(
-                    device,
-                    surface_format.format,
-                    img,
-                    render_pass,
-                    extent,
-                )
-            })
+            .map(|img| ImageObjects::new(device, surface_format.format, img, render_pass, extent))
             .collect::<Result<Vec<ImageObjects>, VkError>>()?;
         let frames_in_flight = FramesInFlight::new(device, indices.graphics)?;
         Ok(Swapchain {
@@ -151,10 +143,9 @@ impl Swapchain {
 
     pub fn acquire_next_image(&self, device: &Device) -> Result<usize, VkError> {
         let frame = self.frames_in_flight.frame();
-        let fences = &[frame.in_flight_fence];
+        let fences = [frame.in_flight_fence];
         unsafe {
-            device.wait_for_fences(fences, true, u64::MAX)?;
-            device.reset_fences(fences)?;
+            device.wait_for_fences(&fences, true, u64::MAX)?;
         };
         frame.reset_buffers(device)?;
         match unsafe {
@@ -186,29 +177,31 @@ impl Swapchain {
         image_index: usize,
     ) -> Result<bool, vk::Result> {
         let frame = self.frames_in_flight.frame();
-        let wait_semaphores = &[frame.image_available];
-        let wait_stages = &[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
-        let command_buffers = &[frame.command_buffer];
-        let signal_semaphores =&[frame.render_finished];// &[self.images[image_index].render_finished];
+        let fences = [frame.in_flight_fence];
+        let wait_semaphores = [frame.image_available];
+        let wait_stages = [vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
+        let command_buffers = [frame.command_buffer];
+        let signal_semaphores = [self.images[image_index].render_finished];
         let submit_info = vk::SubmitInfo::default()
-            .wait_semaphores(wait_semaphores)
-            .wait_dst_stage_mask(wait_stages)
-            .command_buffers(command_buffers)
-            .signal_semaphores(signal_semaphores);
+            .wait_semaphores(&wait_semaphores)
+            .wait_dst_stage_mask(&wait_stages)
+            .command_buffers(&command_buffers)
+            .signal_semaphores(&signal_semaphores);
 
         unsafe {
-            let infos = &[submit_info];
-            device.queue_submit(graphics_queue, infos, frame.in_flight_fence)?;
+            device.reset_fences(&fences)?;
+            let infos = [submit_info];
+            device.queue_submit(graphics_queue, &infos, frame.in_flight_fence)?;
         }
 
         window.pre_present_notify();
 
-        let swapchains = &[self.swapchain];
-        let image_indices = &[image_index as u32];
+        let swapchains = [self.swapchain];
+        let image_indices = [image_index as u32];
         let present_info = vk::PresentInfoKHR::default()
-            .wait_semaphores(signal_semaphores)
-            .swapchains(swapchains)
-            .image_indices(image_indices);
+            .wait_semaphores(&signal_semaphores)
+            .swapchains(&swapchains)
+            .image_indices(&image_indices);
 
         unsafe {
             self.swapchain_device
@@ -355,4 +348,3 @@ fn create_semaphores(device: &Device, count: usize) -> Result<Vec<vk::Semaphore>
         })
         .collect()
 }
-
