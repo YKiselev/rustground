@@ -1,24 +1,28 @@
-use std::{sync::Arc, thread, time::{Duration, Instant}};
+use std::{
+    sync::{Arc, RwLock},
+    thread,
+    time::{Duration, Instant},
+};
 
 use log::{debug, error, info};
 use rg_common::{App, Plugin};
 use rg_vulkan::renderer::VulkanRenderer;
 use winit::{
-    application::ApplicationHandler,
     event::{MouseScrollDelta, WindowEvent},
     event_loop::ActiveEventLoop,
     keyboard::{KeyCode, ModifiersState, PhysicalKey},
-    window::{Window, WindowId},
+    window::WindowId,
 };
 
 use crate::{
-    client::{cl_fps::FrameStats, cl_net::ClientNetwork, cl_window::create_window_attributes}, error::AppError
+    client::{cl_config::ClientConfig, cl_fps::FrameStats, cl_net::ClientNetwork},
+    error::AppError,
 };
 
 pub(super) struct ClientState {
     pub app: Arc<App>,
+    config: Arc<RwLock<ClientConfig>>,
     net: ClientNetwork,
-    window: Option<Window>,
     renderer: Option<VulkanRenderer>,
     renderer_failed: bool,
     max_fps: f32,
@@ -27,12 +31,15 @@ pub(super) struct ClientState {
 }
 
 impl ClientState {
-    pub(super) fn new(app: &Arc<App>) -> Result<Self, AppError> {
+    pub(super) fn new(
+        app: &Arc<App>,
+        config: &Arc<RwLock<ClientConfig>>,
+    ) -> Result<Self, AppError> {
         let net = ClientNetwork::new(app)?;
         Ok(Self {
             app: Arc::clone(&app),
+            config: Arc::clone(&config),
             net,
-            window: None,
             renderer: None,
             renderer_failed: false,
             max_fps: 200.0,
@@ -47,9 +54,9 @@ impl ClientState {
         }
     }
 
-    fn run_frame(&mut self) {
+    fn run_frame(&mut self, event_loop: &ActiveEventLoop) {
         let started = Instant::now();
-        self.ensure_renderer();
+        self.ensure_renderer(event_loop);
         self.frame_stats.add_sample();
 
         // Start frame
@@ -58,13 +65,10 @@ impl ClientState {
         // Update
         self.net.update(&self.app);
 
-        if let Some(window) = self.window.as_ref() {
-            if let Some(renderer) = self.renderer.as_mut() {
-                renderer.render(window);
-            }
-            window.request_redraw();
+        if let Some(renderer) = self.renderer.as_mut() {
+            renderer.render();
         }
-        
+
         // End frame
         self.net.frame_end(&self.app);
         self.cap_fps(Instant::now() - started);
@@ -84,39 +88,32 @@ impl ClientState {
         }
     }
 
-    fn ensure_renderer(&mut self) {
-        if self.renderer_failed || self.window.is_none() {
+    fn ensure_renderer(&mut self, event_loop: &ActiveEventLoop) {
+        if self.renderer_failed {
             return;
         }
         if self.renderer.is_none() {
-            if let Some(window) = self.window.as_ref() {
-                info!("Initializing renderer...");
-                self.renderer = match VulkanRenderer::new(&self.app, window) {
-                    Ok(renderer) => Some(renderer),
-                    Err(e) => {
-                        error!("Renderer initialization failed: {}", e);
-                        self.renderer_failed = true;
-                        None
-                    }
+            info!("Initializing renderer...");
+            self.renderer = match VulkanRenderer::new(&self.app, event_loop) {
+                Ok(renderer) => Some(renderer),
+                Err(e) => {
+                    error!("Renderer initialization failed: {}", e);
+                    self.renderer_failed = true;
+                    None
                 }
             }
         }
     }
-}
 
-impl ApplicationHandler for ClientState {
-    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        let attrs = create_window_attributes(event_loop);
-        self.window = match event_loop.create_window(attrs) {
-            Ok(wnd) => Some(wnd),
-            Err(e) => {
-                error!("Unable to create window: {e:?}");
-                None
-            }
-        };
+    pub(super) fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        self.renderer.take();
+        match VulkanRenderer::new(&self.app, event_loop) {
+            Ok(renderer) => self.renderer = Some(renderer),
+            Err(e) => error!("Unable to create Vulkan renderer: {:?}", e),
+        }
     }
 
-    fn window_event(
+    pub(super) fn window_event(
         &mut self,
         event_loop: &ActiveEventLoop,
         window_id: WindowId,
@@ -151,7 +148,7 @@ impl ApplicationHandler for ClientState {
             },
             WindowEvent::RedrawRequested => {
                 if !event_loop.exiting() {
-                    self.run_frame();
+                    self.run_frame(event_loop);
                 }
             }
             WindowEvent::KeyboardInput {

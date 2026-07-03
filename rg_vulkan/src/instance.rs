@@ -1,4 +1,4 @@
-use std::ffi::{CStr, CString};
+use std::ffi::CStr;
 use std::io::BufReader;
 use std::sync::Arc;
 
@@ -8,15 +8,13 @@ use ash::{Device, Entry, Instance, vk};
 use rg_common::{App, Files};
 use winit::window::Window;
 
-use crate::debug::DebugUtils;
 use crate::surface::VkSurface;
 use crate::{
-    create_instance::create_instance,
     device::{create_logical_device, pick_physical_device},
     error::{VkError, to_generic},
     image::VkImage,
     queue_family::QueueFamilyIndices,
-    swapchain::Swapchain,
+    swapchain::swapchain::Swapchain,
 };
 
 pub(crate) const DEVICE_EXTENSIONS: [&CStr; 1] = [swapchain::NAME];
@@ -25,8 +23,6 @@ pub(crate) const MAX_FRAMES_IN_FLIGHT: usize = 2;
 
 #[derive()]
 pub struct VkInstance {
-    pub instance: Instance,
-    debug_utils: Option<DebugUtils>,
     surface: VkSurface,
     pub physical_device: vk::PhysicalDevice,
     pub device: Device,
@@ -35,21 +31,26 @@ pub struct VkInstance {
     pub swapchain: Swapchain,
     pub command_pool: vk::CommandPool,
     pub sampler: vk::Sampler,
+    pub memory_properties: vk::PhysicalDeviceMemoryProperties
 }
 
 impl VkInstance {
-    pub fn new(entry: &Entry, window: &Window, app: &Arc<App>) -> Result<Self, VkError> {
-        let (instance, debug_utils) = create_instance(window, &entry)?;
-        let surface = VkSurface::new(&entry, &instance, window)?;
+    pub fn new(
+        app: &Arc<App>,
+        entry: &Entry,
+        instance: &ash::Instance,
+        window: &Window,
+    ) -> Result<Self, VkError> {
+        let surface = VkSurface::new(entry, instance, window)?;
         let physical_device = pick_physical_device(&instance, &surface)?;
         let (device, graphics_queue, present_queue) =
             create_logical_device(&instance, &surface, physical_device)?;
         let command_pool = create_command_pool(&instance, &device, &surface, physical_device)?;
         let swapchain = Swapchain::new(&instance, &surface, &device, physical_device, window)?;
         let sampler = create_sampler(&device)?;
+        let memory_properties =
+            unsafe { instance.get_physical_device_memory_properties(physical_device) };
         let result = Self {
-            instance,
-            debug_utils,
             surface,
             physical_device,
             device,
@@ -58,6 +59,7 @@ impl VkInstance {
             swapchain,
             command_pool,
             sampler,
+            memory_properties
         };
         Ok(result)
     }
@@ -94,11 +96,15 @@ impl VkInstance {
         Ok(changed)
     }
 
-    pub fn recreate_swapchain(&mut self, window: &Window) -> Result<(), VkError> {
+    pub fn recreate_swapchain(
+        &mut self,
+        instance: &ash::Instance,
+        window: &Window,
+    ) -> Result<(), VkError> {
         self.wait_idle()?;
         self.destroy_swapchain();
         self.swapchain = Swapchain::new(
-            &self.instance,
+            instance,
             &self.surface,
             &self.device,
             self.physical_device,
@@ -115,7 +121,6 @@ impl VkInstance {
         size: vk::DeviceSize,
     ) -> Result<(), VkError> {
         // Allocate
-
         let info = vk::CommandBufferAllocateInfo::default()
             .level(vk::CommandBufferLevel::PRIMARY)
             .command_pool(self.command_pool)
@@ -125,7 +130,6 @@ impl VkInstance {
         let command_buffer = unsafe { device.allocate_command_buffers(&info) }?[0];
 
         // Commands
-
         let info = vk::CommandBufferBeginInfo::default()
             .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
 
@@ -137,7 +141,6 @@ impl VkInstance {
         }
 
         // Submit
-
         let command_buffers = &[command_buffer];
         let info = vk::SubmitInfo::default().command_buffers(command_buffers);
 
@@ -158,14 +161,10 @@ impl VkInstance {
         properties: vk::MemoryPropertyFlags,
         requirements: vk::MemoryRequirements,
     ) -> Result<u32, VkError> {
-        let memory = unsafe {
-            self.instance
-                .get_physical_device_memory_properties(self.physical_device)
-        };
-        (0..memory.memory_type_count)
+        (0..self.memory_properties.memory_type_count)
             .filter(|i| (requirements.memory_type_bits & (1 << i)) != 0)
             .find(|i| {
-                let memory_type = memory.memory_types.as_slice()[*i as usize];
+                let memory_type = self.memory_properties.memory_types.as_slice()[*i as usize];
                 memory_type.property_flags.contains(properties)
             })
             .ok_or_else(|| to_generic("Failed to find suitable memory type."))
@@ -528,12 +527,7 @@ impl VkInstance {
             device.destroy_device(None);
             std::ptr::drop_in_place(&mut self.surface);
 
-            if let Some(debug_utils) = self.debug_utils.as_mut() {
-                debug_utils.destroy();
-            }
-
             self.surface.destroy();
-            self.instance.destroy_instance(None);
         }
     }
 }

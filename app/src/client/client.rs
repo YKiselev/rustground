@@ -3,10 +3,7 @@ use std::sync::{Arc, RwLock, atomic::Ordering};
 use log::{info, warn};
 use rg_common::{App, save_config, wrap_var_bag};
 use winit::{
-    application::ApplicationHandler,
-    event::{Event::UserEvent, WindowEvent},
-    event_loop::ActiveEventLoop,
-    window::WindowId,
+    application::ApplicationHandler, event::{DeviceEvent, DeviceId, StartCause, WindowEvent}, event_loop::ActiveEventLoop, window::WindowId,
 };
 
 use crate::{
@@ -23,18 +20,47 @@ impl Client {
         info!("Starting client...");
         let cfg = wrap_var_bag(ClientConfig::new());
         app.vars.add("client", &cfg)?;
-        let state = ClientState::new(&app)?;
+        let state = ClientState::new(&app, &cfg)?;
         Ok(Client(cfg, Some(state)))
     }
 }
 
 impl ApplicationHandler<ClientEvent> for Client {
+    fn new_events(&mut self, event_loop: &ActiveEventLoop, cause: StartCause) {
+        let _ = (event_loop, cause);
+    }
+
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if let Some(state) = self.1.as_mut() {
             state.resumed(event_loop);
         }
     }
 
+    fn user_event(&mut self, event_loop: &ActiveEventLoop, event: ClientEvent) {
+        let _ = (event_loop, event);
+    }
+
+    fn device_event(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        device_id: DeviceId,
+        event: DeviceEvent,
+    ) {
+        let _ = (event_loop, device_id, event);
+    }
+    
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        let _ = event_loop;
+    }
+
+    fn suspended(&mut self, event_loop: &ActiveEventLoop) {
+        let _ = event_loop;
+    }
+
+    fn exiting(&mut self, event_loop: &ActiveEventLoop) {
+        let _ = event_loop;
+    }
+    
     fn window_event(
         &mut self,
         event_loop: &ActiveEventLoop,
@@ -65,4 +91,3 @@ impl ApplicationHandler<ClientEvent> for Client {
         }
     }
 }
-

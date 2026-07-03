@@ -11,7 +11,8 @@ mod server;
 
 fn main() -> Result<(), AppError> {
     let args: Arguments = argh::from_env();
-    if args.dedicated {
+    let dedicated = args.dedicated.unwrap_or(false);
+    if dedicated {
         todo!("Not implemented!");
     } else {
         application::run_client_server(args)

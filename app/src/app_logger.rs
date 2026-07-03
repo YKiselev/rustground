@@ -89,7 +89,7 @@ pub(crate) fn init(args: &Arguments) -> Result<(Handle, AppLoggerBuffer), AppErr
         .encoder(Box::new(PatternEncoder::new(PATTERN)))
         .build("app.log")?;
     let (logger, buf) = create_app_logger(400);
-    let level = args.log_level;
+    let level = args.log_level.unwrap_or(LevelFilter::Info);
     let config = Config::builder()
         .appender(Appender::builder().build("stdout", Box::new(stdout)))
         .appender(Appender::builder().build("file", Box::new(file)))

@@ -118,7 +118,7 @@ impl FileRoot {
                 Ok(SeekAndRead::Physical(file))
             }
             Err(e) => {
-                debug!("File not found: {:?}, {:?}", buf, e);
+                //debug!("File not found: {:?}, {:?}", buf, e);
                 Err(FileError::IoError(e))
             }
         }
@@ -231,7 +231,7 @@ impl Files {
     }
 
     ///
-    /// Reads small file into string
+    /// Reads file into string
     ///
     pub fn read_file<S>(&self, name: S) -> Result<String, FileError>
     where
@@ -244,7 +244,7 @@ impl Files {
     }
 
     ///
-    /// Writes small string to file
+    /// Writes string to file
     ///
     pub fn write_file<S>(&self, name: &str, value: S)
     where

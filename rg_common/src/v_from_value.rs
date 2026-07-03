@@ -39,7 +39,7 @@ macro_rules! impl_from_value {
     };
 }
 
-impl_from_value! {i32, i64, u32, u64, usize, f32, f64, bool, String}
+impl_from_value! {i8, u8, i16, u16, i32, i64, u32, u64, usize, f32, f64, bool, String}
 
 #[cfg(test)]
 mod tests {

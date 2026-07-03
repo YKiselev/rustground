@@ -1886,6 +1886,7 @@ dependencies = [
  "serde",
  "thiserror 2.0.18",
  "toml",
+ "uuid",
  "winapi",
  "winit",
 ]

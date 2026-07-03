@@ -1,7 +1,7 @@
 use rg_macros::VarBag;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, VarBag, Serialize, Deserialize)]
+#[derive(Debug, VarBag, Serialize, Deserialize, Default)]
 pub(super) struct ClientConfig {
     name: String,
 }
@@ -9,7 +9,8 @@ pub(super) struct ClientConfig {
 impl ClientConfig {
     pub fn new() -> Self {
         Self {
-            name: "player".to_owned()
+            name: "player".to_owned(),
+            ..Default::default()
         }
     }
 }

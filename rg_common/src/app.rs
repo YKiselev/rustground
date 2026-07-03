@@ -1,6 +1,4 @@
 use std::borrow::Borrow;
-use std::fs::File;
-use std::io::{BufRead, BufReader};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -15,6 +13,7 @@ use crate::config::read_config;
 use crate::{save_config, Loader, LoaderError};
 
 pub struct App {
+    pub name: String,
     pub arguments: Arguments,
     pub exit_flag: AtomicBool,
     pub started_at: Instant,
@@ -28,6 +27,7 @@ impl App {
     pub fn new(args: Arguments) -> Self {
         let files = Files::new(&args);
         Self {
+            name: "Rust Ground".to_string(),
             arguments: args,
             exit_flag: AtomicBool::new(false),
             started_at: Instant::now(),

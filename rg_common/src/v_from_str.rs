@@ -41,7 +41,7 @@ macro_rules! impl_from_str_mutator {
     }
 }
 
-impl_from_str_mutator! { i32, i64, u32, u64, usize, f32, f64, bool, String }
+impl_from_str_mutator! { i16, u16, i32, i64, u32, u64, usize, f32, f64, bool, String }
 
 impl<T: FromStr> FromStrMutator for Option<T>
 where

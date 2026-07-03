@@ -1,29 +1,42 @@
 use std::{
     collections::HashSet,
-    ffi::{CStr, CString, c_void},
+    ffi::{CStr, CString},
+    sync::Arc,
 };
 
-use ash::{Entry, Instance, ext::debug_utils, vk};
+use ash::{
+    ext::debug_utils,
+    vk::{self, PhysicalDevice},
+};
 use log::{info, warn};
 use raw_window_handle::HasDisplayHandle;
+use rg_common::App;
+use uuid::Uuid;
 use winit::window::Window;
 
 use crate::{
-    debug::DebugUtils, device::{VALIDATION_ENABLED, VALIDATION_LAYER}, error::VkError,
+    debug::DebugUtils,
+    device::{VALIDATION_ENABLED, VALIDATION_LAYER},
+    error::VkError,
 };
 
-const APP_NAME: &CStr = c"Rust Ground";
+const ENGINE_VERSION: u32 = vk::make_api_version(0, 1, 0, 0);
+const API_VERSION: u32 = vk::make_api_version(0, 1, 0, 0);
 
 pub(crate) fn create_instance(
+    app: &Arc<App>,
     window: &Window,
-    entry: &Entry,
-) -> Result<(Instance, Option<DebugUtils>), VkError> {
+    entry: &ash::Entry,
+) -> Result<(ash::Instance, Option<DebugUtils>), VkError> {
+    choose_best_physical_device(entry)?;
+    let name = CString::new(app.name.as_str()).expect("App name contains null!");
+    let app_version = vk::make_api_version(0, 1, 0, 0);
     let application_info = vk::ApplicationInfo {
-        p_application_name: APP_NAME.as_ptr(),
-        application_version: 0,
-        p_engine_name: APP_NAME.as_ptr(),
-        engine_version: 0,
-        api_version: vk::make_api_version(0, 1, 0, 0),
+        p_application_name: name.as_ptr(),
+        application_version: app_version,
+        p_engine_name: name.as_ptr(),
+        engine_version: ENGINE_VERSION,
+        api_version: API_VERSION,
         ..Default::default()
     };
 
@@ -54,6 +67,7 @@ pub(crate) fn create_instance(
     if VALIDATION_ENABLED {
         extensions.push(debug_utils::NAME.as_ptr());
     }
+
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     {
         extensions.push(ash::khr::portability_enumeration::NAME.as_ptr());
@@ -83,4 +97,57 @@ pub(crate) fn create_instance(
     }
 
     Ok((instance, debug_utils))
+}
+
+fn choose_best_physical_device(entry: &ash::Entry) -> Result<(), VkError> {
+    let app_info = vk::ApplicationInfo::default().api_version(vk::API_VERSION_1_3);
+
+    let create_info = vk::InstanceCreateInfo::default().application_info(&app_info);
+
+    let instance = unsafe { entry.create_instance(&create_info, None)? };
+
+    let physical_devices = unsafe { instance.enumerate_physical_devices()? };
+
+    println!(
+        "Found {} GPU(s) with Vulkan support:",
+        physical_devices.len()
+    );
+
+    for (index, &device) in physical_devices.iter().enumerate() {
+        let properties = unsafe { instance.get_physical_device_properties(device) };
+        let device_name =
+            unsafe { CStr::from_ptr(properties.device_name.as_ptr()).to_string_lossy() };
+
+        let device_type = match properties.device_type {
+            vk::PhysicalDeviceType::INTEGRATED_GPU => "Integrated GPU (iGPU)",
+            vk::PhysicalDeviceType::DISCRETE_GPU => "Discrete GPU (dGPU)",
+            vk::PhysicalDeviceType::VIRTUAL_GPU => "Virtual GPU",
+            vk::PhysicalDeviceType::CPU => "CPU Fallback",
+            _ => "Unknown Device Type",
+        };
+
+        let mut id_properties = vk::PhysicalDeviceIDProperties::default();
+        let mut properties2 =
+            vk::PhysicalDeviceProperties2::default().push_next(&mut id_properties);
+
+        unsafe { instance.get_physical_device_properties2(device, &mut properties2) };
+
+        let gpu_uuid: Uuid = Uuid::from_bytes(id_properties.device_uuid);
+        let uuid_string = if gpu_uuid.is_nil() {
+            format!("{}:{}", properties.vendor_id, properties.device_id)
+        } else {
+            gpu_uuid.to_string()
+        };
+
+        println!(
+            "  [{}] {} ({}), UUID={}",
+            index, device_name, device_type, uuid_string
+        );
+    }
+
+    unsafe {
+        instance.destroy_instance(None);
+    }
+
+    Ok(())
 }

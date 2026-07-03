@@ -12,7 +12,7 @@ use crate::vertex::Pos2Color3Tex2Vertex;
 use crate::{
     error::{VkError, to_generic},
     instance::VkInstance,
-    pipeline::create_shader_module,
+    pipelines::pipeline::create_shader_module,
     types::Mat4,
     uniform::UniformBufferObject,
 };
@@ -42,8 +42,8 @@ pub struct TexturedTriangle {
 
 impl TexturedTriangle {
     pub fn new(instance: &VkInstance, app: &Arc<App>) -> Result<Self, VkError> {
-        let vert = include_bytes!("../../base/resources/shaders/tex-shader.vert.spv");
-        let frag = include_bytes!("../../base/resources/shaders/tex-shader.frag.spv");
+        let vert = include_bytes!("../../../base/resources/shaders/tex-shader.vert.spv");
+        let frag = include_bytes!("../../../base/resources/shaders/tex-shader.frag.spv");
 
         let vert_shader_module = create_shader_module(&instance.device, &vert[..])?;
         let frag_shader_module = create_shader_module(&instance.device, &frag[..])?;

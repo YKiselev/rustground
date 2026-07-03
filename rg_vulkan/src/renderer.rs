@@ -3,58 +3,68 @@ use std::{
     time::Instant,
 };
 
-use ash::{Entry, vk};
+use ash::vk;
 use log::{info, warn};
 use rg_common::{App, wrap_var_bag};
-use winit::{dpi::PhysicalSize, window::Window};
+use winit::{event_loop::ActiveEventLoop, window::Window};
 
 use crate::{
     config::Config,
+    create_instance::create_instance,
+    debug::DebugUtils,
     error::{VkError, to_generic},
     instance::VkInstance,
-    textured_triangle::TexturedTriangle,
-    triangle::Triangle,
+    pipelines::{textured_triangle::TexturedTriangle, triangle::Triangle},
+    window::{MAX_VIDEO_MODE, create_window},
 };
 
 pub struct VulkanRenderer {
+    app: Arc<App>,
     config: Arc<RwLock<Config>>,
-    entry: Entry,
-    instance: VkInstance,
+    entry: ash::Entry,
+    window: Window,
+    instance: ash::Instance,
+    debug_utils: Option<DebugUtils>,
+    vk_instance: VkInstance,
     window_resized: bool,
     start: Instant,
     triangle: Triangle,
     tex_triangle: TexturedTriangle,
-    app: Arc<App>,
 }
 
 impl VulkanRenderer {
-    pub fn new(app: &Arc<App>, window: &Window) -> Result<Self, VkError> {
+    pub fn new(app: &Arc<App>, event_loop: &ActiveEventLoop) -> Result<Self, VkError> {
         let config = prepare_config(app)?;
-        let entry = unsafe { Entry::load().map_err(to_generic)? };
-        let instance = VkInstance::new(&entry, window, app)?;
-        let triangle = Triangle::new(&instance, app)?;
-        let tex_triangle = TexturedTriangle::new(&instance, app)?;
+        let entry = unsafe { ash::Entry::load().map_err(to_generic)? };
+        let window = create_window(app, &config, event_loop)?;
+        let (instance, debug_utils) = create_instance(app, &window, &entry)?;
+        let vk_instance = VkInstance::new(app, &entry, &instance, &window)?;
+        let triangle = Triangle::new(&vk_instance, app)?;
+        let tex_triangle = TexturedTriangle::new(&vk_instance, app)?;
         info!("Vulkan renderer initialzied");
         Ok(Self {
+            app: Arc::clone(app),
             config,
             entry,
+            window,
             instance,
+            debug_utils,
+            vk_instance,
             window_resized: false,
             start: Instant::now(),
             triangle,
             tex_triangle,
-            app: Arc::clone(app),
         })
     }
 
-    pub fn render(&mut self, window: &Window) {
+    pub fn render(&mut self) {
         let mut recreate_swapchain = self.window_resized;
         if !recreate_swapchain {
-            match self.instance.begin_frame() {
+            match self.vk_instance.begin_frame() {
                 Ok(image_index) => {
                     self.render_frame(image_index);
 
-                    match self.instance.end_frame(image_index, window) {
+                    match self.vk_instance.end_frame(image_index, &self.window) {
                         Ok(changed) => recreate_swapchain = changed,
                         Err(e) => warn!("Failed to end frame: {:?}", e),
                     }
@@ -65,23 +75,26 @@ impl VulkanRenderer {
         }
         if recreate_swapchain {
             let _ = self
-                .recreate_swapchain(window)
+                .recreate_swapchain()
                 .inspect_err(|e| warn!("Failed to recreate swapchain: {:?}", e));
         }
+        self.window.request_redraw();
     }
 
-    fn recreate_swapchain(&mut self, window: &Window) -> Result<(), VkError> {
+    fn recreate_swapchain(&mut self) -> Result<(), VkError> {
         // Do not recreate swapchain on window minimize
-        let size = window.inner_size();
+        let size = self.window.inner_size();
         if size.width == 0 || size.height == 0 {
             return Ok(());
         }
 
         self.window_resized = false;
-        self.instance.recreate_swapchain(window)?;
+        self.vk_instance
+            .recreate_swapchain(&self.instance, &self.window)?;
 
-        self.triangle.on_swapchain_recreated(&self.instance)?;
-        self.tex_triangle.on_swapchain_recreated(&self.instance)?;
+        self.triangle.on_swapchain_recreated(&self.vk_instance)?;
+        self.tex_triangle
+            .on_swapchain_recreated(&self.vk_instance)?;
 
         info!("Swapchain recreated");
         Ok(())
@@ -96,29 +109,32 @@ impl VulkanRenderer {
             }
         };
         let time = self.start.elapsed().as_secs_f32();
-        let extent = self.instance.swapchain.extent;
+        let extent = self.vk_instance.swapchain.extent;
         let ratio = extent.width as f32 / extent.height as f32;
 
         match self
             .triangle
-            .draw_to_buffer(&self.instance, image_index, command_buffer)
+            .draw_to_buffer(&self.vk_instance, image_index, command_buffer)
         {
             Ok(_) => {
-                let _ =
-                    self.triangle
-                        .update_uniform_buffer(&self.instance, image_index, time, ratio);
+                let _ = self.triangle.update_uniform_buffer(
+                    &self.vk_instance,
+                    image_index,
+                    time,
+                    ratio,
+                );
             }
             Err(e) => warn!("Failed to draw to command buffer: {:?}", e),
         }
 
         match self
             .tex_triangle
-            .draw_to_buffer(&self.instance, image_index, command_buffer)
+            .draw_to_buffer(&self.vk_instance, image_index, command_buffer)
         {
             Ok(_) => {
                 let time = 0.98 * time;
                 let _ = self.tex_triangle.update_uniform_buffer(
-                    &self.instance,
+                    &self.vk_instance,
                     image_index,
                     time,
                     ratio,
@@ -135,9 +151,9 @@ impl VulkanRenderer {
 
     fn begin_frame(&self, image_index: usize) -> Result<vk::CommandBuffer, VkError> {
         let info = vk::CommandBufferBeginInfo::default();
-        let instance = &self.instance;
+        let instance = &self.vk_instance;
         let command_buffer = self
-            .instance
+            .vk_instance
             .swapchain
             .frames_in_flight
             .frame()
@@ -145,9 +161,7 @@ impl VulkanRenderer {
 
         unsafe { instance.device.begin_command_buffer(command_buffer, &info) }?;
 
-        let render_area = vk::Rect2D::default()
-            //.offset(vk::Offset2D::default())
-            .extent(instance.swapchain.extent);
+        let render_area = vk::Rect2D::default().extent(instance.swapchain.extent);
 
         let color_clear_value = vk::ClearValue {
             color: vk::ClearColorValue {
@@ -184,8 +198,8 @@ impl VulkanRenderer {
 
     fn end_frame(&self, command_buffer: vk::CommandBuffer) -> Result<(), VkError> {
         unsafe {
-            self.instance.device.cmd_end_render_pass(command_buffer);
-            self.instance.device.end_command_buffer(command_buffer)?;
+            self.vk_instance.device.cmd_end_render_pass(command_buffer);
+            self.vk_instance.device.end_command_buffer(command_buffer)?;
         }
         Ok(())
     }
@@ -198,10 +212,16 @@ impl VulkanRenderer {
 impl Drop for VulkanRenderer {
     fn drop(&mut self) {
         info!("Destroing renderer");
-        self.instance.wait_idle().unwrap();
-        self.triangle.destroy(&self.instance.device);
-        self.tex_triangle.destroy(&self.instance.device);
-        self.instance.destroy();
+        self.vk_instance.wait_idle().unwrap();
+        self.triangle.destroy(&self.vk_instance.device);
+        self.tex_triangle.destroy(&self.vk_instance.device);
+        self.vk_instance.destroy();
+        if let Some(debug_utils) = self.debug_utils.as_mut() {
+            debug_utils.destroy();
+        }
+        unsafe {
+            self.instance.destroy_instance(None);
+        }
     }
 }
 
@@ -239,19 +259,42 @@ pub(crate) fn create_default_viewport_and_scissor(
 fn prepare_config(app: &Arc<App>) -> Result<Arc<RwLock<Config>>, VkError> {
     let mut config = Config::default();
 
-    config.windowed = app.arguments.windowed;
-    config.width = app.arguments.width;
-    config.height = app.arguments.height;
+    // Sane defaults
+    config.windowed = true;
+    config.width = 800;
+    config.height = 600;
+    config.bit_depth = 24;
+    config.refresh_rate = 60;
 
     let config = wrap_var_bag(config);
     app.vars.add("gfx", &config).map_err(|e| to_generic(e))?;
-    let mut guard = config.write().expect("Unable to lock config!");
-    if guard.width < 400 {
-        guard.width = 400;
+
+    // Command line arguments takes precedence over config values
+    let mut cfg = config.write()?;
+    let args = &app.arguments;
+
+    if let Some(windowed) = args.windowed {
+        cfg.windowed = windowed;
     }
-    if guard.height < 300 {
-        guard.height = 300;
+    if let Some(width) = args.width {
+        cfg.width = width;
     }
-    std::mem::drop(guard);
+    if let Some(height) = args.height {
+        cfg.height = height;
+    }
+    if let Some(bit_depth) = args.bit_depth {
+        cfg.bit_depth = bit_depth;
+    }
+    if let Some(refresh_rate) = args.refresh_rate {
+        cfg.refresh_rate = refresh_rate;
+    }
+
+    cfg.width = cfg.width.clamp(400, MAX_VIDEO_MODE.width);
+    cfg.height = cfg.height.clamp(200, MAX_VIDEO_MODE.height);
+    cfg.bit_depth = cfg.bit_depth.clamp(24, 32);
+    cfg.refresh_rate = cfg.refresh_rate.clamp(50, 200);
+
+    std::mem::drop(cfg);
+
     Ok(config)
 }

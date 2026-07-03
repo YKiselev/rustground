@@ -11,14 +11,6 @@ pub enum VSyncMode {
     On,
 }
 
-fn def_width() -> u32 {
-    1024
-}
-
-fn def_height() -> u32 {
-    768
-}
-
 ///
 /// Program arguments
 ///
@@ -26,25 +18,33 @@ fn def_height() -> u32 {
 pub struct Arguments {
     /// run dedicated server
     #[argh(switch)]
-    pub dedicated: bool,
+    pub dedicated: Option<bool>,
 
     /// run client in windowed mode
     #[argh(switch)]
-    pub windowed: bool,
+    pub windowed: Option<bool>,
 
     /// window width
-    #[argh(option, default = "def_width()")]
-    pub width: u32,
-    
+    #[argh(option)]
+    pub width: Option<u32>,
+
     /// window height
-    #[argh(option, default = "def_height()")]
-    pub height: u32,
+    #[argh(option)]
+    pub height: Option<u32>,
+
+    /// bit depth (bpp)
+    #[argh(option)]
+    pub bit_depth: Option<u16>,
+
+    /// refresh rate (Hz)
+    #[argh(option)]
+    pub refresh_rate: Option<u32>,
 
     /// v-sync mode
-    #[argh(option, default = "VSyncMode::Triple")]
-    pub v_sync: VSyncMode,
+    #[argh(option)]
+    pub v_sync: Option<VSyncMode>,
 
     /// log level filter
-    #[argh(option, default = "LevelFilter::Debug")]
-    pub log_level: LevelFilter,
+    #[argh(option)]
+    pub log_level: Option<LevelFilter>,
 }

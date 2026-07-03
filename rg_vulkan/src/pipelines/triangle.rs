@@ -6,12 +6,11 @@ use rg_common::App;
 use std::sync::Arc;
 
 use crate::buffer::VkBuffer;
-use crate::instance;
 use crate::renderer::create_default_viewport_and_scissor;
 use crate::{
     error::{VkError, to_generic},
     instance::VkInstance,
-    pipeline::create_shader_module,
+    pipelines::pipeline::create_shader_module,
     types::Mat4,
     uniform::UniformBufferObject,
     vertex::Pos2Color3Vertex,
@@ -41,8 +40,8 @@ pub struct Triangle {
 
 impl Triangle {
     pub fn new(instance: &VkInstance, app: &Arc<App>) -> Result<Self, VkError> {
-        let vert = include_bytes!("../../base/resources/shaders/shader.vert.spv");
-        let frag = include_bytes!("../../base/resources/shaders/shader.frag.spv");
+        let vert = include_bytes!("../../../base/resources/shaders/shader.vert.spv");
+        let frag = include_bytes!("../../../base/resources/shaders/shader.frag.spv");
 
         let vert_shader_module = create_shader_module(&instance.device, &vert[..])?;
         let frag_shader_module = create_shader_module(&instance.device, &frag[..])?;

@@ -12,7 +12,7 @@ use crate::{
     instance::DEVICE_EXTENSIONS,
     queue_family::QueueFamilyIndices,
     surface::VkSurface,
-    swapchain::SwapchainSupport,
+    swapchain::swapchain::SwapchainSupport,
 };
 
 pub(crate) const VALIDATION_ENABLED: bool = cfg!(debug_assertions);

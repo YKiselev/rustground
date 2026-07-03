@@ -7,8 +7,8 @@ use log::info;
 use winit::window::Window;
 
 use crate::{
-    error::VkError, frames_in_flight::FramesInFlight, pipeline::create_render_pass,
-    queue_family::QueueFamilyIndices, surface::VkSurface,
+    error::VkError, pipelines::pipeline::create_render_pass, queue_family::QueueFamilyIndices,
+    surface::VkSurface, swapchain::frames_in_flight::FramesInFlight,
 };
 
 ///

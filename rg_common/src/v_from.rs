@@ -29,6 +29,26 @@ impl Display for Variable<'_> {
     }
 }
 
+macro_rules! impl_from_int {
+    ( $($t:ty),* ) => {
+        $(
+        impl From<&$t> for Variable<'_> {
+            fn from(value: &$t) -> Self {
+                Variable::Integer(*value as i64)
+            }
+        }
+
+        impl From<&mut $t> for Variable<'_> {
+            fn from(value: &mut $t) -> Self {
+                Variable::Integer(*value as i64)
+            }
+        }
+        )*
+    };
+}
+
+impl_from_int!{i8, u8, i16, u16, i32, u32, i64, u64, usize}
+
 impl From<&bool> for Variable<'_> {
     fn from(value: &bool) -> Self {
         Variable::Boolean(*value)
@@ -38,66 +58,6 @@ impl From<&bool> for Variable<'_> {
 impl From<&mut bool> for Variable<'_> {
     fn from(value: &mut bool) -> Self {
         Variable::Boolean(*value)
-    }
-}
-
-impl From<&usize> for Variable<'_> {
-    fn from(value: &usize) -> Self {
-        Variable::Integer(*value as i64)
-    }
-}
-
-impl From<&mut usize> for Variable<'_> {
-    fn from(value: &mut usize) -> Self {
-        Variable::Integer(*value as i64)
-    }
-}
-
-impl From<&i64> for Variable<'_> {
-    fn from(value: &i64) -> Self {
-        Variable::Integer(*value)
-    }
-}
-
-impl From<&mut i64> for Variable<'_> {
-    fn from(value: &mut i64) -> Self {
-        Variable::Integer(*value)
-    }
-}
-
-impl From<&i32> for Variable<'_> {
-    fn from(value: &i32) -> Self {
-        Variable::Integer(*value as i64)
-    }
-}
-
-impl From<&mut i32> for Variable<'_> {
-    fn from(value: &mut i32) -> Self {
-        Variable::Integer(*value as i64)
-    }
-}
-
-impl From<&u64> for Variable<'_> {
-    fn from(value: &u64) -> Self {
-        Variable::Integer(*value as i64)
-    }
-}
-
-impl From<&mut u64> for Variable<'_> {
-    fn from(value: &mut u64) -> Self {
-        Variable::Integer(*value as i64)
-    }
-}
-
-impl From<&u32> for Variable<'_> {
-    fn from(value: &u32) -> Self {
-        Variable::Integer(*value as i64)
-    }
-}
-
-impl From<&mut u32> for Variable<'_> {
-    fn from(value: &mut u32) -> Self {
-        Variable::Integer(*value as i64)
     }
 }
 
@@ -139,29 +99,26 @@ impl<'a> From<&'a DynVarBagRef> for Variable<'a> {
     }
 }
 
-impl From<&f64> for Variable<'_> {
-    fn from(value: &f64) -> Self {
-        Variable::Float(*value)
-    }
+
+macro_rules! impl_from_float {
+    ( $($t:ty),* ) => {
+        $(
+        impl From<&$t> for Variable<'_> {
+            fn from(value: &$t) -> Self {
+                Variable::Float(*value as f64)
+            }
+        }
+
+        impl From<&mut $t> for Variable<'_> {
+            fn from(value: &mut $t) -> Self {
+                Variable::Float(*value as f64)
+            }
+        }
+        )*
+    };
 }
 
-impl From<&mut f64> for Variable<'_> {
-    fn from(value: &mut f64) -> Self {
-        Variable::Float(*value)
-    }
-}
-
-impl From<&f32> for Variable<'_> {
-    fn from(value: &f32) -> Self {
-        Variable::Float(*value as f64)
-    }
-}
-
-impl From<&mut f32> for Variable<'_> {
-    fn from(value: &mut f32) -> Self {
-        Variable::Float(*value as f64)
-    }
-}
+impl_from_float!{f32, f64}
 
 impl<'a> From<&'a Option<String>> for Variable<'a> {
     fn from(value: &'a Option<String>) -> Self {
