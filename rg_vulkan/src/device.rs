@@ -2,7 +2,7 @@ use std::{collections::HashSet, fmt, str::FromStr};
 
 use ash::{
     Device, Instance,
-    vk::{self, PhysicalDevice, PhysicalDeviceProperties, Queue},
+    vk::{self, PhysicalDevice, PhysicalDeviceProperties, PhysicalDeviceType, Queue},
 };
 use log::{debug, log_enabled};
 use std::ffi::CStr;
@@ -64,17 +64,22 @@ pub(crate) fn pick_physical_device(
     instance: &Instance,
     surface: &VkSurface,
     device_id: &Option<DeviceId>,
-) -> Result<(DeviceId, PhysicalDevice), VkError> {
-    let physical_devices = enumerate_physical_devices(instance)?;
+) -> Result<(DeviceId, PhysicalDevice, PhysicalDeviceProperties), VkError> {
+    let mut physical_devices = enumerate_physical_devices(instance)?;
+
+    // Sort so that discrete gpu's will be first
+    physical_devices.sort_by_key(|(_, props)| {
+        props.device_type != PhysicalDeviceType::DISCRETE_GPU
+    });
 
     match device_id {
         Some(id) => {
-            if let Some((id, dev)) =
+            if let Some((id, dev, props)) =
                 find_physical_device(instance, surface, &physical_devices, |dev, props| {
                     get_physical_device_id(instance, dev, props) == *id
                 })
             {
-                return Ok((id, dev));
+                return Ok((id, dev, props));
             }
         }
         None => {}
@@ -105,7 +110,7 @@ fn find_physical_device<F>(
     surface: &VkSurface,
     devices: &Vec<(PhysicalDevice, PhysicalDeviceProperties)>,
     predicate: F,
-) -> Option<(DeviceId, PhysicalDevice)>
+) -> Option<(DeviceId, PhysicalDevice, PhysicalDeviceProperties)>
 where
     F: Fn(PhysicalDevice, &PhysicalDeviceProperties) -> bool,
 {
@@ -117,7 +122,7 @@ where
             }
         } else if predicate(device, &properties) {
             let id = get_physical_device_id(instance, device, &properties);
-            return Some((id, device));
+            return Some((id, device, properties));
         }
     }
     None

@@ -55,9 +55,11 @@ impl VkInstance {
             .and_then(|v| DeviceId::parse(v));
 
         info!("Picking physical device...");
-        let (device_id, physical_device) =
+        let (device_id, physical_device, device_properties) =
             pick_physical_device(&instance, &surface, &preferred_device_id)?;
-        info!("Using device with id = {}", device_id);
+        let device_name =
+            unsafe { CStr::from_ptr(device_properties.device_name.as_ptr()).to_string_lossy() };
+        info!("Using {} ({})", device_name, device_id);
 
         if Some(&device_id) != preferred_device_id.as_ref() {
             cfg.preferred_device = Some(device_id.to_string());
