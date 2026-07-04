@@ -24,3 +24,4 @@ thiserror = { workspace = true }
 
 [build-dependencies]
 shaderc = "0.10.1"
+pathdiff = { workspace = true }

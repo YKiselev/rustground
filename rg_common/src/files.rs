@@ -1,7 +1,7 @@
 use std::borrow::Borrow;
 use std::fmt::{Display, Formatter};
 use std::fs::{File, read};
-use std::io::{BufRead, BufReader, Error, ErrorKind, Read, Seek, Write, Cursor};
+use std::io::{BufRead, BufReader, Cursor, Error, ErrorKind, Read, Seek, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{PoisonError, RwLock};
 use std::{env, fs};
@@ -172,6 +172,16 @@ impl Files {
         info!("Current dir is {:?}", current_dir);
         folders.push(current_dir.join("base"));
         folders.push(current_dir.join("base/resources"));
+
+        // Add build target dir in case we developing
+        if let Ok(out_dir) = std::env::var("OUT_DIR") {
+            let mut dst_dir = PathBuf::from(&out_dir);
+            while dst_dir.file_name().unwrap() != "target" {
+                let _ = dst_dir.pop();
+            }
+            folders.push(dst_dir);
+        }
+
         let roots = folders
             .iter()
             .filter_map(|path| match FileRoot::try_new(path) {
@@ -214,7 +224,7 @@ impl Files {
         Ok(self.read(path).map(BufReader::new)?)
     }
 
-    pub fn write<S>(&self, path: S) -> Result< SeekAndWrite, FileError>
+    pub fn write<S>(&self, path: S) -> Result<SeekAndWrite, FileError>
     where
         S: AsRef<str>,
     {

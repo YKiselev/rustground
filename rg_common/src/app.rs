@@ -83,8 +83,8 @@ impl App {
         A: Send + Sync + 'static,
     {
         self.files
-            .buf_read(name)
-            .map_err(|_| LoaderError::NotFound)
+            .buf_read(name.as_ref())
+            .map_err(|_| LoaderError::NotFound(String::from(name.as_ref())))
             .and_then(|mut r| loader(&mut r))
     }
 }

@@ -20,8 +20,8 @@ where
 
 #[derive(Debug, Error)]
 pub enum LoaderError {
-    #[error("Not found")]
-    NotFound,
+    #[error("Not found: {0:?}")]
+    NotFound(String),
     #[error("Not a valid utf-8 data")]
     BadUtf8,
     #[error("{0}")]

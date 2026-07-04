@@ -4,6 +4,7 @@ use cgmath::vec4;
 use cgmath::{Deg, point3, vec2, vec3};
 use log::error;
 use rg_common::App;
+use rg_common::load_bytes;
 use std::sync::Arc;
 
 use crate::buffer::VkBuffer;
@@ -42,8 +43,8 @@ pub struct Triangle {
 
 impl Triangle {
     pub fn new(instance: &VkInstance, app: &Arc<App>) -> Result<Self, VkError> {
-        let vert = include_bytes!("../../../base/resources/shaders/shader.vert.spv");
-        let frag = include_bytes!("../../../base/resources/shaders/shader.frag.spv");
+        let vert = app.load_resource("shaders/shader.vert.spv", &load_bytes)?;
+        let frag = app.load_resource("shaders/shader.frag.spv", &load_bytes)?;
 
         let vert_shader_module = create_shader_module(&instance.device, &vert[..])?;
         let frag_shader_module = create_shader_module(&instance.device, &frag[..])?;
