@@ -35,7 +35,10 @@ pub(crate) fn create_window(
             cfg.preferred_monitor = selected_name;
         }
     }
-    let attributes = prepare_window_attributes(&cfg, monitor).with_title(&app.name);
+
+    let attributes = prepare_window_attributes(&cfg, monitor)
+        .with_title(&app.name)
+        .with_visible(false);
     let window = event_loop.create_window(attributes)?;
 
     return Ok(window);
@@ -65,12 +68,10 @@ pub(crate) fn prepare_window_attributes(
         if let Some(monitor) = monitor.as_ref() {
             let win_size = size.to_physical::<i32>(monitor.scale_factor());
             let pos = monitor.position();
-            if pos.x != 0 || pos.y != 0 {
-                let monitor_size = monitor.size();
-                let x = pos.x + (monitor_size.width as i32 / 2) - (win_size.width / 2);
-                let y = pos.y + (monitor_size.height as i32 / 2) - (win_size.height / 2);
-                attrs = attrs.with_position(PhysicalPosition::new(x, y));
-            }
+            let monitor_size = monitor.size();
+            let x = pos.x + (monitor_size.width as i32 / 2) - (win_size.width / 2);
+            let y = pos.y + (monitor_size.height as i32 / 2) - (win_size.height / 2);
+            attrs = attrs.with_position(PhysicalPosition::new(x, y));
         }
     } else {
         let is_exclusive = false;
@@ -155,30 +156,24 @@ fn pick_video_mode(
 }
 
 fn print_available_monitors(event_loop: &ActiveEventLoop) {
-    for (index, monitor) in event_loop.available_monitors().enumerate() {
-        info!(
-            "Monitor#{:?}: {:?}, x={:?}, y={:?}, {:?} Hz, {:?}x{:?}, x{:?}, {} video mode(s)",
+    let monitors: Vec<MonitorHandle> = event_loop.available_monitors().collect();
+    let mut info = format!("Found {} monitor(s):", monitors.len());
+    for (index, monitor) in monitors.iter().enumerate() {
+        let str = format!(
+            "\n  #{} {}, at ({},{}), {}x{}@{} Hz, scale x{}, {} video mode(s)",
             index,
             monitor.name().unwrap_or("unknown".to_string()),
             monitor.position().x,
             monitor.position().y,
+            monitor.size().width,
+            monitor.size().height,
             monitor
                 .refresh_rate_millihertz()
                 .map_or(0.0, |v| { v as f32 / 1000.0f32 }),
-            monitor.size().width,
-            monitor.size().height,
             monitor.scale_factor(),
             monitor.video_modes().count()
         );
-        // for (index, mode) in monitor.video_modes().enumerate() {
-        //     info!(
-        //         "  {:?}={:?}x{:?}x{:?}@{:?}",
-        //         index,
-        //         mode.size().width,
-        //         mode.size().height,
-        //         mode.bit_depth(),
-        //         mode.refresh_rate_millihertz() as f32 / 1000.0f32
-        //     );
-        // }
+        info.push_str(&str);
     }
+    info!("{}", info);
 }

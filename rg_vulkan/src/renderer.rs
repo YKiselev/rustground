@@ -35,13 +35,26 @@ pub struct VulkanRenderer {
 impl VulkanRenderer {
     pub fn new(app: &Arc<App>, event_loop: &ActiveEventLoop) -> Result<Self, VkError> {
         let config = prepare_config(app)?;
+        
+        info!("Loading Vulkan entry...");
         let entry = unsafe { ash::Entry::load().map_err(to_generic)? };
+        
+        info!("Creating window...");
         let window = create_window(app, &config, event_loop)?;
+        
+        info!("Creating Vulkan instance...");
         let (instance, debug_utils) = create_instance(app, &window, &entry)?;
+        
+        info!("Creating Vulkan device...");
         let vk_instance = VkInstance::new(app, &config, &entry, &instance, &window)?;
+        
+        info!("Creating pipelines...");
         let triangle = Triangle::new(&vk_instance, app)?;
         let tex_triangle = TexturedTriangle::new(&vk_instance, app)?;
+        
         info!("Vulkan renderer initialzied");
+        window.set_visible(true);
+
         Ok(Self {
             app: Arc::clone(app),
             config,

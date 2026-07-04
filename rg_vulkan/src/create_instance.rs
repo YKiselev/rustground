@@ -1,18 +1,16 @@
 use std::{
     collections::HashSet,
     ffi::{CStr, CString},
-    str::FromStr,
     sync::Arc,
 };
 
 use ash::{
     ext::debug_utils,
-    vk::{self, PhysicalDevice},
+    vk::{self},
 };
-use log::{info, warn};
+use log::{debug, info, log_enabled, warn};
 use raw_window_handle::HasDisplayHandle;
 use rg_common::App;
-use uuid::Uuid;
 use winit::window::Window;
 
 use crate::{
@@ -46,9 +44,11 @@ pub(crate) fn create_instance(
         .map(|l| unsafe { CStr::from_ptr(l.layer_name.as_ptr()) }.to_owned())
         .collect::<HashSet<CString>>();
 
-    info!("Supported layers:");
-    for layer in available_layers.iter() {
-        info!("\t{:?}", layer);
+    if log_enabled!(log::Level::Debug) {
+        debug!("Supported layers:");
+        for layer in available_layers.iter() {
+            debug!("\t{:?}", layer);
+        }
     }
 
     let validation_available = available_layers.contains(VALIDATION_LAYER);
@@ -63,6 +63,7 @@ pub(crate) fn create_instance(
     };
 
     let display_handle = window.display_handle()?.as_raw();
+    debug!("Enumerating required extensions...");
     let mut extensions = ash_window::enumerate_required_extensions(display_handle)?.to_vec();
 
     if VALIDATION_ENABLED {
@@ -89,11 +90,13 @@ pub(crate) fn create_instance(
         .enabled_extension_names(&extensions)
         .flags(flags);
 
+    info!("Creating instance...");
     let instance = unsafe { entry.create_instance(&info, None) }?;
 
     let mut debug_utils = None;
 
     if VALIDATION_ENABLED {
+        info!("Creating debug_utils...");
         debug_utils = Some(DebugUtils::new(entry, &instance));
     }
 
@@ -105,11 +108,16 @@ fn print_available_devices(entry: &ash::Entry) -> Result<(), VkError> {
 
     let create_info = vk::InstanceCreateInfo::default().application_info(&app_info);
 
+    info!("Creating temporary instance...");
     let instance = unsafe { entry.create_instance(&create_info, None)? };
 
+    info!("Enumerting physical device");
     let physical_devices = unsafe { instance.enumerate_physical_devices()? };
 
-    let mut info = String::from("Found {} GPU(s) with Vulkan support:");
+    let mut info = format!(
+        "Found {} GPU(s) with Vulkan support:",
+        physical_devices.len()
+    );
 
     for (index, &device) in physical_devices.iter().enumerate() {
         let properties = unsafe { instance.get_physical_device_properties(device) };
@@ -124,11 +132,14 @@ fn print_available_devices(entry: &ash::Entry) -> Result<(), VkError> {
             _ => "Unknown Device Type",
         };
 
-        let device_id = get_physical_device_id(&instance, device);
+        let device_id = get_physical_device_id(&instance, device, &properties);
 
         info.push_str(&format!(
-            "\n  [{}] {} ({}), id = {:?}",
-            index, device_name, device_type, device_id.to_string()
+            "\n  #{} {} ({}), id = {:?}",
+            index,
+            device_name,
+            device_type,
+            device_id.to_string()
         ));
     }
 

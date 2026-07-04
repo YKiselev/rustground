@@ -45,13 +45,16 @@ impl VkInstance {
         instance: &ash::Instance,
         window: &Window,
     ) -> Result<Self, VkError> {
+        info!("Creating Vulkan surface...");
         let surface = VkSurface::new(entry, instance, window)?;
+        info!("Preparing config...");
         let mut cfg = config.write()?;
         let preferred_device_id = cfg
             .preferred_device
             .as_ref()
             .and_then(|v| DeviceId::parse(v));
 
+        info!("Picking physical device...");
         let (device_id, physical_device) =
             pick_physical_device(&instance, &surface, &preferred_device_id)?;
         info!("Using device with id = {}", device_id);

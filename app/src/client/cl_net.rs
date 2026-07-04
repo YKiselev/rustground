@@ -49,7 +49,7 @@ impl ClientNetwork {
     const CONN_RETRY_INTERVAL: Duration = Duration::from_secs(3);
 
     pub(crate) fn new(_app: &Arc<App>) -> Result<Self, AppError> {
-        info!("Starting client...");
+        info!("Creating client network...");
         let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0).into())
             .expect("Unable to create client socket!");
         Ok(ClientNetwork {

@@ -2,7 +2,7 @@ use std::{collections::HashSet, fmt, str::FromStr};
 
 use ash::{
     Device, Instance,
-    vk::{self, PhysicalDevice, Queue},
+    vk::{self, PhysicalDevice, PhysicalDeviceProperties, Queue},
 };
 use log::{debug, log_enabled};
 use std::ffi::CStr;
@@ -65,13 +65,13 @@ pub(crate) fn pick_physical_device(
     surface: &VkSurface,
     device_id: &Option<DeviceId>,
 ) -> Result<(DeviceId, PhysicalDevice), VkError> {
-    let physical_devices = unsafe { instance.enumerate_physical_devices()? };
+    let physical_devices = enumerate_physical_devices(instance)?;
 
     match device_id {
         Some(id) => {
             if let Some((id, dev)) =
-                find_physical_device(instance, surface, &physical_devices, |dev| {
-                    get_physical_device_id(instance, dev) == *id
+                find_physical_device(instance, surface, &physical_devices, |dev, props| {
+                    get_physical_device_id(instance, dev, props) == *id
                 })
             {
                 return Ok((id, dev));
@@ -79,38 +79,55 @@ pub(crate) fn pick_physical_device(
         }
         None => {}
     }
-    find_physical_device(instance, surface, &physical_devices, |_| true).ok_or(
+    find_physical_device(instance, surface, &physical_devices, |_, _| true).ok_or(
         VkError::SuitabilityError("No suitable physical device found!"),
     )
+}
+
+fn enumerate_physical_devices(
+    instance: &Instance,
+) -> Result<Vec<(PhysicalDevice, PhysicalDeviceProperties)>, VkError> {
+    let result = unsafe {
+        instance
+            .enumerate_physical_devices()?
+            .iter()
+            .map(|&d| {
+                let props = instance.get_physical_device_properties(d);
+                (d, props)
+            })
+            .collect()
+    };
+    Ok(result)
 }
 
 fn find_physical_device<F>(
     instance: &Instance,
     surface: &VkSurface,
-    devices: &Vec<PhysicalDevice>,
+    devices: &Vec<(PhysicalDevice, PhysicalDeviceProperties)>,
     predicate: F,
 ) -> Option<(DeviceId, PhysicalDevice)>
 where
-    F: Fn(PhysicalDevice) -> bool,
+    F: Fn(PhysicalDevice, &PhysicalDeviceProperties) -> bool,
 {
-    for &device in devices {
-        let properties = unsafe { instance.get_physical_device_properties(device) };
-
+    for &(device, properties) in devices {
         if let Err(error) = check_physical_device(instance, surface, device) {
             if log_enabled!(log::Level::Debug) {
                 let device_name = unsafe { CStr::from_ptr(properties.device_name.as_ptr()) };
                 debug!("Skipping (`{:?}`): {}", device_name, error);
             }
-        } else if predicate(device) {
-            let id = get_physical_device_id(instance, device);
+        } else if predicate(device, &properties) {
+            let id = get_physical_device_id(instance, device, &properties);
             return Some((id, device));
         }
     }
     None
 }
 
-pub(crate) fn get_physical_device_id(instance: &Instance, device: PhysicalDevice) -> DeviceId {
-    let properties = unsafe { instance.get_physical_device_properties(device) };
+pub(crate) fn get_physical_device_id(
+    instance: &Instance,
+    device: PhysicalDevice,
+    properties: &PhysicalDeviceProperties,
+) -> DeviceId {
     let mut id_properties = vk::PhysicalDeviceIDProperties::default();
     let mut properties2 = vk::PhysicalDeviceProperties2::default().push_next(&mut id_properties);
 
