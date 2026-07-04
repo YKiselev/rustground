@@ -15,3 +15,4 @@ mod surface;
 mod buffer;
 mod config;
 mod window;
+mod loaders;

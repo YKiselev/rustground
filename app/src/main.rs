@@ -1,6 +1,7 @@
 
 use error::AppError;
 
+use log::warn;
 use rg_common::Arguments;
 
 mod app_logger;

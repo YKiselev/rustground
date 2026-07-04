@@ -1,9 +1,8 @@
-use std::default;
 
 use argh::{FromArgValue, FromArgs};
 use log::LevelFilter;
 
-#[derive(FromArgValue, Debug)]
+#[derive(FromArgValue, Debug, PartialEq, PartialOrd)]
 pub enum VSyncMode {
     Off,
     Triple,
@@ -14,7 +13,7 @@ pub enum VSyncMode {
 ///
 /// Program arguments
 ///
-#[derive(FromArgs, Debug)]
+#[derive(FromArgs, Debug, PartialEq)]
 pub struct Arguments {
     /// run dedicated server
     #[argh(switch)]
@@ -46,5 +45,5 @@ pub struct Arguments {
 
     /// log level filter
     #[argh(option)]
-    pub log_level: Option<LevelFilter>,
+    pub log_level: Option<LevelFilter>
 }

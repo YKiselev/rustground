@@ -59,7 +59,7 @@ impl FrameObjects {
 ///
 #[derive(Debug, Default)]
 pub(crate) struct FramesInFlight {
-    current_frame: usize,
+    pub current_frame: usize,
     frames: Vec<FrameObjects>,
 }
 

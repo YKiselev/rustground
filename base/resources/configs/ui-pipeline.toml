@@ -1,0 +1,4 @@
+font = "fonts/FiraCode-Regular.ttf"
+size = 14
+vertex_shader = ""
+fragment_schader = ""

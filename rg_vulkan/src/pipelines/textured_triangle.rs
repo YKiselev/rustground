@@ -1,5 +1,6 @@
 use ash::Device;
 use ash::vk;
+use cgmath::vec4;
 use cgmath::{Deg, point3, vec2, vec3};
 use log::error;
 use rg_common::App;
@@ -7,8 +8,9 @@ use std::sync::Arc;
 
 use crate::buffer::VkBuffer;
 use crate::image::VkImage;
+use crate::instance::MAX_FRAMES_IN_FLIGHT;
 use crate::renderer::create_default_viewport_and_scissor;
-use crate::vertex::Pos2Color3Tex2Vertex;
+use crate::vertex::Pos2Color4Tex2Vertex;
 use crate::{
     error::{VkError, to_generic},
     instance::VkInstance,
@@ -18,11 +20,11 @@ use crate::{
 };
 
 #[rustfmt::skip]
-static VERTICES: [Pos2Color3Tex2Vertex; 4] = [
-    Pos2Color3Tex2Vertex::new(vec2(-0.5, -0.5), vec3(1.0, 0.0, 0.0), vec2(0.0, 0.0)),
-    Pos2Color3Tex2Vertex::new(vec2(0.5, -0.5), vec3(0.0, 1.0, 0.0), vec2(1.0, 0.0)),
-    Pos2Color3Tex2Vertex::new(vec2(0.5, 0.5), vec3(0.0, 0.0, 1.0), vec2(1.0, 1.0)),
-    Pos2Color3Tex2Vertex::new(vec2(-0.5, 0.5), vec3(1.0, 1.0, 1.0), vec2(0.0, 1.0)),
+static VERTICES: [Pos2Color4Tex2Vertex; 4] = [
+    Pos2Color4Tex2Vertex::new(vec2(-0.5, -0.5), vec4(1.0, 0.0, 0.0,1.0), vec2(0.0, 0.0)),
+    Pos2Color4Tex2Vertex::new(vec2(0.5, -0.5), vec4(0.0, 1.0, 0.0,1.0), vec2(1.0, 0.0)),
+    Pos2Color4Tex2Vertex::new(vec2(0.5, 0.5), vec4(0.0, 0.0, 1.0,1.0), vec2(1.0, 1.0)),
+    Pos2Color4Tex2Vertex::new(vec2(-0.5, 0.5), vec4(1.0, 1.0, 1.0,1.0), vec2(0.0, 1.0)),
 ];
 const INDICES: [u16; 6] = [0, 1, 2, 2, 3, 0];
 
@@ -58,8 +60,8 @@ impl TexturedTriangle {
             .module(frag_shader_module)
             .name(c"main");
 
-        let binding_descriptions = &[Pos2Color3Tex2Vertex::binding_description()];
-        let attribute_descriptions = Pos2Color3Tex2Vertex::attribute_descriptions();
+        let binding_descriptions = &[Pos2Color4Tex2Vertex::binding_description()];
+        let attribute_descriptions = Pos2Color4Tex2Vertex::attribute_descriptions();
         let vertex_input_state = vk::PipelineVertexInputStateCreateInfo::default()
             .vertex_binding_descriptions(binding_descriptions)
             .vertex_attribute_descriptions(&attribute_descriptions);
@@ -152,7 +154,7 @@ impl TexturedTriangle {
                 .destroy_shader_module(frag_shader_module, None)
         };
 
-        let descriptor_set_count = instance.swapchain.images.len();
+        let descriptor_set_count = MAX_FRAMES_IN_FLIGHT;
         let descriptor_pool = create_descriptor_pool(&instance.device, descriptor_set_count)?;
         let descriptor_sets = create_descriptor_sets(
             &instance.device,
@@ -216,15 +218,11 @@ impl TexturedTriangle {
     }
 
     pub fn on_swapchain_recreated(&mut self, instance: &VkInstance) -> Result<(), VkError> {
-        self.update_descriptor_sets(instance)
+        //self.update_descriptor_sets(instance)
+        Ok(())
     }
 
     fn update_descriptor_sets(&mut self, instance: &VkInstance) -> Result<(), VkError> {
-        if self.uniform_buffers.len() != instance.swapchain.images.len() {
-            self.destroy_uniform_buffers(&instance.device);
-            self.uniform_buffers = create_uniform_buffers(instance)?;
-        }
-
         for i in 0..self.uniform_buffers.len() {
             let info = vk::DescriptorBufferInfo::default()
                 .buffer(self.uniform_buffers[i].buffer)
@@ -272,7 +270,7 @@ impl TexturedTriangle {
     pub fn draw_to_buffer(
         &mut self,
         instance: &VkInstance,
-        image_index: usize,
+        frame_index: usize,
         command_buffer: vk::CommandBuffer,
     ) -> Result<(), VkError> {
         let device = &instance.device;
@@ -297,7 +295,7 @@ impl TexturedTriangle {
                 0,
                 vk::IndexType::UINT16,
             );
-            let descriptor_sets = [self.descriptor_sets[image_index]];
+            let descriptor_sets = [self.descriptor_sets[frame_index]];
             let dyn_offsets = [];
             device.cmd_bind_descriptor_sets(
                 command_buffer,
@@ -390,10 +388,8 @@ fn create_descriptor_sets(
 }
 
 fn create_uniform_buffers(instance: &VkInstance) -> Result<Vec<VkBuffer>, VkError> {
-    instance
-        .swapchain
-        .images
-        .iter()
+    (0..MAX_FRAMES_IN_FLIGHT)
+        .into_iter()
         .map(|_| VkBuffer::uniform::<UniformBufferObject>(instance))
         .collect::<Result<Vec<VkBuffer>, VkError>>()
 }

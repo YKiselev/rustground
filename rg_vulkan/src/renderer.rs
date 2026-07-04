@@ -35,23 +35,23 @@ pub struct VulkanRenderer {
 impl VulkanRenderer {
     pub fn new(app: &Arc<App>, event_loop: &ActiveEventLoop) -> Result<Self, VkError> {
         let config = prepare_config(app)?;
-        
+
         info!("Loading Vulkan entry...");
         let entry = unsafe { ash::Entry::load().map_err(to_generic)? };
-        
+
         info!("Creating window...");
         let window = create_window(app, &config, event_loop)?;
-        
+
         info!("Creating Vulkan instance...");
         let (instance, debug_utils) = create_instance(app, &window, &entry)?;
-        
+
         info!("Creating Vulkan device...");
         let vk_instance = VkInstance::new(app, &config, &entry, &instance, &window)?;
-        
+
         info!("Creating pipelines...");
         let triangle = Triangle::new(&vk_instance, app)?;
         let tex_triangle = TexturedTriangle::new(&vk_instance, app)?;
-        
+
         info!("Vulkan renderer initialzied");
         window.set_visible(true);
 
@@ -87,6 +87,15 @@ impl VulkanRenderer {
             }
         }
         if recreate_swapchain {
+            match self.config.write() {
+                Ok(mut cfg) => {
+                    let scale_factor = self.window.scale_factor();
+                    let new_size = self.window.inner_size().to_logical::<u32>(scale_factor);
+                    cfg.width = new_size.width;
+                    cfg.height = new_size.height;
+                }
+                Err(_) => warn!("Unable to update window size in config - lock is poisoned!"),
+            }
             let _ = self
                 .recreate_swapchain()
                 .inspect_err(|e| warn!("Failed to recreate swapchain: {:?}", e));
@@ -124,15 +133,16 @@ impl VulkanRenderer {
         let time = self.start.elapsed().as_secs_f32();
         let extent = self.vk_instance.swapchain.extent;
         let ratio = extent.width as f32 / extent.height as f32;
+        let frame_index = self.vk_instance.swapchain.frames_in_flight.current_frame;
 
         match self
             .triangle
-            .draw_to_buffer(&self.vk_instance, image_index, command_buffer)
+            .draw_to_buffer(&self.vk_instance, frame_index, command_buffer)
         {
             Ok(_) => {
                 let _ = self.triangle.update_uniform_buffer(
                     &self.vk_instance,
-                    image_index,
+                    frame_index,
                     time,
                     ratio,
                 );
@@ -142,13 +152,13 @@ impl VulkanRenderer {
 
         match self
             .tex_triangle
-            .draw_to_buffer(&self.vk_instance, image_index, command_buffer)
+            .draw_to_buffer(&self.vk_instance, frame_index, command_buffer)
         {
             Ok(_) => {
                 let time = 0.98 * time;
                 let _ = self.tex_triangle.update_uniform_buffer(
                     &self.vk_instance,
-                    image_index,
+                    frame_index,
                     time,
                     ratio,
                 );

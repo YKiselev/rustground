@@ -1,34 +1,57 @@
 use ash::Device;
 use ash::vk;
+use cgmath::One;
+use cgmath::SquareMatrix;
 use cgmath::vec4;
 use cgmath::{Deg, point3, vec2, vec3};
 use log::error;
 use rg_common::App;
+use rg_common::load_bytes;
+use rg_common::load_deserializable;
+use serde::Deserialize;
+use serde::Serialize;
 use std::sync::Arc;
 
 use crate::buffer::VkBuffer;
-use crate::instance::MAX_FRAMES_IN_FLIGHT;
+use crate::image::VkImage;
 use crate::renderer::create_default_viewport_and_scissor;
+use crate::vertex::Pos2Color4Tex2Vertex;
 use crate::{
     error::{VkError, to_generic},
     instance::VkInstance,
     pipelines::pipeline::create_shader_module,
     types::Mat4,
     uniform::UniformBufferObject,
-    vertex::Pos2Color4Vertex,
 };
 
-#[rustfmt::skip]
-static VERTICES: [Pos2Color4Vertex; 4] = [
-    Pos2Color4Vertex::new(vec2(-0.5, -0.5), vec4(1.0, 0.0, 0.0,1.0)),
-    Pos2Color4Vertex::new(vec2(0.5, -0.5), vec4(0.0, 1.0, 0.0,1.0)),
-    Pos2Color4Vertex::new(vec2(0.5, 0.5), vec4(0.0, 0.0, 1.0,1.0)),
-    Pos2Color4Vertex::new(vec2(-0.5, 0.5), vec4(1.0, 1.0, 1.0,1.0)),
-];
-const INDICES: [u16; 6] = [0, 1, 2, 2, 3, 0];
+const MAX_VERTICES: usize = 4 * 80;
+const MAX_INDICES: usize = 6 * 80;
 
+#[rustfmt::skip]
+static VERTICES: [Pos2Color4Tex2Vertex; 4] = [
+    Pos2Color4Tex2Vertex::new(vec2(-0.5, -0.5), vec4(1.0, 0.0, 0.0, 1.0), vec2(0.0, 0.0)),
+    Pos2Color4Tex2Vertex::new(vec2(0.5, -0.5), vec4(0.0, 1.0, 0.0, 1.0), vec2(1.0, 0.0)),
+    Pos2Color4Tex2Vertex::new(vec2(0.5, 0.5), vec4(0.0, 0.0, 1.0, 1.0), vec2(1.0, 1.0)),
+    Pos2Color4Tex2Vertex::new(vec2(-0.5, 0.5), vec4(1.0, 1.0, 1.0, 1.0), vec2(0.0, 1.0)),
+];
+const QUAD_INDICES: [u16; 6] = [0, 1, 2, 2, 3, 0];
+
+///
+/// UI pipeline config
+///
+#[derive(Serialize, Deserialize)]
+struct Config {
+    font: String,
+    font_size: u32,
+    vertex_shader: String,
+    fragment_schader: String,
+}
+
+///
+/// UI pipeline
+///
 #[derive()]
-pub struct Triangle {
+pub struct UiPipeline {
     app: Arc<App>,
     pub layout: vk::PipelineLayout,
     pub pipeline: vk::Pipeline,
@@ -38,12 +61,16 @@ pub struct Triangle {
     descriptor_set_layout: vk::DescriptorSetLayout,
     descriptor_pool: vk::DescriptorPool,
     descriptor_sets: Vec<vk::DescriptorSet>,
+    texture: VkImage,
 }
 
-impl Triangle {
+
+impl UiPipeline {
     pub fn new(instance: &VkInstance, app: &Arc<App>) -> Result<Self, VkError> {
-        let vert = include_bytes!("../../../base/resources/shaders/shader.vert.spv");
-        let frag = include_bytes!("../../../base/resources/shaders/shader.frag.spv");
+        let config =
+            app.load_resource("configs/ui-pipeline.toml", &load_deserializable::<Config>)?;
+        let vert = app.load_resource("shaders/ui.vert.spv", &load_bytes)?;
+        let frag = app.load_resource("shaders/ui.frag.spv", &load_bytes)?;
 
         let vert_shader_module = create_shader_module(&instance.device, &vert[..])?;
         let frag_shader_module = create_shader_module(&instance.device, &frag[..])?;
@@ -58,8 +85,8 @@ impl Triangle {
             .module(frag_shader_module)
             .name(c"main");
 
-        let binding_descriptions = &[Pos2Color4Vertex::binding_description()];
-        let attribute_descriptions = Pos2Color4Vertex::attribute_descriptions();
+        let binding_descriptions = &[Pos2Color4Tex2Vertex::binding_description()];
+        let attribute_descriptions = Pos2Color4Tex2Vertex::attribute_descriptions();
         let vertex_input_state = vk::PipelineVertexInputStateCreateInfo::default()
             .vertex_binding_descriptions(binding_descriptions)
             .vertex_attribute_descriptions(&attribute_descriptions);
@@ -144,15 +171,13 @@ impl Triangle {
         unsafe {
             instance
                 .device
-                .destroy_shader_module(vert_shader_module, None)
-        };
-        unsafe {
+                .destroy_shader_module(vert_shader_module, None);
             instance
                 .device
-                .destroy_shader_module(frag_shader_module, None)
-        };
+                .destroy_shader_module(frag_shader_module, None);
+        }
 
-        let descriptor_set_count = MAX_FRAMES_IN_FLIGHT;
+        let descriptor_set_count = instance.swapchain.images.len();
         let descriptor_pool = create_descriptor_pool(&instance.device, descriptor_set_count)?;
         let descriptor_sets = create_descriptor_sets(
             &instance.device,
@@ -160,8 +185,9 @@ impl Triangle {
             descriptor_pool,
             descriptor_set_count,
         )?;
+        let texture = instance.create_texture_image(&app.files)?;
         let vertex_buffer = VkBuffer::vertex(instance, VERTICES.as_ptr(), VERTICES.len())?;
-        let index_buffer = VkBuffer::index(instance, INDICES.as_ptr(), INDICES.len())?;
+        let index_buffer = VkBuffer::index(instance, QUAD_INDICES.as_ptr(), QUAD_INDICES.len())?;
         let uniform_buffers = create_uniform_buffers(instance)?;
         let mut result = Self {
             app: Arc::clone(app),
@@ -170,30 +196,24 @@ impl Triangle {
             vertex_buffer,
             index_buffer,
             uniform_buffers,
-            descriptor_sets,
-            descriptor_pool,
             descriptor_set_layout,
+            descriptor_pool,
+            descriptor_sets,
+            texture,
         };
         result.update_descriptor_sets(instance)?;
+
         Ok(result)
     }
 
     pub fn update_uniform_buffer(
         &self,
         instance: &VkInstance,
-        image_index: usize,
-        time: f32,
-        ratio: f32,
+        image_index: usize
     ) -> Result<(), VkError> {
-        let model = Mat4::from_axis_angle(vec3(0.0, 0.0, 1.0), Deg(90.0) * time);
-
-        let view = Mat4::look_at_rh(
-            point3::<f32>(2.0, 2.0, 2.0),
-            point3::<f32>(0.0, 0.0, 0.0),
-            vec3(0.0, 0.0, 1.0),
-        );
-
-        let mut proj = cgmath::perspective(Deg(45.0), ratio, 0.1, 10.0);
+        let model = Mat4::one();
+        let view = Mat4::one();
+        let mut proj = cgmath::ortho(0.0, 800.0, 600.0, 0.0, -1.0, 1.0);
 
         proj.y.y *= -1.0; // OGL legacy)
 
@@ -213,10 +233,15 @@ impl Triangle {
     }
 
     pub fn on_swapchain_recreated(&mut self, instance: &VkInstance) -> Result<(), VkError> {
-        Ok(())
+        self.update_descriptor_sets(instance)
     }
 
     fn update_descriptor_sets(&mut self, instance: &VkInstance) -> Result<(), VkError> {
+        if self.uniform_buffers.len() != instance.swapchain.images.len() {
+            self.destroy_uniform_buffers(&instance.device);
+            self.uniform_buffers = create_uniform_buffers(instance)?;
+        }
+
         for i in 0..self.uniform_buffers.len() {
             let info = vk::DescriptorBufferInfo::default()
                 .buffer(self.uniform_buffers[i].buffer)
@@ -232,10 +257,29 @@ impl Triangle {
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
                 .buffer_info(buffer_info);
 
+            let sampler_info = [vk::DescriptorImageInfo::default().sampler(instance.sampler)];
+            let sampler_write = vk::WriteDescriptorSet::default()
+                .dst_set(descriptor_set)
+                .dst_binding(1)
+                .dst_array_element(0)
+                .descriptor_type(vk::DescriptorType::SAMPLER)
+                .image_info(&sampler_info);
+
+            let image_info = [vk::DescriptorImageInfo::default()
+                .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                .image_view(self.texture.view)];
+            let image_write = vk::WriteDescriptorSet::default()
+                .dst_set(descriptor_set)
+                .dst_binding(2)
+                .dst_array_element(0)
+                .descriptor_type(vk::DescriptorType::SAMPLED_IMAGE)
+                .image_info(&image_info);
+
             unsafe {
-                instance
-                    .device
-                    .update_descriptor_sets(&[ubo_write], &[] as &[vk::CopyDescriptorSet])
+                instance.device.update_descriptor_sets(
+                    &[ubo_write, sampler_write, image_write],
+                    &[] as &[vk::CopyDescriptorSet],
+                )
             };
         }
 
@@ -245,7 +289,7 @@ impl Triangle {
     pub fn draw_to_buffer(
         &mut self,
         instance: &VkInstance,
-        frame_index: usize,
+        image_index: usize,
         command_buffer: vk::CommandBuffer,
     ) -> Result<(), VkError> {
         let device = &instance.device;
@@ -270,7 +314,7 @@ impl Triangle {
                 0,
                 vk::IndexType::UINT16,
             );
-            let descriptor_sets = [self.descriptor_sets[frame_index]];
+            let descriptor_sets = [self.descriptor_sets[image_index]];
             let dyn_offsets = [];
             device.cmd_bind_descriptor_sets(
                 command_buffer,
@@ -281,7 +325,7 @@ impl Triangle {
                 dyn_offsets.as_slice(),
             );
 
-            device.cmd_draw_indexed(command_buffer, INDICES.len() as u32, 1, 0, 0, 0);
+            device.cmd_draw_indexed(command_buffer, QUAD_INDICES.len() as u32, 1, 0, 0, 0);
         }
         Ok(())
     }
@@ -294,6 +338,7 @@ impl Triangle {
     pub fn destroy(&mut self, device: &Device) {
         self.destroy_uniform_buffers(device);
         unsafe {
+            self.texture.destroy(device);
             device.destroy_descriptor_pool(self.descriptor_pool, None);
             device.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
             self.index_buffer.destroy(device);
@@ -310,10 +355,21 @@ fn create_descriptor_set_layout(device: &Device) -> Result<vk::DescriptorSetLayo
         .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
         .descriptor_count(1)
         .stage_flags(vk::ShaderStageFlags::VERTEX);
+    let texture_sampler_binding = vk::DescriptorSetLayoutBinding::default()
+        .binding(1)
+        .descriptor_type(vk::DescriptorType::SAMPLER)
+        .descriptor_count(1)
+        .stage_flags(vk::ShaderStageFlags::FRAGMENT);
+    let texture_layout_binding = vk::DescriptorSetLayoutBinding::default()
+        .binding(2)
+        .descriptor_type(vk::DescriptorType::SAMPLED_IMAGE)
+        .descriptor_count(1)
+        .stage_flags(vk::ShaderStageFlags::FRAGMENT);
 
-    let bindings = &[ubo_binding];
+    let bindings = &[ubo_binding, texture_sampler_binding, texture_layout_binding];
     let info = vk::DescriptorSetLayoutCreateInfo::default().bindings(bindings);
     let layout = unsafe { device.create_descriptor_set_layout(&info, None) }?;
+
     Ok(layout)
 }
 
@@ -321,8 +377,14 @@ fn create_descriptor_pool(device: &Device, count: usize) -> Result<vk::Descripto
     let ubo_size = vk::DescriptorPoolSize::default()
         .ty(vk::DescriptorType::UNIFORM_BUFFER)
         .descriptor_count(count as u32);
+    let sampler_size = vk::DescriptorPoolSize::default()
+        .ty(vk::DescriptorType::SAMPLER)
+        .descriptor_count(count as u32);
+    let image_size = vk::DescriptorPoolSize::default()
+        .ty(vk::DescriptorType::SAMPLED_IMAGE)
+        .descriptor_count(count as u32);
 
-    let pool_sizes = &[ubo_size];
+    let pool_sizes = &[ubo_size, sampler_size, image_size];
     let info = vk::DescriptorPoolCreateInfo::default()
         .pool_sizes(pool_sizes)
         .max_sets(count as u32);
@@ -345,10 +407,10 @@ fn create_descriptor_sets(
 }
 
 fn create_uniform_buffers(instance: &VkInstance) -> Result<Vec<VkBuffer>, VkError> {
-    let uniform_buffers = (0..MAX_FRAMES_IN_FLIGHT)
-        .into_iter()
+    instance
+        .swapchain
+        .images
+        .iter()
         .map(|_| VkBuffer::uniform::<UniformBufferObject>(instance))
-        .collect::<Result<Vec<VkBuffer>, VkError>>()?;
-
-    Ok(uniform_buffers)
+        .collect::<Result<Vec<VkBuffer>, VkError>>()
 }

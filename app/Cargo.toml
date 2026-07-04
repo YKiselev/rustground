@@ -21,3 +21,6 @@ mio = { workspace = true, features = ["os-poll", "net"] }
 paste = { workspace = true }
 winit = { workspace = true }
 thiserror = { workspace = true }
+
+[build-dependencies]
+shaderc = "0.10.1"

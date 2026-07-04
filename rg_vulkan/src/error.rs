@@ -2,6 +2,7 @@ use std::sync::PoisonError;
 
 use ash::vk;
 use raw_window_handle::HandleError;
+use rg_common::LoaderError;
 use thiserror::Error;
 use winit::error::{self, OsError};
 
@@ -23,6 +24,8 @@ pub enum VkError {
     LockPoisoned,
     #[error("OS error: {0}")]
     OsError(#[from] OsError),
+    #[error("Deserialization error: {0}")]
+    LoadError(#[from] LoaderError)
 }
 
 impl<T> From<PoisonError<T>> for VkError {

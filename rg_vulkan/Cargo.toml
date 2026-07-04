@@ -18,3 +18,4 @@ png = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 toml = { workspace = true }
 uuid = { workspace = true }
+bytemuck = { workspace = true }
