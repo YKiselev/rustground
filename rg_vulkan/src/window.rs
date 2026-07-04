@@ -20,16 +20,20 @@ pub(crate) fn create_window(
 ) -> Result<Window, VkError> {
     print_available_monitors(event_loop);
 
-    let cfg = config.read()?;
-    let monitor = select_best_monitor(event_loop, &cfg.preferred_monitor);
+    let mut cfg = config.write()?;
+    let monitor = pick_monitor(event_loop, &cfg.preferred_monitor);
     if let Some(m) = monitor.as_ref() {
         info!(
             "Using {:?} {}x{}@{} Hz",
-            m.name(),
+            m.name().unwrap_or_default(),
             m.size().width,
             m.size().height,
             m.refresh_rate_millihertz().unwrap_or_default() / 1000
         );
+        let selected_name = m.name();
+        if cfg.preferred_monitor != selected_name {
+            cfg.preferred_monitor = selected_name;
+        }
     }
     let attributes = prepare_window_attributes(&cfg, monitor).with_title(&app.name);
     let window = event_loop.create_window(attributes)?;
@@ -72,7 +76,7 @@ pub(crate) fn prepare_window_attributes(
         let is_exclusive = false;
         if is_exclusive
             && let Some(video_mode) =
-                find_best_video_mode(&monitor, size, config.bit_depth, config.refresh_rate)
+                pick_video_mode(&monitor, size, config.bit_depth, config.refresh_rate)
         {
             info!("Using exclusive fullscreen mode {:?}", &video_mode);
             attrs = attrs.with_fullscreen(Some(Fullscreen::Exclusive(video_mode)));
@@ -107,7 +111,7 @@ pub(crate) fn prepare_window_attributes(
     attrs
 }
 
-pub(crate) fn select_best_monitor(
+pub(crate) fn pick_monitor(
     event_loop: &ActiveEventLoop,
     preferred_monitor_name: &Option<String>,
 ) -> Option<MonitorHandle> {
@@ -125,7 +129,7 @@ pub(crate) fn select_best_monitor(
     return selected.or_else(|| event_loop.primary_monitor());
 }
 
-fn find_best_video_mode(
+fn pick_video_mode(
     monitor: &Option<MonitorHandle>,
     size: LogicalSize<u32>,
     bit_depth: u16,
@@ -153,7 +157,7 @@ fn find_best_video_mode(
 fn print_available_monitors(event_loop: &ActiveEventLoop) {
     for (index, monitor) in event_loop.available_monitors().enumerate() {
         info!(
-            "Monitor#{:?}: {:?}, x={:?}, y={:?}, {:?} Hz, {:?}x{:?}, x{:?}",
+            "Monitor#{:?}: {:?}, x={:?}, y={:?}, {:?} Hz, {:?}x{:?}, x{:?}, {} video mode(s)",
             index,
             monitor.name().unwrap_or("unknown".to_string()),
             monitor.position().x,
@@ -163,17 +167,18 @@ fn print_available_monitors(event_loop: &ActiveEventLoop) {
                 .map_or(0.0, |v| { v as f32 / 1000.0f32 }),
             monitor.size().width,
             monitor.size().height,
-            monitor.scale_factor()
+            monitor.scale_factor(),
+            monitor.video_modes().count()
         );
-        for (index, mode) in monitor.video_modes().enumerate() {
-            info!(
-                "  {:?}={:?}x{:?}x{:?}@{:?}",
-                index,
-                mode.size().width,
-                mode.size().height,
-                mode.bit_depth(),
-                mode.refresh_rate_millihertz() as f32 / 1000.0f32
-            );
-        }
+        // for (index, mode) in monitor.video_modes().enumerate() {
+        //     info!(
+        //         "  {:?}={:?}x{:?}x{:?}@{:?}",
+        //         index,
+        //         mode.size().width,
+        //         mode.size().height,
+        //         mode.bit_depth(),
+        //         mode.refresh_rate_millihertz() as f32 / 1000.0f32
+        //     );
+        // }
     }
 }

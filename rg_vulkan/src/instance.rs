@@ -1,13 +1,16 @@
 use std::ffi::CStr;
 use std::io::BufReader;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use ash::khr::swapchain;
 use ash::vk::PhysicalDevice;
 use ash::{Device, Entry, Instance, vk};
+use log::info;
 use rg_common::{App, Files};
 use winit::window::Window;
 
+use crate::config::Config;
+use crate::device::DeviceId;
 use crate::surface::VkSurface;
 use crate::{
     device::{create_logical_device, pick_physical_device},
@@ -31,18 +34,32 @@ pub struct VkInstance {
     pub swapchain: Swapchain,
     pub command_pool: vk::CommandPool,
     pub sampler: vk::Sampler,
-    pub memory_properties: vk::PhysicalDeviceMemoryProperties
+    pub memory_properties: vk::PhysicalDeviceMemoryProperties,
 }
 
 impl VkInstance {
     pub fn new(
         app: &Arc<App>,
+        config: &Arc<RwLock<Config>>,
         entry: &Entry,
         instance: &ash::Instance,
         window: &Window,
     ) -> Result<Self, VkError> {
         let surface = VkSurface::new(entry, instance, window)?;
-        let physical_device = pick_physical_device(&instance, &surface)?;
+        let mut cfg = config.write()?;
+        let preferred_device_id = cfg
+            .preferred_device
+            .as_ref()
+            .and_then(|v| DeviceId::parse(v));
+
+        let (device_id, physical_device) =
+            pick_physical_device(&instance, &surface, &preferred_device_id)?;
+        info!("Using device with id = {}", device_id);
+
+        if Some(&device_id) != preferred_device_id.as_ref() {
+            cfg.preferred_device = Some(device_id.to_string());
+        }
+
         let (device, graphics_queue, present_queue) =
             create_logical_device(&instance, &surface, physical_device)?;
         let command_pool = create_command_pool(&instance, &device, &surface, physical_device)?;
@@ -59,7 +76,7 @@ impl VkInstance {
             swapchain,
             command_pool,
             sampler,
-            memory_properties
+            memory_properties,
         };
         Ok(result)
     }

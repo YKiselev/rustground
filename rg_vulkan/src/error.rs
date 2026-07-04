@@ -22,7 +22,7 @@ pub enum VkError {
     #[error("Lock is poisoned")]
     LockPoisoned,
     #[error("OS error: {0}")]
-    OsError(#[from] OsError)
+    OsError(#[from] OsError),
 }
 
 impl<T> From<PoisonError<T>> for VkError {

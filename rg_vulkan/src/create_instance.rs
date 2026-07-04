@@ -1,6 +1,7 @@
 use std::{
     collections::HashSet,
     ffi::{CStr, CString},
+    str::FromStr,
     sync::Arc,
 };
 
@@ -16,19 +17,19 @@ use winit::window::Window;
 
 use crate::{
     debug::DebugUtils,
-    device::{VALIDATION_ENABLED, VALIDATION_LAYER},
+    device::{VALIDATION_ENABLED, VALIDATION_LAYER, get_physical_device_id},
     error::VkError,
 };
 
 const ENGINE_VERSION: u32 = vk::make_api_version(0, 1, 0, 0);
-const API_VERSION: u32 = vk::make_api_version(0, 1, 0, 0);
+const API_VERSION: u32 = vk::API_VERSION_1_1;
 
 pub(crate) fn create_instance(
     app: &Arc<App>,
     window: &Window,
     entry: &ash::Entry,
 ) -> Result<(ash::Instance, Option<DebugUtils>), VkError> {
-    choose_best_physical_device(entry)?;
+    print_available_devices(entry)?;
     let name = CString::new(app.name.as_str()).expect("App name contains null!");
     let app_version = vk::make_api_version(0, 1, 0, 0);
     let application_info = vk::ApplicationInfo {
@@ -99,7 +100,7 @@ pub(crate) fn create_instance(
     Ok((instance, debug_utils))
 }
 
-fn choose_best_physical_device(entry: &ash::Entry) -> Result<(), VkError> {
+fn print_available_devices(entry: &ash::Entry) -> Result<(), VkError> {
     let app_info = vk::ApplicationInfo::default().api_version(vk::API_VERSION_1_3);
 
     let create_info = vk::InstanceCreateInfo::default().application_info(&app_info);
@@ -108,10 +109,7 @@ fn choose_best_physical_device(entry: &ash::Entry) -> Result<(), VkError> {
 
     let physical_devices = unsafe { instance.enumerate_physical_devices()? };
 
-    println!(
-        "Found {} GPU(s) with Vulkan support:",
-        physical_devices.len()
-    );
+    let mut info = String::from("Found {} GPU(s) with Vulkan support:");
 
     for (index, &device) in physical_devices.iter().enumerate() {
         let properties = unsafe { instance.get_physical_device_properties(device) };
@@ -126,24 +124,15 @@ fn choose_best_physical_device(entry: &ash::Entry) -> Result<(), VkError> {
             _ => "Unknown Device Type",
         };
 
-        let mut id_properties = vk::PhysicalDeviceIDProperties::default();
-        let mut properties2 =
-            vk::PhysicalDeviceProperties2::default().push_next(&mut id_properties);
+        let device_id = get_physical_device_id(&instance, device);
 
-        unsafe { instance.get_physical_device_properties2(device, &mut properties2) };
-
-        let gpu_uuid: Uuid = Uuid::from_bytes(id_properties.device_uuid);
-        let uuid_string = if gpu_uuid.is_nil() {
-            format!("{}:{}", properties.vendor_id, properties.device_id)
-        } else {
-            gpu_uuid.to_string()
-        };
-
-        println!(
-            "  [{}] {} ({}), UUID={}",
-            index, device_name, device_type, uuid_string
-        );
+        info.push_str(&format!(
+            "\n  [{}] {} ({}), id = {:?}",
+            index, device_name, device_type, device_id.to_string()
+        ));
     }
+
+    info!("{}", info);
 
     unsafe {
         instance.destroy_instance(None);

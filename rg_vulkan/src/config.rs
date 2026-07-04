@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 pub(crate) struct Config {
     pub windowed: bool,
     pub preferred_monitor: Option<String>,
-    pub preferred_device: String,
+    pub preferred_device: Option<String>,
     pub width: u32, // logical size
     pub height: u32, // logical size
     pub bit_depth: u16,

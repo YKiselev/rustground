@@ -38,7 +38,7 @@ impl VulkanRenderer {
         let entry = unsafe { ash::Entry::load().map_err(to_generic)? };
         let window = create_window(app, &config, event_loop)?;
         let (instance, debug_utils) = create_instance(app, &window, &entry)?;
-        let vk_instance = VkInstance::new(app, &entry, &instance, &window)?;
+        let vk_instance = VkInstance::new(app, &config, &entry, &instance, &window)?;
         let triangle = Triangle::new(&vk_instance, app)?;
         let tex_triangle = TexturedTriangle::new(&vk_instance, app)?;
         info!("Vulkan renderer initialzied");
