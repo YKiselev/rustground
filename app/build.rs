@@ -44,11 +44,6 @@ impl CompilerContext {
     }
 
     fn compile_file(&self, path: &Path) {
-        println!(
-            "cargo::warning=Compiling shader: {}",
-            path.to_string_lossy()
-        );
-
         let file_name = path.file_name().and_then(|n| n.to_str()).unwrap();
         let file_dir = path.parent().unwrap();
         let relative = diff_paths(file_dir, &self.base_dir).unwrap();
@@ -56,20 +51,35 @@ impl CompilerContext {
             .join(relative)
             .join(format!("{}.spv", file_name));
 
-        println!(
-            "cargo::warning=Saving compiled shader to {}",
-            dest_path.to_string_lossy()
-        );
-        let status = Command::new("glslc")
-            .current_dir(&self.sdk_bin_dir)
-            .arg(path)
-            .arg("-o")
-            .arg(&dest_path)
-            .status()
-            .expect("Unable to run glslc. Ensure VULKAN_SDK environment variable is set!");
+        // Check shader file time vs output file time
+        let shader_metadata = fs::metadata(path).unwrap();
+        let shader_mtime = shader_metadata.modified().unwrap();
+        let needs_recompile = match fs::metadata(&dest_path) {
+            Ok(out_metadata) => {
+                let out_mtime = out_metadata.modified().unwrap();
+                shader_mtime > out_mtime
+            }
+            Err(_) => true, // No .spv
+        };
 
-        if !status.success() {
-            panic!("Compilation failed: {}", path.to_string_lossy());
+        if needs_recompile {
+            fs::create_dir_all(dest_path.parent().unwrap()).unwrap();
+
+            println!(
+                "cargo::warning=Saving compiled shader to {}",
+                dest_path.to_string_lossy()
+            );
+            let status = Command::new("glslc")
+                .current_dir(&self.sdk_bin_dir)
+                .arg(path)
+                .arg("-o")
+                .arg(&dest_path)
+                .status()
+                .expect("Unable to run glslc. Ensure VULKAN_SDK environment variable is set!");
+
+            if !status.success() {
+                panic!("Compilation failed: {}", path.to_string_lossy());
+            }
         }
     }
 }
@@ -104,7 +114,7 @@ fn main() {
     ctx.compile_folder(&shaders);
 
     let time = Instant::now() - t0;
-    println!("Shaders processed in {:?}", time);
+    println!("cargo::warning=Shaders processed in {:?}", time);
 }
 
 const WIN_PREFIX: &str = r"\\?\";
