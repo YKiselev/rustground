@@ -1,6 +1,6 @@
 use std::{
     sync::{Arc, RwLock},
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use ash::vk;
@@ -26,11 +26,13 @@ pub struct VulkanRenderer {
     instance: ash::Instance,
     debug_utils: Option<DebugUtils>,
     vk_instance: VkInstance,
-    window_resized: bool,
+    window_resized_at: Option<Instant>,
     start: Instant,
     triangle: Triangle,
     tex_triangle: TexturedTriangle,
 }
+
+const RESIZE_DEBOUNCE_DURATION: Duration = Duration::from_millis(200);
 
 impl VulkanRenderer {
     pub fn new(app: &Arc<App>, event_loop: &ActiveEventLoop) -> Result<Self, VkError> {
@@ -63,26 +65,47 @@ impl VulkanRenderer {
             instance,
             debug_utils,
             vk_instance,
-            window_resized: false,
+            window_resized_at: None,
             start: Instant::now(),
             triangle,
             tex_triangle,
         })
     }
 
-    pub fn render(&mut self) {
-        let mut recreate_swapchain = self.window_resized;
+    pub fn render(&mut self) -> bool {
+        let mut recreate_swapchain = false;
+        if let Some(resize_time) = self.window_resized_at.as_ref() {
+            if resize_time.elapsed() >= RESIZE_DEBOUNCE_DURATION {
+                info!(
+                    "{:?} > {:?}",
+                    resize_time.elapsed(),
+                    RESIZE_DEBOUNCE_DURATION
+                );
+                recreate_swapchain = true;
+            }
+        }
         if !recreate_swapchain {
             match self.vk_instance.begin_frame() {
                 Ok(image_index) => {
                     self.render_frame(image_index);
 
                     match self.vk_instance.end_frame(image_index, &self.window) {
-                        Ok(changed) => recreate_swapchain = changed,
-                        Err(e) => warn!("Failed to end frame: {:?}", e),
+                        Ok(changed) => {
+                            if self.window_resized_at.is_none() {
+                                recreate_swapchain = changed
+                            }
+                        }
+                        Err(e) => {
+                            warn!("Failed to end frame: {:?}", e);
+                            return false;
+                        }
                     }
                 }
-                Err(VkError::SwapchainChanged) => recreate_swapchain = true,
+                Err(VkError::SwapchainChanged) => {
+                    if self.window_resized_at.is_none() {
+                        recreate_swapchain = true
+                    }
+                }
                 Err(e) => warn!("Failed to begin frame: {:?}", e),
             }
         }
@@ -101,6 +124,7 @@ impl VulkanRenderer {
                 .inspect_err(|e| warn!("Failed to recreate swapchain: {:?}", e));
         }
         self.window.request_redraw();
+        true
     }
 
     fn recreate_swapchain(&mut self) -> Result<(), VkError> {
@@ -110,7 +134,7 @@ impl VulkanRenderer {
             return Ok(());
         }
 
-        self.window_resized = false;
+        self.window_resized_at = None;
         self.vk_instance
             .recreate_swapchain(&self.instance, &self.window)?;
 
@@ -228,7 +252,7 @@ impl VulkanRenderer {
     }
 
     pub fn mark_resized(&mut self) {
-        self.window_resized = true;
+        self.window_resized_at = Some(Instant::now());
     }
 }
 
