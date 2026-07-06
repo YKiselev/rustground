@@ -1,4 +1,6 @@
-font = "fonts/FiraCode-Regular.ttf"
+vertex_shader = "shaders/ui.vert.spv"
+fragment_schader = "shaders/ui.frag.spv"
+
+[[fonts]]
+name = "fonts/FiraCode-Regular.ttf"
 size = 14
-vertex_shader = ""
-fragment_schader = ""

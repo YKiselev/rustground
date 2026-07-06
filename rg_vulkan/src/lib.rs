@@ -13,6 +13,7 @@ mod image;
 mod debug;
 mod surface;
 mod buffer;
+mod dyn_buffer;
 mod config;
 mod window;
 mod loaders;

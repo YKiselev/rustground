@@ -1,9 +1,8 @@
 use ash::Device;
 use ash::vk;
 use cgmath::One;
-use cgmath::SquareMatrix;
 use cgmath::vec4;
-use cgmath::{Deg, point3, vec2, vec3};
+use cgmath::{ point3, vec2, vec3};
 use log::error;
 use rg_common::App;
 use rg_common::load_bytes;
@@ -15,7 +14,7 @@ use std::sync::Arc;
 use crate::buffer::VkBuffer;
 use crate::image::VkImage;
 use crate::renderer::create_default_viewport_and_scissor;
-use crate::vertex::Pos2Color4Tex2Vertex;
+use crate::vertex::GlyphInstance;
 use crate::{
     error::{VkError, to_generic},
     instance::VkInstance,
@@ -24,25 +23,30 @@ use crate::{
     uniform::UniformBufferObject,
 };
 
-const MAX_VERTICES: usize = 4 * 80;
-const MAX_INDICES: usize = 6 * 80;
+// const MAX_VERTICES: usize = 4 * 80;
+// const MAX_INDICES: usize = 6 * 80;
 
-#[rustfmt::skip]
-static VERTICES: [Pos2Color4Tex2Vertex; 4] = [
-    Pos2Color4Tex2Vertex::new(vec2(-0.5, -0.5), vec4(1.0, 0.0, 0.0, 1.0), vec2(0.0, 0.0)),
-    Pos2Color4Tex2Vertex::new(vec2(0.5, -0.5), vec4(0.0, 1.0, 0.0, 1.0), vec2(1.0, 0.0)),
-    Pos2Color4Tex2Vertex::new(vec2(0.5, 0.5), vec4(0.0, 0.0, 1.0, 1.0), vec2(1.0, 1.0)),
-    Pos2Color4Tex2Vertex::new(vec2(-0.5, 0.5), vec4(1.0, 1.0, 1.0, 1.0), vec2(0.0, 1.0)),
-];
-const QUAD_INDICES: [u16; 6] = [0, 1, 2, 2, 3, 0];
+// #[rustfmt::skip]
+// static VERTICES: [Pos2Color4Tex2Vertex; 4] = [
+//     Pos2Color4Tex2Vertex::new(vec2(-0.5, -0.5), vec4(1.0, 0.0, 0.0, 1.0), vec2(0.0, 0.0)),
+//     Pos2Color4Tex2Vertex::new(vec2(0.5, -0.5), vec4(0.0, 1.0, 0.0, 1.0), vec2(1.0, 0.0)),
+//     Pos2Color4Tex2Vertex::new(vec2(0.5, 0.5), vec4(0.0, 0.0, 1.0, 1.0), vec2(1.0, 1.0)),
+//     Pos2Color4Tex2Vertex::new(vec2(-0.5, 0.5), vec4(1.0, 1.0, 1.0, 1.0), vec2(0.0, 1.0)),
+// ];
+// const QUAD_INDICES: [u16; 6] = [0, 1, 2, 2, 3, 0];
 
 ///
 /// UI pipeline config
 ///
 #[derive(Serialize, Deserialize)]
+struct Font {
+    name: String,
+    size: u32,
+}
+
+#[derive(Serialize, Deserialize)]
 struct Config {
-    font: String,
-    font_size: u32,
+    fonts: Vec<Font>,
     vertex_shader: String,
     fragment_schader: String,
 }
@@ -64,14 +68,13 @@ pub struct UiPipeline {
     texture: VkImage,
 }
 
-
 impl UiPipeline {
     pub fn new(instance: &VkInstance, app: &Arc<App>) -> Result<Self, VkError> {
         let config =
             app.load_resource("configs/ui-pipeline.toml", &load_deserializable::<Config>)?;
-        let vert = app.load_resource("shaders/ui.vert.spv", &load_bytes)?;
-        let frag = app.load_resource("shaders/ui.frag.spv", &load_bytes)?;
-
+        
+        let vert = app.load_resource(config.vertex_shader, &load_bytes)?;
+        let frag = app.load_resource(config.fragment_schader, &load_bytes)?;
         let vert_shader_module = create_shader_module(&instance.device, &vert[..])?;
         let frag_shader_module = create_shader_module(&instance.device, &frag[..])?;
 
@@ -85,8 +88,8 @@ impl UiPipeline {
             .module(frag_shader_module)
             .name(c"main");
 
-        let binding_descriptions = &[Pos2Color4Tex2Vertex::binding_description()];
-        let attribute_descriptions = Pos2Color4Tex2Vertex::attribute_descriptions();
+        let binding_descriptions = &[GlyphInstance::binding_description()];
+        let attribute_descriptions = GlyphInstance::attribute_descriptions();
         let vertex_input_state = vk::PipelineVertexInputStateCreateInfo::default()
             .vertex_binding_descriptions(binding_descriptions)
             .vertex_attribute_descriptions(&attribute_descriptions);
@@ -209,7 +212,7 @@ impl UiPipeline {
     pub fn update_uniform_buffer(
         &self,
         instance: &VkInstance,
-        image_index: usize
+        image_index: usize,
     ) -> Result<(), VkError> {
         let model = Mat4::one();
         let view = Mat4::one();
@@ -413,4 +416,29 @@ fn create_uniform_buffers(instance: &VkInstance) -> Result<Vec<VkBuffer>, VkErro
         .iter()
         .map(|_| VkBuffer::uniform::<UniformBufferObject>(instance))
         .collect::<Result<Vec<VkBuffer>, VkError>>()
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::pipelines::ui::*;
+
+    #[test]
+    fn test() {
+        let c = Config {
+            fonts: vec![
+                Font {
+                    name: "font-1".to_string(),
+                    size: 14,
+                },
+                Font {
+                    name: "font-2".to_string(),
+                    size: 28,
+                },
+            ],
+            vertex_shader: "aaa".to_string(),
+            fragment_schader: "bbb".to_string(),
+        };
+        let str = toml::to_string(&c).unwrap();
+        println!("toml: {}", str);
+    }
 }
