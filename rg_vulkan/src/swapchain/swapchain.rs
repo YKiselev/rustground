@@ -1,6 +1,5 @@
 use ash::{
-    Device, Instance,
-    khr::{self},
+    khr,
     vk::{self},
 };
 use log::info;
@@ -23,7 +22,7 @@ pub(crate) struct ImageObjects {
 
 impl ImageObjects {
     fn new(
-        device: &Device,
+        device: &ash::Device,
         format: vk::Format,
         image: vk::Image,
         pass: vk::RenderPass,
@@ -48,7 +47,7 @@ impl ImageObjects {
         })
     }
 
-    fn destroy(&self, device: &Device) {
+    fn destroy(&self, device: &ash::Device) {
         unsafe {
             device.destroy_semaphore(self.render_finished, None);
             device.destroy_framebuffer(self.framebuffer, None);
@@ -64,7 +63,6 @@ impl ImageObjects {
 pub(crate) struct Swapchain {
     pub format: vk::Format,
     pub extent: vk::Extent2D,
-    swapchain_device: khr::swapchain::Device,
     pub swapchain: vk::SwapchainKHR,
     pub images: Vec<ImageObjects>,
     pub render_pass: vk::RenderPass,
@@ -73,11 +71,13 @@ pub(crate) struct Swapchain {
 
 impl Swapchain {
     pub fn new(
-        instance: &Instance,
+        instance: &ash::Instance,
         surface: &VkSurface,
-        device: &Device,
+        device: &ash::Device,
+        swapchain_device: &khr::swapchain::Device,
         physical_device: vk::PhysicalDevice,
         window: &Window,
+        old_swapchain: vk::SwapchainKHR,
     ) -> Result<Swapchain, VkError> {
         let indices = QueueFamilyIndices::get(instance, surface, physical_device)?;
         let support = SwapchainSupport::get(surface, physical_device)?;
@@ -93,7 +93,7 @@ impl Swapchain {
         } else {
             vk::SharingMode::EXCLUSIVE
         };
-        let swapchain_device = khr::swapchain::Device::new(instance, device);
+
         let info = vk::SwapchainCreateInfoKHR::default()
             .surface(surface.surface)
             .min_image_count(image_count)
@@ -108,7 +108,7 @@ impl Swapchain {
             .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE)
             .present_mode(present_mode)
             .clipped(true)
-            .old_swapchain(vk::SwapchainKHR::null());
+            .old_swapchain(old_swapchain);
 
         let swapchain = unsafe { swapchain_device.create_swapchain(&info, None) }?;
         let images = unsafe { swapchain_device.get_swapchain_images(swapchain) }?;
@@ -121,7 +121,6 @@ impl Swapchain {
         Ok(Swapchain {
             format: surface_format.format,
             extent,
-            swapchain_device,
             swapchain,
             images,
             render_pass,
@@ -129,19 +128,24 @@ impl Swapchain {
         })
     }
 
-    pub fn destroy(&mut self, device: &Device) {
+    /// Destroys this swapchain objects (except for vk::SwapchainKHR) and returns vk::SwapchainKHR for reuse
+    /// Returned value should be destroyed afterwards!
+    pub fn destroy(&mut self, device: &ash::Device) -> vk::SwapchainKHR {
         self.frames_in_flight.destroy(device);
         self.images.iter().for_each(|img| img.destroy(device));
         self.images.clear();
 
         unsafe {
             device.destroy_render_pass(self.render_pass, None);
-            self.swapchain_device
-                .destroy_swapchain(self.swapchain, None);
         }
+        std::mem::replace(&mut self.swapchain, vk::SwapchainKHR::null())
     }
 
-    pub fn acquire_next_image(&self, device: &Device) -> Result<usize, VkError> {
+    pub fn acquire_next_image(
+        &self,
+        device: &ash::Device,
+        swapchain_device: &khr::swapchain::Device,
+    ) -> Result<usize, VkError> {
         let frame = self.frames_in_flight.frame();
         let fences = [frame.in_flight_fence];
         unsafe {
@@ -149,7 +153,7 @@ impl Swapchain {
         };
         frame.reset_buffers(device)?;
         match unsafe {
-            self.swapchain_device.acquire_next_image(
+            swapchain_device.acquire_next_image(
                 self.swapchain,
                 u64::MAX,
                 frame.image_available,
@@ -171,7 +175,8 @@ impl Swapchain {
     pub fn present(
         &self,
         window: &Window,
-        device: &Device,
+        device: &ash::Device,
+        swapchain_device: &khr::swapchain::Device,
         graphics_queue: vk::Queue,
         present_queue: vk::Queue,
         image_index: usize,
@@ -204,7 +209,7 @@ impl Swapchain {
             .image_indices(&image_indices);
 
         unsafe {
-            self.swapchain_device
+            swapchain_device
                 .queue_present(present_queue, &present_info)
         }
     }
@@ -288,7 +293,7 @@ fn get_swapchain_extent(
 fn create_swapchain_image_view(
     image: vk::Image,
     format: vk::Format,
-    device: &Device,
+    device: &ash::Device,
 ) -> Result<vk::ImageView, VkError> {
     let components = vk::ComponentMapping::default()
         .r(vk::ComponentSwizzle::IDENTITY)
@@ -319,7 +324,7 @@ fn create_framebuffers(
     views: &Vec<vk::ImageView>,
     render_pass: vk::RenderPass,
     extent: &vk::Extent2D,
-    device: &Device,
+    device: &ash::Device,
 ) -> Result<Vec<vk::Framebuffer>, VkError> {
     let result = views
         .iter()
@@ -339,7 +344,7 @@ fn create_framebuffers(
     Ok(result)
 }
 
-fn create_semaphores(device: &Device, count: usize) -> Result<Vec<vk::Semaphore>, VkError> {
+fn create_semaphores(device: &ash::Device, count: usize) -> Result<Vec<vk::Semaphore>, VkError> {
     let semaphore_info = vk::SemaphoreCreateInfo::default();
     (0..count)
         .map(|_| {

@@ -2,7 +2,7 @@ use std::ffi::CStr;
 use std::io::BufReader;
 use std::sync::{Arc, RwLock};
 
-use ash::khr::swapchain;
+use ash::khr::{self, swapchain};
 use ash::vk::PhysicalDevice;
 use ash::{Device, Entry, Instance, vk};
 use log::info;
@@ -31,6 +31,7 @@ pub struct VkInstance {
     pub device: Device,
     pub graphics_queue: vk::Queue,
     pub present_queue: vk::Queue,
+    pub swapchain_device: khr::swapchain::Device,
     pub swapchain: Swapchain,
     pub command_pool: vk::CommandPool,
     pub sampler: vk::Sampler,
@@ -68,7 +69,16 @@ impl VkInstance {
         let (device, graphics_queue, present_queue) =
             create_logical_device(&instance, &surface, physical_device)?;
         let command_pool = create_command_pool(&instance, &device, &surface, physical_device)?;
-        let swapchain = Swapchain::new(&instance, &surface, &device, physical_device, window)?;
+        let swapchain_device = khr::swapchain::Device::new(&instance, &device);
+        let swapchain = Swapchain::new(
+            &instance,
+            &surface,
+            &device,
+            &swapchain_device,
+            physical_device,
+            window,
+            vk::SwapchainKHR::null(),
+        )?;
         let sampler = create_sampler(&device)?;
         let memory_properties =
             unsafe { instance.get_physical_device_memory_properties(physical_device) };
@@ -78,6 +88,7 @@ impl VkInstance {
             device,
             graphics_queue,
             present_queue,
+            swapchain_device,
             swapchain,
             command_pool,
             sampler,
@@ -94,13 +105,14 @@ impl VkInstance {
     }
 
     pub fn begin_frame(&self) -> Result<usize, VkError> {
-        self.swapchain.acquire_next_image(&self.device)
+        self.swapchain.acquire_next_image(&self.device, &self.swapchain_device)
     }
 
     pub fn end_frame(&mut self, image_index: usize, window: &Window) -> Result<bool, VkError> {
         let result = self.swapchain.present(
             window,
             &self.device,
+            &self.swapchain_device,
             self.graphics_queue,
             self.present_queue,
             image_index,
@@ -124,14 +136,18 @@ impl VkInstance {
         window: &Window,
     ) -> Result<(), VkError> {
         self.wait_idle()?;
-        self.destroy_swapchain();
-        self.swapchain = Swapchain::new(
+        let old_swapchain_khr = self.swapchain.destroy(&self.device);
+        let result = Swapchain::new(
             instance,
             &self.surface,
             &self.device,
+            &self.swapchain_device,
             self.physical_device,
             window,
-        )?;
+            old_swapchain_khr,
+        );
+        self.destroy_swapchain_khr(old_swapchain_khr);
+        self.swapchain = result?;
 
         Ok(())
     }
@@ -533,17 +549,21 @@ impl VkInstance {
         Ok(())
     }
 
-    fn destroy_swapchain(&mut self) {
-        self.swapchain.destroy(&self.device);
+    fn destroy_swapchain_khr(&self, swapchain: vk::SwapchainKHR) {
+        if swapchain != vk::SwapchainKHR::null() {
+            unsafe {
+                self.swapchain_device.destroy_swapchain(swapchain, None);
+            }
+        }
     }
 
     pub fn destroy(&mut self) {
         unsafe {
             self.device.device_wait_idle().unwrap();
 
-            self.destroy_swapchain();
             let device = &self.device;
-
+            let old_swapchain_khr = self.swapchain.destroy(device);
+            self.destroy_swapchain_khr(old_swapchain_khr);
             device.destroy_sampler(self.sampler, None);
             device.destroy_command_pool(self.command_pool, None);
             device.destroy_device(None);
