@@ -18,3 +18,5 @@ png = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 toml = { workspace = true }
 uuid = { workspace = true }
+ab_glyph = "0.2.32"
+guillotiere = "0.7.0"

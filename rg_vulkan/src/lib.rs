@@ -18,3 +18,4 @@ mod config;
 mod window;
 mod loaders;
 mod memory;
+mod font;

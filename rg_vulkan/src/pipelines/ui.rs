@@ -2,13 +2,16 @@ use ash::Device;
 use ash::vk;
 use cgmath::One;
 use cgmath::vec4;
-use cgmath::{ point3, vec2, vec3};
+use cgmath::{point3, vec2, vec3};
 use log::error;
 use rg_common::App;
 use rg_common::load_bytes;
 use rg_common::load_deserializable;
 use serde::Deserialize;
 use serde::Serialize;
+use std::collections::HashMap;
+use std::ops::RangeInclusive;
+use std::range::Range;
 use std::sync::Arc;
 
 use crate::buffer::VkBuffer;
@@ -33,20 +36,30 @@ use crate::{
 //     Pos2Color4Tex2Vertex::new(vec2(0.5, 0.5), vec4(0.0, 0.0, 1.0, 1.0), vec2(1.0, 1.0)),
 //     Pos2Color4Tex2Vertex::new(vec2(-0.5, 0.5), vec4(1.0, 1.0, 1.0, 1.0), vec2(0.0, 1.0)),
 // ];
- const QUAD_INDICES: [u16; 6] = [0, 1, 2, 2, 3, 0];
+const QUAD_INDICES: [u16; 6] = [0, 1, 2, 2, 3, 0];
 
 ///
 /// UI pipeline config
 ///
 #[derive(Serialize, Deserialize)]
+struct CharacterRange(u32, u32);
+
+impl From<CharacterRange> for RangeInclusive<u32> {
+    fn from(value: CharacterRange) -> RangeInclusive<u32> {
+        value.0..=value.1
+    }
+}
+
+#[derive(Serialize, Deserialize)]
 struct Font {
     name: String,
     size: u32,
+    char_ranges: Vec<CharacterRange>,
 }
 
 #[derive(Serialize, Deserialize)]
 struct Config {
-    fonts: Vec<Font>,
+    fonts: HashMap<String, Font>,
     vertex_shader: String,
     fragment_schader: String,
 }
@@ -72,7 +85,7 @@ impl UiPipeline {
     pub fn new(instance: &VkInstance, app: &Arc<App>) -> Result<Self, VkError> {
         let config =
             app.load_resource("configs/ui-pipeline.toml", &load_deserializable::<Config>)?;
-        
+
         let vert = app.load_resource(config.vertex_shader, &load_bytes)?;
         let frag = app.load_resource(config.fragment_schader, &load_bytes)?;
         let vert_shader_module = create_shader_module(&instance.device, &vert[..])?;
@@ -119,8 +132,10 @@ impl UiPipeline {
             .rasterization_samples(vk::SampleCountFlags::TYPE_1);
 
         let attachment = vk::PipelineColorBlendAttachmentState::default()
-            .color_write_mask(vk::ColorComponentFlags::RGBA)
-            .blend_enable(false);
+            .blend_enable(true)
+            .src_color_blend_factor(vk::BlendFactor::SRC_ALPHA)
+            .dst_color_blend_factor(vk::BlendFactor::ONE_MINUS_SRC_ALPHA)
+            .color_write_mask(vk::ColorComponentFlags::RGBA);
 
         let attachments = &[attachment];
         let color_blend_state = vk::PipelineColorBlendStateCreateInfo::default()
@@ -189,6 +204,7 @@ impl UiPipeline {
             descriptor_set_count,
         )?;
         let texture = instance.create_texture_image(&app.files)?;
+
         todo!();
         // let vertex_buffer = VkBuffer::vertex(instance, VERTICES.as_ptr(), VERTICES.len())?;
         // let index_buffer = VkBuffer::index(instance, QUAD_INDICES.as_ptr(), QUAD_INDICES.len())?;
@@ -427,16 +443,30 @@ mod tests {
     #[test]
     fn test() {
         let c = Config {
-            fonts: vec![
-                Font {
-                    name: "font-1".to_string(),
-                    size: 14,
-                },
-                Font {
-                    name: "font-2".to_string(),
-                    size: 28,
-                },
-            ],
+            fonts: HashMap::from([
+                (
+                    "console".to_string(),
+                    Font {
+                        name: "font-1".to_string(),
+                        size: 14,
+                        char_ranges: vec![
+                            CharacterRange(0x0020, 0x007E),
+                            CharacterRange(0x0400, 0x04FF),
+                        ],
+                    },
+                ),
+                (
+                    "menu".to_string(),
+                    Font {
+                        name: "font-2".to_string(),
+                        size: 28,
+                        char_ranges: vec![
+                            CharacterRange(0x0020, 0x007E),
+                            CharacterRange(0x0400, 0x04FF),
+                        ],
+                    },
+                ),
+            ]),
             vertex_shader: "aaa".to_string(),
             fragment_schader: "bbb".to_string(),
         };
