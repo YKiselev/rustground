@@ -1,6 +1,5 @@
-mod client_server;
-mod dedicated;
+pub mod client_server;
+pub mod dedicated;
 mod app_commands;
 mod app_host;
-
-pub(crate) use client_server::run_client_server;
+pub mod args;

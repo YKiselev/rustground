@@ -11,7 +11,7 @@ use crate::{
     server,
 };
 
-pub(crate) fn run_client_server(args: Arguments) -> Result<(), AppError> {
+pub fn run_client_server(args: Arguments) -> Result<(), AppError> {
     #[allow(unused_variables)]
     let (handle, log_buf) = app_logger::init(&args)?;
 
