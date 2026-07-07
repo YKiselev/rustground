@@ -1,13 +1,14 @@
 use ash::{
     khr,
-    vk::{self},
+    vk::{self, SurfaceFormatKHR},
 };
 use log::info;
 use winit::window::Window;
 
 use crate::{
-    error::VkError, pipelines::pipeline::create_render_pass, queue_family::QueueFamilyIndices,
-    surface::VkSurface, swapchain::frames_in_flight::FramesInFlight,
+    error::VkError, image::VkImage, instance::create_image,
+    pipelines::pipeline::create_render_pass, queue_family::QueueFamilyIndices, surface::VkSurface,
+    swapchain::frames_in_flight::FramesInFlight,
 };
 
 ///
@@ -16,6 +17,7 @@ use crate::{
 pub(crate) struct ImageObjects {
     pub image: vk::Image,
     pub view: vk::ImageView,
+    pub depth_view: VkImage,
     pub framebuffer: vk::Framebuffer,
     render_finished: vk::Semaphore,
 }
@@ -24,13 +26,16 @@ impl ImageObjects {
     fn new(
         device: &ash::Device,
         format: vk::Format,
+        depth_format: vk::Format,
         image: vk::Image,
         pass: vk::RenderPass,
         extent: vk::Extent2D,
+        memory_properties: &vk::PhysicalDeviceMemoryProperties,
     ) -> Result<Self, VkError> {
         let view = create_swapchain_image_view(image, format, device)?;
+        let depth_view = create_depth_image(device, extent, depth_format, memory_properties)?;
         let semaphore_info = vk::SemaphoreCreateInfo::default();
-        let attachments = [view];
+        let attachments = [view, depth_view.view];
         let create_info = vk::FramebufferCreateInfo::default()
             .render_pass(pass)
             .attachments(&attachments)
@@ -42,6 +47,7 @@ impl ImageObjects {
         Ok(Self {
             image,
             view,
+            depth_view,
             framebuffer,
             render_finished,
         })
@@ -52,6 +58,7 @@ impl ImageObjects {
             device.destroy_semaphore(self.render_finished, None);
             device.destroy_framebuffer(self.framebuffer, None);
             device.destroy_image_view(self.view, None);
+            self.depth_view.destroy(device);
         }
     }
 }
@@ -77,6 +84,8 @@ impl Swapchain {
         swapchain_device: &khr::swapchain::Device,
         physical_device: vk::PhysicalDevice,
         window: &Window,
+        depth_format: vk::Format,
+        memory_properties: &vk::PhysicalDeviceMemoryProperties,
         old_swapchain: vk::SwapchainKHR,
     ) -> Result<Swapchain, VkError> {
         let indices = QueueFamilyIndices::get(instance, surface, physical_device)?;
@@ -115,7 +124,17 @@ impl Swapchain {
         let render_pass = create_render_pass(device, surface_format.format)?;
         let images = images
             .into_iter()
-            .map(|img| ImageObjects::new(device, surface_format.format, img, render_pass, extent))
+            .map(|img| {
+                ImageObjects::new(
+                    device,
+                    surface_format.format,
+                    depth_format,
+                    img,
+                    render_pass,
+                    extent,
+                    memory_properties,
+                )
+            })
             .collect::<Result<Vec<ImageObjects>, VkError>>()?;
         let frames_in_flight = FramesInFlight::new(device, indices.graphics)?;
         Ok(Swapchain {
@@ -208,10 +227,7 @@ impl Swapchain {
             .swapchains(&swapchains)
             .image_indices(&image_indices);
 
-        unsafe {
-            swapchain_device
-                .queue_present(present_queue, &present_info)
-        }
+        unsafe { swapchain_device.queue_present(present_queue, &present_info) }
     }
 
     pub fn advance_frame_index(&mut self) {
@@ -352,4 +368,41 @@ fn create_semaphores(device: &ash::Device, count: usize) -> Result<Vec<vk::Semap
                 .map_err(|e| VkError::VkErrorCode(e))
         })
         .collect()
+}
+
+pub fn create_depth_image(
+    device: &ash::Device,
+    extent: vk::Extent2D,
+    depth_format: vk::Format,
+    memory_properties: &vk::PhysicalDeviceMemoryProperties,
+) -> Result<VkImage, VkError> {
+    let (texture_image, texture_image_memory) = create_image(
+        device,
+        extent.width,
+        extent.height,
+        depth_format,
+        vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
+        vk::MemoryPropertyFlags::DEVICE_LOCAL,
+        memory_properties,
+    )?;
+
+    let view_info = vk::ImageViewCreateInfo::default()
+        .image(texture_image)
+        .view_type(vk::ImageViewType::TYPE_2D)
+        .format(depth_format)
+        .subresource_range(vk::ImageSubresourceRange {
+            aspect_mask: vk::ImageAspectFlags::DEPTH,
+            base_mip_level: 0,
+            level_count: 1,
+            base_array_layer: 0,
+            layer_count: 1,
+        });
+
+    let texture_image_view = unsafe { device.create_image_view(&view_info, None) }?;
+
+    Ok(VkImage::new(
+        texture_image,
+        texture_image_memory,
+        texture_image_view,
+    ))
 }

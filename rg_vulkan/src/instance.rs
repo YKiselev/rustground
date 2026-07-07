@@ -3,14 +3,15 @@ use std::io::BufReader;
 use std::sync::{Arc, RwLock};
 
 use ash::khr::{self, swapchain};
+use ash::vk;
 use ash::vk::PhysicalDevice;
-use ash::{Device, Entry, Instance, vk};
 use log::info;
 use rg_common::{App, Files};
 use winit::window::Window;
 
 use crate::config::Config;
 use crate::device::DeviceId;
+use crate::memory::VkMemoryProperties;
 use crate::surface::VkSurface;
 use crate::{
     device::{create_logical_device, pick_physical_device},
@@ -28,7 +29,7 @@ pub(crate) const MAX_FRAMES_IN_FLIGHT: usize = 2;
 pub struct VkInstance {
     surface: VkSurface,
     pub physical_device: vk::PhysicalDevice,
-    pub device: Device,
+    pub device: ash::Device,
     pub graphics_queue: vk::Queue,
     pub present_queue: vk::Queue,
     pub swapchain_device: khr::swapchain::Device,
@@ -36,13 +37,14 @@ pub struct VkInstance {
     pub command_pool: vk::CommandPool,
     pub sampler: vk::Sampler,
     pub memory_properties: vk::PhysicalDeviceMemoryProperties,
+    pub depth_format: vk::Format,
 }
 
 impl VkInstance {
     pub fn new(
         app: &Arc<App>,
         config: &Arc<RwLock<Config>>,
-        entry: &Entry,
+        entry: &ash::Entry,
         instance: &ash::Instance,
         window: &Window,
     ) -> Result<Self, VkError> {
@@ -68,6 +70,9 @@ impl VkInstance {
 
         let (device, graphics_queue, present_queue) =
             create_logical_device(&instance, &surface, physical_device)?;
+        let memory_properties =
+            unsafe { instance.get_physical_device_memory_properties(physical_device) };
+        let depth_format = pick_depth_format(instance, physical_device)?;
         let command_pool = create_command_pool(&instance, &device, &surface, physical_device)?;
         let swapchain_device = khr::swapchain::Device::new(&instance, &device);
         let swapchain = Swapchain::new(
@@ -77,11 +82,12 @@ impl VkInstance {
             &swapchain_device,
             physical_device,
             window,
+            depth_format,
+            &memory_properties,
             vk::SwapchainKHR::null(),
         )?;
         let sampler = create_sampler(&device)?;
-        let memory_properties =
-            unsafe { instance.get_physical_device_memory_properties(physical_device) };
+
         let result = Self {
             surface,
             physical_device,
@@ -93,6 +99,7 @@ impl VkInstance {
             command_pool,
             sampler,
             memory_properties,
+            depth_format,
         };
         Ok(result)
     }
@@ -105,7 +112,8 @@ impl VkInstance {
     }
 
     pub fn begin_frame(&self) -> Result<usize, VkError> {
-        self.swapchain.acquire_next_image(&self.device, &self.swapchain_device)
+        self.swapchain
+            .acquire_next_image(&self.device, &self.swapchain_device)
     }
 
     pub fn end_frame(&mut self, image_index: usize, window: &Window) -> Result<bool, VkError> {
@@ -144,6 +152,8 @@ impl VkInstance {
             &self.swapchain_device,
             self.physical_device,
             window,
+            self.depth_format,
+            &self.memory_properties,
             old_swapchain_khr,
         );
         self.destroy_swapchain_khr(old_swapchain_khr);
@@ -194,20 +204,6 @@ impl VkInstance {
         Ok(())
     }
 
-    fn get_memory_type_index(
-        &self,
-        properties: vk::MemoryPropertyFlags,
-        requirements: vk::MemoryRequirements,
-    ) -> Result<u32, VkError> {
-        (0..self.memory_properties.memory_type_count)
-            .filter(|i| (requirements.memory_type_bits & (1 << i)) != 0)
-            .find(|i| {
-                let memory_type = self.memory_properties.memory_types.as_slice()[*i as usize];
-                memory_type.property_flags.contains(properties)
-            })
-            .ok_or_else(|| to_generic("Failed to find suitable memory type."))
-    }
-
     pub fn create_buffer(
         &self,
         size: vk::DeviceSize,
@@ -225,7 +221,10 @@ impl VkInstance {
 
         let memory_info = vk::MemoryAllocateInfo::default()
             .allocation_size(requirements.size)
-            .memory_type_index(self.get_memory_type_index(properties, requirements)?);
+            .memory_type_index(
+                self.memory_properties
+                    .get_memory_type_index(properties, requirements)?,
+            );
 
         let buffer_memory = unsafe { self.device.allocate_memory(&memory_info, None) }?;
 
@@ -275,13 +274,14 @@ impl VkInstance {
 
         // Create (image)
 
-        let (texture_image, texture_image_memory) = self.create_image(
+        let (texture_image, texture_image_memory) = create_image(
+            &self.device,
             width,
             height,
             vk::Format::R8G8B8A8_SRGB,
-            vk::ImageTiling::OPTIMAL,
             vk::ImageUsageFlags::SAMPLED | vk::ImageUsageFlags::TRANSFER_DST,
             vk::MemoryPropertyFlags::DEVICE_LOCAL,
+            &self.memory_properties,
         )?;
 
         // Transition + Copy (image)
@@ -344,48 +344,47 @@ impl VkInstance {
         Ok(())
     }
 
-    fn create_image(
-        &self,
-        width: u32,
-        height: u32,
-        format: vk::Format,
-        tiling: vk::ImageTiling,
-        usage: vk::ImageUsageFlags,
-        properties: vk::MemoryPropertyFlags,
-    ) -> Result<(vk::Image, vk::DeviceMemory), VkError> {
-        let info = vk::ImageCreateInfo::default()
-            .image_type(vk::ImageType::TYPE_2D)
-            .extent(vk::Extent3D {
-                width,
-                height,
-                depth: 1,
-            })
-            .mip_levels(1)
-            .array_layers(1)
-            .format(format)
-            .tiling(tiling)
-            .initial_layout(vk::ImageLayout::UNDEFINED)
-            .usage(usage)
-            .sharing_mode(vk::SharingMode::EXCLUSIVE)
-            .samples(vk::SampleCountFlags::TYPE_1);
+    // fn create_image(
+    //     &self,
+    //     width: u32,
+    //     height: u32,
+    //     format: vk::Format,
+    //     usage: vk::ImageUsageFlags,
+    //     properties: vk::MemoryPropertyFlags,
+    // ) -> Result<(vk::Image, vk::DeviceMemory), VkError> {
+    //     let info = vk::ImageCreateInfo::default()
+    //         .image_type(vk::ImageType::TYPE_2D)
+    //         .extent(vk::Extent3D {
+    //             width,
+    //             height,
+    //             depth: 1,
+    //         })
+    //         .mip_levels(1)
+    //         .array_layers(1)
+    //         .format(format)
+    //         .tiling(vk::ImageTiling::OPTIMAL)
+    //         .initial_layout(vk::ImageLayout::UNDEFINED)
+    //         .usage(usage)
+    //         .sharing_mode(vk::SharingMode::EXCLUSIVE)
+    //         .samples(vk::SampleCountFlags::TYPE_1);
 
-        let device = &self.device;
-        let image = unsafe { device.create_image(&info, None) }?;
+    //     let device = &self.device;
+    //     let image = unsafe { device.create_image(&info, None) }?;
 
-        // Memory
+    //     // Memory
 
-        let requirements = unsafe { device.get_image_memory_requirements(image) };
+    //     let requirements = unsafe { device.get_image_memory_requirements(image) };
 
-        let info = vk::MemoryAllocateInfo::default()
-            .allocation_size(requirements.size)
-            .memory_type_index(self.get_memory_type_index(properties, requirements)?);
+    //     let info = vk::MemoryAllocateInfo::default()
+    //         .allocation_size(requirements.size)
+    //         .memory_type_index(self.memory_properties.get_memory_type_index(properties, requirements)?);
 
-        let image_memory = unsafe { device.allocate_memory(&info, None) }?;
+    //     let image_memory = unsafe { device.allocate_memory(&info, None) }?;
 
-        unsafe { device.bind_image_memory(image, image_memory, 0) }?;
+    //     unsafe { device.bind_image_memory(image, image_memory, 0) }?;
 
-        Ok((image, image_memory))
-    }
+    //     Ok((image, image_memory))
+    // }
 
     fn transition_image_layout(
         &self,
@@ -575,8 +574,8 @@ impl VkInstance {
 }
 
 fn create_command_pool(
-    instance: &Instance,
-    device: &Device,
+    instance: &ash::Instance,
+    device: &ash::Device,
     surface: &VkSurface,
     physical_device: PhysicalDevice,
 ) -> Result<vk::CommandPool, VkError> {
@@ -590,7 +589,7 @@ fn create_command_pool(
     Ok(command_pool)
 }
 
-fn create_sampler(device: &Device) -> Result<vk::Sampler, VkError> {
+fn create_sampler(device: &ash::Device) -> Result<vk::Sampler, VkError> {
     let sampler_info = vk::SamplerCreateInfo::default()
         .mag_filter(vk::Filter::LINEAR)
         .min_filter(vk::Filter::LINEAR)
@@ -602,4 +601,73 @@ fn create_sampler(device: &Device) -> Result<vk::Sampler, VkError> {
 
     let sampler = unsafe { device.create_sampler(&sampler_info, None) }?;
     Ok(sampler)
+}
+
+fn pick_depth_format(
+    instance: &ash::Instance,
+    physical_device: vk::PhysicalDevice,
+) -> Result<vk::Format, VkError> {
+    let candidates = [
+        vk::Format::D32_SFLOAT,
+        vk::Format::D32_SFLOAT_S8_UINT,
+        vk::Format::D24_UNORM_S8_UINT,
+    ];
+
+    for &format in candidates.iter() {
+        let props =
+            unsafe { instance.get_physical_device_format_properties(physical_device, format) };
+
+        if props
+            .optimal_tiling_features
+            .contains(vk::FormatFeatureFlags::DEPTH_STENCIL_ATTACHMENT)
+        {
+            return Ok(format);
+        }
+    }
+
+    Err(VkError::SuitabilityError(
+        "Failed to find suitable depth format!",
+    ))
+}
+
+pub(crate) fn create_image(
+    device: &ash::Device,
+    width: u32,
+    height: u32,
+    format: vk::Format,
+    usage: vk::ImageUsageFlags,
+    properties: vk::MemoryPropertyFlags,
+    memory_properties: &vk::PhysicalDeviceMemoryProperties,
+) -> Result<(vk::Image, vk::DeviceMemory), VkError> {
+    let info = vk::ImageCreateInfo::default()
+        .image_type(vk::ImageType::TYPE_2D)
+        .extent(vk::Extent3D {
+            width,
+            height,
+            depth: 1,
+        })
+        .mip_levels(1)
+        .array_layers(1)
+        .format(format)
+        .tiling(vk::ImageTiling::OPTIMAL)
+        .initial_layout(vk::ImageLayout::UNDEFINED)
+        .usage(usage)
+        .sharing_mode(vk::SharingMode::EXCLUSIVE)
+        .samples(vk::SampleCountFlags::TYPE_1);
+
+    let image = unsafe { device.create_image(&info, None) }?;
+
+    // Memory
+
+    let requirements = unsafe { device.get_image_memory_requirements(image) };
+
+    let info = vk::MemoryAllocateInfo::default()
+        .allocation_size(requirements.size)
+        .memory_type_index(memory_properties.get_memory_type_index(properties, requirements)?);
+
+    let image_memory = unsafe { device.allocate_memory(&info, None) }?;
+
+    unsafe { device.bind_image_memory(image, image_memory, 0) }?;
+
+    Ok((image, image_memory))
 }

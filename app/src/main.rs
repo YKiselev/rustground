@@ -23,7 +23,6 @@ fn main() -> Result<(), AppError> {
 
 fn get_arguments() -> Result<Arguments, AppError> {
     let mut args: Vec<String> = std::env::args().collect();
-    println!("Environment:\n{:?}", std::env::vars());
     if let Ok(app_args) = std::env::var("APP_ARGS") {
         let app_args = app_args.split_whitespace().map(String::from);
         args.extend(app_args);

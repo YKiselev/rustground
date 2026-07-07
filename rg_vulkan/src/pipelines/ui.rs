@@ -33,7 +33,7 @@ use crate::{
 //     Pos2Color4Tex2Vertex::new(vec2(0.5, 0.5), vec4(0.0, 0.0, 1.0, 1.0), vec2(1.0, 1.0)),
 //     Pos2Color4Tex2Vertex::new(vec2(-0.5, 0.5), vec4(1.0, 1.0, 1.0, 1.0), vec2(0.0, 1.0)),
 // ];
-// const QUAD_INDICES: [u16; 6] = [0, 1, 2, 2, 3, 0];
+ const QUAD_INDICES: [u16; 6] = [0, 1, 2, 2, 3, 0];
 
 ///
 /// UI pipeline config
@@ -189,24 +189,26 @@ impl UiPipeline {
             descriptor_set_count,
         )?;
         let texture = instance.create_texture_image(&app.files)?;
-        let vertex_buffer = VkBuffer::vertex(instance, VERTICES.as_ptr(), VERTICES.len())?;
-        let index_buffer = VkBuffer::index(instance, QUAD_INDICES.as_ptr(), QUAD_INDICES.len())?;
-        let uniform_buffers = create_uniform_buffers(instance)?;
-        let mut result = Self {
-            app: Arc::clone(app),
-            layout,
-            pipeline,
-            vertex_buffer,
-            index_buffer,
-            uniform_buffers,
-            descriptor_set_layout,
-            descriptor_pool,
-            descriptor_sets,
-            texture,
-        };
-        result.update_descriptor_sets(instance)?;
+        todo!();
+        // let vertex_buffer = VkBuffer::vertex(instance, VERTICES.as_ptr(), VERTICES.len())?;
+        // let index_buffer = VkBuffer::index(instance, QUAD_INDICES.as_ptr(), QUAD_INDICES.len())?;
+        // let uniform_buffers = create_uniform_buffers(instance)?;
+        // let mut result = Self {
+        //     app: Arc::clone(app),
+        //     layout,
+        //     pipeline,
+        //     vertex_buffer,
+        //     index_buffer,
+        //     uniform_buffers,
+        //     descriptor_set_layout,
+        //     descriptor_pool,
+        //     descriptor_sets,
+        //     texture,
+        // };
+        // result.update_descriptor_sets(instance)?;
 
-        Ok(result)
+        //Ok(result)
+        Err(VkError::LockPoisoned)
     }
 
     pub fn update_uniform_buffer(
