@@ -5,6 +5,7 @@ use cgmath::{Deg, point3, vec2, vec3};
 use log::error;
 use rg_common::App;
 use rg_common::load_bytes;
+use std::ops::Add;
 use std::sync::Arc;
 
 use crate::buffer::VkBuffer;
@@ -13,7 +14,7 @@ use crate::renderer::create_default_viewport_and_scissor;
 use crate::{
     error::{VkError, to_generic},
     instance::VkInstance,
-    pipelines::pipeline::create_shader_module,
+    pipelines::shader::create_shader_module,
     types::Mat4,
     uniform::UniformBufferObject,
     vertex::Pos2Color4Vertex,
@@ -112,12 +113,19 @@ impl Triangle {
             vk::PipelineDynamicStateCreateInfo::default().dynamic_states(&dynamic_states);
 
         let stages = &[vert_stage, frag_stage];
+
+        let depth_stencil_state = vk::PipelineDepthStencilStateCreateInfo::default()
+            .depth_test_enable(true)
+            .depth_write_enable(true)
+            .depth_compare_op(vk::CompareOp::LESS);
+
         let info = vk::GraphicsPipelineCreateInfo::default()
             .stages(stages)
             .vertex_input_state(&vertex_input_state)
             .input_assembly_state(&input_assembly_state)
             .viewport_state(&viewport_state)
             .dynamic_state(&dynamic_state)
+            .depth_stencil_state(&depth_stencil_state)
             .rasterization_state(&rasterization_state)
             .multisample_state(&multisample_state)
             .color_blend_state(&color_blend_state)
@@ -186,7 +194,10 @@ impl Triangle {
         time: f32,
         ratio: f32,
     ) -> Result<(), VkError> {
-        let model = Mat4::from_axis_angle(vec3(0.0, 0.0, 1.0), Deg(90.0) * time);
+        let mut model = Mat4::from_axis_angle(vec3(0.0, 0.0, 1.0), Deg(90.0) * time);
+        let trans = Mat4::from_translation(vec3(0.0, 0.0, -0.15));
+
+        model = trans * model;
 
         let view = Mat4::look_at_rh(
             point3::<f32>(2.0, 2.0, 2.0),

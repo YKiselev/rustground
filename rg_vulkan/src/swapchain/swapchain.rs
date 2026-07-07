@@ -6,9 +6,8 @@ use log::info;
 use winit::window::Window;
 
 use crate::{
-    error::VkError, image::VkImage, instance::create_image,
-    pipelines::pipeline::create_render_pass, queue_family::QueueFamilyIndices, surface::VkSurface,
-    swapchain::frames_in_flight::FramesInFlight,
+    error::VkError, image::VkImage, image::create_image, queue_family::QueueFamilyIndices,
+    surface::VkSurface, swapchain::frames_in_flight::FramesInFlight,
 };
 
 ///
@@ -121,7 +120,7 @@ impl Swapchain {
 
         let swapchain = unsafe { swapchain_device.create_swapchain(&info, None) }?;
         let images = unsafe { swapchain_device.get_swapchain_images(swapchain) }?;
-        let render_pass = create_render_pass(device, surface_format.format)?;
+        let render_pass = create_render_pass(device, surface_format.format, depth_format)?;
         let images = images
             .into_iter()
             .map(|img| {
@@ -405,4 +404,53 @@ pub fn create_depth_image(
         texture_image_memory,
         texture_image_view,
     ))
+}
+
+pub(crate) fn create_render_pass(
+    device: &ash::Device,
+    format: vk::Format,
+    depth_format: vk::Format,
+) -> Result<vk::RenderPass, VkError> {
+    let color_attachment = vk::AttachmentDescription::default()
+        .format(format)
+        .samples(vk::SampleCountFlags::TYPE_1)
+        .load_op(vk::AttachmentLoadOp::CLEAR)
+        .store_op(vk::AttachmentStoreOp::STORE)
+        .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
+        .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
+        .initial_layout(vk::ImageLayout::UNDEFINED)
+        .final_layout(vk::ImageLayout::PRESENT_SRC_KHR);
+
+    let color_attachment_ref = vk::AttachmentReference::default()
+        .attachment(0)
+        .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL);
+
+    let color_attachments = [color_attachment_ref];
+
+    let depth_attachment = vk::AttachmentDescription::default()
+        .format(vk::Format::D32_SFLOAT)
+        .samples(vk::SampleCountFlags::TYPE_1)
+        .load_op(vk::AttachmentLoadOp::CLEAR)
+        .store_op(vk::AttachmentStoreOp::DONT_CARE)
+        .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
+        .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
+        .initial_layout(vk::ImageLayout::UNDEFINED)
+        .final_layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+
+    let depth_attachment_ref = vk::AttachmentReference::default()
+        .attachment(1)
+        .layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+
+    let subpass = vk::SubpassDescription::default()
+        .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
+        .color_attachments(&color_attachments)
+        .depth_stencil_attachment(&depth_attachment_ref);
+
+    let attachments = [color_attachment, depth_attachment];
+    let subpasses = [subpass];
+    let info = vk::RenderPassCreateInfo::default()
+        .attachments(&attachments)
+        .subpasses(&subpasses);
+
+    Ok(unsafe { device.create_render_pass(&info, None)? })
 }

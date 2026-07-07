@@ -210,19 +210,26 @@ impl VulkanRenderer {
 
         let render_area = vk::Rect2D::default().extent(instance.swapchain.extent);
 
-        let color_clear_value = vk::ClearValue {
-            color: vk::ClearColorValue {
-                float32: [0.0, 0.0, 0.1, 1.0],
+        let clear_values = [
+            vk::ClearValue {
+                color: vk::ClearColorValue {
+                    float32: [0.0, 0.0, 0.1, 1.0],
+                },
             },
-        };
+            vk::ClearValue {
+                depth_stencil: vk::ClearDepthStencilValue {
+                    depth: 1.0,
+                    stencil: 0,
+                },
+            },
+        ];
 
         let image = &instance.swapchain.images[image_index];
-        let clear_values = &[color_clear_value];
         let info = vk::RenderPassBeginInfo::default()
             .render_pass(instance.swapchain.render_pass)
             .framebuffer(image.framebuffer)
             .render_area(render_area)
-            .clear_values(clear_values);
+            .clear_values(&clear_values);
 
         unsafe {
             instance.device.cmd_begin_render_pass(

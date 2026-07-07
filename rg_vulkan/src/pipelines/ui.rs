@@ -18,7 +18,7 @@ use crate::vertex::GlyphInstance;
 use crate::{
     error::{VkError, to_generic},
     instance::VkInstance,
-    pipelines::pipeline::create_shader_module,
+    pipelines::shader::create_shader_module,
     types::Mat4,
     uniform::UniformBufferObject,
 };

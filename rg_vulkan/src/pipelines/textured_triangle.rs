@@ -15,7 +15,7 @@ use crate::vertex::Pos2Color4Tex2Vertex;
 use crate::{
     error::{VkError, to_generic},
     instance::VkInstance,
-    pipelines::pipeline::create_shader_module,
+    pipelines::shader::create_shader_module,
     types::Mat4,
     uniform::UniformBufferObject,
 };
@@ -113,6 +113,11 @@ impl TexturedTriangle {
         let dynamic_state =
             vk::PipelineDynamicStateCreateInfo::default().dynamic_states(&dynamic_states);
 
+        let depth_stencil_state = vk::PipelineDepthStencilStateCreateInfo::default()
+            .depth_test_enable(true)
+            .depth_write_enable(true)
+            .depth_compare_op(vk::CompareOp::LESS);
+
         let stages = &[vert_stage, frag_stage];
         let info = vk::GraphicsPipelineCreateInfo::default()
             .stages(stages)
@@ -121,6 +126,7 @@ impl TexturedTriangle {
             .viewport_state(&viewport_state)
             .dynamic_state(&dynamic_state)
             .rasterization_state(&rasterization_state)
+            .depth_stencil_state(&depth_stencil_state)
             .multisample_state(&multisample_state)
             .color_blend_state(&color_blend_state)
             .layout(layout)
@@ -131,11 +137,10 @@ impl TexturedTriangle {
         let mut result = unsafe {
             instance.device.create_graphics_pipelines(
                 vk::PipelineCache::null(),
-                infos.as_slice(),
+                &infos,
                 None,
             )
-        }
-        .unwrap();
+        }.map_err(|(_,e)| VkError::VkErrorCode(e))?;
 
         if result.is_empty() {
             error!("No pipeline in result!");
