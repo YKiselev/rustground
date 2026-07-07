@@ -1,4 +1,5 @@
 use std::borrow::Borrow;
+use std::ptr::null;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -50,7 +51,7 @@ impl App {
     where
         S: AsRef<str>,
     {
-        if let Some(cfg) = self.load_resource(name.as_ref(), &read_config).ok() {
+        if let Some(cfg) = self.load_resource(name.as_ref(), &read_config, ()).ok() {
             info!("Loaded config: {:?}", name.as_ref());
             let _ = self
                 .vars
@@ -63,28 +64,29 @@ impl App {
         save_config(name, &self.files, value);
     }
 
-    pub fn load_asset<S, L, A>(&self, name: S, loader: &L) -> Result<Arc<A>, AssetError>
+    pub fn load_asset<S, L, A, Ctx>(&self, name: S, loader: &L, ctx: Ctx) -> Result<Arc<A>, AssetError>
     where
         S: Into<Box<str>> + Borrow<str>,
-        L: Loader<A> + 'static,
+        L: Loader<A, Ctx> + 'static,
         A: Send + Sync + 'static,
     {
         self.assets.load(
             name,
             |n| self.files.buf_read(n).ok(),
             loader,
+            ctx
         )
     }
 
-    pub fn load_resource<S, L, A>(&self, name: S, loader: &L) -> Result<A, LoaderError>
+    pub fn load_resource<S, L, A, Ctx>(&self, name: S, loader: &L, ctx: Ctx) -> Result<A, LoaderError>
     where
-        S: Into<Box<str>> + AsRef<str>,
-        L: Loader<A> + 'static,
+        S: AsRef<str>,
+        L: Loader<A, Ctx> + 'static,
         A: Send + Sync + 'static,
     {
         self.files
             .buf_read(name.as_ref())
             .map_err(|_| LoaderError::NotFound(String::from(name.as_ref())))
-            .and_then(|mut r| loader(&mut r))
+            .and_then(|mut r| loader.load(&mut r, ctx))
     }
 }

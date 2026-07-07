@@ -236,25 +236,35 @@ impl VkInstance {
 
     pub fn create_texture_image(&self, files: &Files) -> Result<VkImage, VkError> {
         let file = files
-            .read("textures/tex1.png")
-            .map_err(|_| VkError::GenericError("Not found".to_string()))?;
+            .read("textures/tex1.png")?;
         let image = BufReader::new(file);
 
         let decoder = png::Decoder::new(image);
         let mut reader = decoder
             .read_info()
-            .map_err(|e| VkError::GenericError("Decoding error".to_owned()))?;
+            .map_err(|e| VkError::GenericError(e.to_string()))?;
 
         let mut pixels = vec![0; reader.info().raw_bytes()];
         reader
             .next_frame(&mut pixels)
-            .map_err(|e| VkError::GenericError("Decoding error".to_owned()))?;
+            .map_err(|e| VkError::GenericError(e.to_string()))?;
 
-        let size = reader.info().raw_bytes() as u64;
         let (width, height) = reader.info().size();
 
-        // Create (staging)
+        self.create_texture_image_from_pixels(width, height, pixels, vk::Format::R8G8B8A8_SRGB)
+    }
 
+    pub fn create_texture_image_from_pixels(
+        &self,
+        width: u32,
+        height: u32,
+        pixels: Vec<u8>,
+        format: vk::Format,
+    ) -> Result<VkImage, VkError> {
+        let size = pixels.len() as u64; // reader.info().raw_bytes() as u64;
+        //let (width, height) = reader.info().size();
+
+        // Create (staging)
         let (staging_buffer, staging_buffer_memory) = self.create_buffer(
             size,
             vk::BufferUsageFlags::TRANSFER_SRC,
@@ -274,22 +284,20 @@ impl VkInstance {
         )?;
 
         // Create (image)
-
         let (texture_image, texture_image_memory) = create_image(
             &self.device,
             width,
             height,
-            vk::Format::R8G8B8A8_SRGB,
+            format,
             vk::ImageUsageFlags::SAMPLED | vk::ImageUsageFlags::TRANSFER_DST,
             vk::MemoryPropertyFlags::DEVICE_LOCAL,
             &self.memory_properties,
         )?;
 
         // Transition + Copy (image)
-
         self.transition_image_layout(
             texture_image,
-            vk::Format::R8G8B8A8_SRGB,
+            format,
             vk::ImageLayout::UNDEFINED,
             vk::ImageLayout::TRANSFER_DST_OPTIMAL,
         )?;
@@ -298,7 +306,7 @@ impl VkInstance {
 
         self.transition_image_layout(
             texture_image,
-            vk::Format::R8G8B8A8_SRGB,
+            format,
             vk::ImageLayout::TRANSFER_DST_OPTIMAL,
             vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
         )?;
@@ -310,7 +318,7 @@ impl VkInstance {
         let view_info = vk::ImageViewCreateInfo::default()
             .image(texture_image)
             .view_type(vk::ImageViewType::TYPE_2D)
-            .format(vk::Format::R8G8B8A8_SRGB)
+            .format(format)
             .subresource_range(vk::ImageSubresourceRange {
                 aspect_mask: vk::ImageAspectFlags::COLOR,
                 base_mip_level: 0,

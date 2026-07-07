@@ -5,6 +5,7 @@ pub use arguments::Arguments;
 pub use commands::CommandRegistry;
 pub use config::save_config;
 pub use files::Files;
+pub use files::FileError;
 pub use files::SeekAndRead;
 pub use files::SeekAndWrite;
 pub use loader::{Loader, LoaderError, load_bytes, load_deserializable};

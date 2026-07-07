@@ -5,17 +5,29 @@ use thiserror::Error;
 
 use crate::files::SeekAndRead;
 
-pub trait Loader<A>: Fn(&mut std::io::BufReader<SeekAndRead>) -> Result<A, LoaderError>
+pub trait Loader<A, Ctx>
 where
     A: Send + Sync,
 {
+    fn load(
+        &self,
+        reader: &mut std::io::BufReader<SeekAndRead>,
+        ctx: Ctx,
+    ) -> Result<A, LoaderError>;
 }
 
-impl<A, T> Loader<A> for T
+impl<A, Ctx, T> Loader<A, Ctx> for T
 where
     A: Send + Sync,
-    T: Fn(&mut std::io::BufReader<SeekAndRead>) -> Result<A, LoaderError>,
+    T: Fn(&mut std::io::BufReader<SeekAndRead>, Ctx) -> Result<A, LoaderError>,
 {
+    fn load(
+        &self,
+        reader: &mut std::io::BufReader<SeekAndRead>,
+        ctx: Ctx,
+    ) -> Result<A, LoaderError> {
+        (self)(reader, ctx)
+    }
 }
 
 #[derive(Debug, Error)]
@@ -34,7 +46,10 @@ impl From<std::io::Error> for LoaderError {
     }
 }
 
-pub fn load_bytes(reader: &mut std::io::BufReader<SeekAndRead>) -> Result<Vec<u8>, LoaderError> {
+pub fn load_bytes(
+    reader: &mut std::io::BufReader<SeekAndRead>,
+    _: (),
+) -> Result<Vec<u8>, LoaderError> {
     let mut buf = Vec::new();
     reader.read_to_end(&mut buf)?;
     Ok(buf)
@@ -42,10 +57,11 @@ pub fn load_bytes(reader: &mut std::io::BufReader<SeekAndRead>) -> Result<Vec<u8
 
 pub fn load_deserializable<T>(
     reader: &mut std::io::BufReader<SeekAndRead>,
+    ctx: (),
 ) -> Result<T, LoaderError>
 where
     T: for<'a> Deserialize<'a>,
 {
-    let buf = load_bytes(reader)?;
+    let buf = load_bytes(reader, ctx)?;
     toml::from_slice(&buf).map_err(|e| LoaderError::Custom(e.to_string()))
 }

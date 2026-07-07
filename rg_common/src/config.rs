@@ -4,7 +4,7 @@ use toml::Table;
 
 use crate::{Files, LoaderError};
 
-pub fn read_config<R>(reader: &mut R) -> Result<Table, LoaderError>
+pub fn read_config<R>(reader: &mut R, _: ()) -> Result<Table, LoaderError>
 where
     R: Read,
 {

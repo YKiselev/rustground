@@ -15,7 +15,11 @@ use std::range::Range;
 use std::sync::Arc;
 
 use crate::buffer::VkBuffer;
+use crate::dyn_buffer::VkDynamicBuffer;
+use crate::font::VkFont;
 use crate::image::VkImage;
+use crate::loaders::FontLoaderContext;
+use crate::loaders::load_font;
 use crate::renderer::create_default_viewport_and_scissor;
 use crate::vertex::GlyphInstance;
 use crate::{
@@ -36,7 +40,7 @@ use crate::{
 //     Pos2Color4Tex2Vertex::new(vec2(0.5, 0.5), vec4(0.0, 0.0, 1.0, 1.0), vec2(1.0, 1.0)),
 //     Pos2Color4Tex2Vertex::new(vec2(-0.5, 0.5), vec4(1.0, 1.0, 1.0, 1.0), vec2(0.0, 1.0)),
 // ];
-const QUAD_INDICES: [u16; 6] = [0, 1, 2, 2, 3, 0];
+//const QUAD_INDICES: [u16; 6] = [0, 1, 2, 2, 3, 0];
 
 ///
 /// UI pipeline config
@@ -72,22 +76,38 @@ pub struct UiPipeline {
     app: Arc<App>,
     pub layout: vk::PipelineLayout,
     pub pipeline: vk::Pipeline,
-    pub vertex_buffer: VkBuffer,
-    pub index_buffer: VkBuffer,
+    pub vertex_buffer: VkDynamicBuffer,
     uniform_buffers: Vec<VkBuffer>,
     descriptor_set_layout: vk::DescriptorSetLayout,
     descriptor_pool: vk::DescriptorPool,
     descriptor_sets: Vec<vk::DescriptorSet>,
     texture: VkImage,
+    fonts: HashMap<String, VkFont>,
 }
 
 impl UiPipeline {
     pub fn new(instance: &VkInstance, app: &Arc<App>) -> Result<Self, VkError> {
-        let config =
-            app.load_resource("configs/ui-pipeline.toml", &load_deserializable::<Config>)?;
+        let config = app.load_resource(
+            "configs/ui-pipeline.toml",
+            &load_deserializable::<Config>,
+            (),
+        )?;
 
-        let vert = app.load_resource(config.vertex_shader, &load_bytes)?;
-        let frag = app.load_resource(config.fragment_schader, &load_bytes)?;
+        // Load fonts
+        let mut fonts = HashMap::new();
+        let atlas_size = vk::Extent2D {
+            width: 1024,
+            height: 1024,
+        };
+        for (name, info) in config.fonts {
+            let ranges = info.char_ranges.iter().map(|r| (r.0..=r.1)).collect();
+            let ctx = FontLoaderContext::new(instance, info.size, ranges, atlas_size);
+            let font = app.load_resource(&name, &load_font, &ctx)?;
+            fonts.insert(name, font);
+        }
+
+        let vert = app.load_resource(config.vertex_shader, &load_bytes, ())?;
+        let frag = app.load_resource(config.fragment_schader, &load_bytes, ())?;
         let vert_shader_module = create_shader_module(&instance.device, &vert[..])?;
         let frag_shader_module = create_shader_module(&instance.device, &frag[..])?;
 
@@ -108,7 +128,7 @@ impl UiPipeline {
             .vertex_attribute_descriptions(&attribute_descriptions);
 
         let input_assembly_state = vk::PipelineInputAssemblyStateCreateInfo::default()
-            .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
+            .topology(vk::PrimitiveTopology::TRIANGLE_STRIP)
             .primitive_restart_enable(false);
 
         let (viewport, scissor) = create_default_viewport_and_scissor(instance.swapchain.extent);
@@ -203,28 +223,26 @@ impl UiPipeline {
             descriptor_pool,
             descriptor_set_count,
         )?;
+        // todo font atlas (texture array)
         let texture = instance.create_texture_image(&app.files)?;
 
-        todo!();
-        // let vertex_buffer = VkBuffer::vertex(instance, VERTICES.as_ptr(), VERTICES.len())?;
-        // let index_buffer = VkBuffer::index(instance, QUAD_INDICES.as_ptr(), QUAD_INDICES.len())?;
-        // let uniform_buffers = create_uniform_buffers(instance)?;
-        // let mut result = Self {
-        //     app: Arc::clone(app),
-        //     layout,
-        //     pipeline,
-        //     vertex_buffer,
-        //     index_buffer,
-        //     uniform_buffers,
-        //     descriptor_set_layout,
-        //     descriptor_pool,
-        //     descriptor_sets,
-        //     texture,
-        // };
-        // result.update_descriptor_sets(instance)?;
+        let vertex_buffer = VkDynamicBuffer::vertex::<GlyphInstance>(instance, 2048)?;
+        let uniform_buffers = create_uniform_buffers(instance)?;
+        let mut result = Self {
+            app: Arc::clone(app),
+            layout,
+            pipeline,
+            vertex_buffer,
+            uniform_buffers,
+            descriptor_set_layout,
+            descriptor_pool,
+            descriptor_sets,
+            texture,
+            fonts,
+        };
+        result.update_descriptor_sets(instance)?;
 
-        //Ok(result)
-        Err(VkError::LockPoisoned)
+        Ok(result)
     }
 
     pub fn update_uniform_buffer(
@@ -258,11 +276,6 @@ impl UiPipeline {
     }
 
     fn update_descriptor_sets(&mut self, instance: &VkInstance) -> Result<(), VkError> {
-        if self.uniform_buffers.len() != instance.swapchain.images.len() {
-            self.destroy_uniform_buffers(&instance.device);
-            self.uniform_buffers = create_uniform_buffers(instance)?;
-        }
-
         for i in 0..self.uniform_buffers.len() {
             let info = vk::DescriptorBufferInfo::default()
                 .buffer(self.uniform_buffers[i].buffer)
@@ -326,14 +339,8 @@ impl UiPipeline {
             device.cmd_bind_vertex_buffers(
                 command_buffer,
                 0,
-                buffers.as_slice(),
-                offsets.as_slice(),
-            );
-            device.cmd_bind_index_buffer(
-                command_buffer,
-                self.index_buffer.buffer,
-                0,
-                vk::IndexType::UINT16,
+                &buffers,
+                &offsets,
             );
             let descriptor_sets = [self.descriptor_sets[image_index]];
             let dyn_offsets = [];
@@ -342,11 +349,11 @@ impl UiPipeline {
                 vk::PipelineBindPoint::GRAPHICS,
                 self.layout,
                 0,
-                descriptor_sets.as_slice(),
-                dyn_offsets.as_slice(),
+                &descriptor_sets,
+                &dyn_offsets,
             );
 
-            device.cmd_draw_indexed(command_buffer, QUAD_INDICES.len() as u32, 1, 0, 0, 0);
+            device.cmd_draw(command_buffer, 4, 1, 0, 0);
         }
         Ok(())
     }
@@ -359,10 +366,12 @@ impl UiPipeline {
     pub fn destroy(&mut self, device: &Device) {
         self.destroy_uniform_buffers(device);
         unsafe {
+            self.fonts.values_mut().for_each(|f| {
+                f.destroy(device);
+            });
             self.texture.destroy(device);
             device.destroy_descriptor_pool(self.descriptor_pool, None);
             device.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
-            self.index_buffer.destroy(device);
             self.vertex_buffer.destroy(device);
             device.destroy_pipeline(self.pipeline, None);
             device.destroy_pipeline_layout(self.layout, None);

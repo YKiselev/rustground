@@ -44,8 +44,8 @@ pub struct Triangle {
 
 impl Triangle {
     pub fn new(instance: &VkInstance, app: &Arc<App>) -> Result<Self, VkError> {
-        let vert = app.load_resource("shaders/shader.vert.spv", &load_bytes)?;
-        let frag = app.load_resource("shaders/shader.frag.spv", &load_bytes)?;
+        let vert = app.load_resource("shaders/shader.vert.spv", &load_bytes, ())?;
+        let frag = app.load_resource("shaders/shader.frag.spv", &load_bytes, ())?;
 
         let vert_shader_module = create_shader_module(&instance.device, &vert[..])?;
         let frag_shader_module = create_shader_module(&instance.device, &frag[..])?;

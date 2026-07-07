@@ -2,9 +2,9 @@ use std::sync::PoisonError;
 
 use ash::vk;
 use raw_window_handle::HandleError;
-use rg_common::LoaderError;
+use rg_common::{FileError, LoaderError};
 use thiserror::Error;
-use winit::error::{self, OsError};
+use winit::error::OsError;
 
 #[derive(Debug, Error)]
 pub enum VkError {
@@ -17,7 +17,7 @@ pub enum VkError {
     #[error("Swapchain has changed!")]
     SwapchainChanged,
     #[error("String contained an invalid null byte: {0}")]
-    InvalidString(#[from] std::ffi::NulError), 
+    InvalidString(#[from] std::ffi::NulError),
     #[error("Handle error: {0}")]
     HandleError(#[from] HandleError),
     #[error("Lock is poisoned")]
@@ -25,7 +25,9 @@ pub enum VkError {
     #[error("OS error: {0}")]
     OsError(#[from] OsError),
     #[error("Deserialization error: {0}")]
-    LoadError(#[from] LoaderError)
+    LoadError(#[from] LoaderError),
+    #[error("File error: {0}")]
+    FileError(#[from] FileError),
 }
 
 impl<T> From<PoisonError<T>> for VkError {

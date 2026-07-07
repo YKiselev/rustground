@@ -1,7 +1,7 @@
 use std::borrow::Borrow;
 use std::fmt::{Display, Formatter};
-use std::fs::{File, read};
-use std::io::{BufRead, BufReader, Cursor, Error, ErrorKind, Read, Seek, Write};
+use std::fs::File;
+use std::io::{BufReader, Cursor, Error, ErrorKind, Read, Seek, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{PoisonError, RwLock};
 use std::{env, fs};

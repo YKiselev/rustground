@@ -40,12 +40,12 @@ impl Assets {
         Self(RwLock::new(TypeMap::new()))
     }
 
-    pub fn load<S, R, L, A>(&self, name: S, resolver: R, loader: &L) -> Result<Arc<A>, AssetError>
+    pub fn load<S, R, L, A, Ctx>(&self, name: S, resolver: R, loader: &L, ctx: Ctx) -> Result<Arc<A>, AssetError>
     where
         A: Send + Sync + 'static,
         S: Into<Box<str>> + Borrow<str>,
         R: Fn(&str) -> Option< std::io::BufReader<SeekAndRead>>,
-        L: Loader<A> + 'static,
+        L: Loader<A, Ctx> + 'static,
     {
         let guard = self.0.read()?;
         let key = Key::new::<_, L>(name);
@@ -57,7 +57,7 @@ impl Assets {
         drop(guard);
         // Load asset w/o any locks!
         let mut reader = (resolver)(key.0.borrow()).ok_or(AssetError::NotFound)?;
-        let asset = loader(&mut reader as _)?;
+        let asset = loader.load(&mut reader as _, ctx)?;
         let asset = Arc::new(asset);
 
         let mut guard = self.0.write()?;
@@ -120,7 +120,7 @@ mod tests {
 
     static mut L1_COUNTER: i32 = 0;
 
-    fn loader_1(read: &mut std::io::BufReader<SeekAndRead>) -> Result<String, LoaderError> {
+    fn loader_1(read: &mut std::io::BufReader<SeekAndRead>, _: ()) -> Result<String, LoaderError> {
         unsafe { L1_COUNTER += 1 };
 
         Ok(String::from("value"))
@@ -130,9 +130,9 @@ mod tests {
     fn asset_loaders() {
         let resolver = |_: &str| Some(BufReader::new(SeekAndRead::Virtual(std::io::Cursor::default())));
         let assets = Assets::new();
-        let first = assets.load("first", &resolver, &loader_1).unwrap();
-        let second = assets.load("first", &resolver, &loader_1).unwrap();
-        let third = assets.load("first", &resolver, &loader_1).unwrap();
+        let first = assets.load("first", &resolver, &loader_1, ()).unwrap();
+        let second = assets.load("first", &resolver, &loader_1, ()).unwrap();
+        let third = assets.load("first", &resolver, &loader_1, ()).unwrap();
         assert_eq!(1, unsafe { L1_COUNTER });
     }
 }
