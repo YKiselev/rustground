@@ -234,16 +234,11 @@ impl UiPipeline {
             .iter()
             .map(|_| FrameObjects::new(instance))
             .collect::<Result<Vec<FrameObjects>, VkError>>()?;
-
-        //let vertex_buffer = VkDynamicBuffer::vertex::<GlyphInstance>(instance, 2048)?;
-        //let uniform_buffers = create_uniform_buffers(instance)?;
         let mut result = Self {
             app: Arc::clone(app),
             layout,
             pipeline,
             frame_objects,
-            //vertex_buffer,
-            //uniform_buffers,
             descriptor_set_layout,
             descriptor_pool,
             descriptor_sets,
@@ -308,16 +303,6 @@ impl UiPipeline {
                 .dst_array_element(0)
                 .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
                 .image_info(&sampler_info);
-
-            // let image_info = [vk::DescriptorImageInfo::default()
-            //     .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-            //     .image_view(self.font_atlas.image.view)];
-            // let image_write = vk::WriteDescriptorSet::default()
-            //     .dst_set(descriptor_set)
-            //     .dst_binding(2)
-            //     .dst_array_element(0)
-            //     .descriptor_type(vk::DescriptorType::SAMPLED_IMAGE)
-            //     .image_info(&image_info);
 
             let writes = [ubo_write, sampler_write];
             unsafe { instance.device.update_descriptor_sets(&writes, &[]) };
@@ -385,11 +370,6 @@ fn create_descriptor_set_layout(device: &Device) -> Result<vk::DescriptorSetLayo
         .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
         .descriptor_count(1)
         .stage_flags(vk::ShaderStageFlags::FRAGMENT);
-    // let texture_layout_binding = vk::DescriptorSetLayoutBinding::default()
-    //     .binding(2)
-    //     .descriptor_type(vk::DescriptorType::SAMPLED_IMAGE)
-    //     .descriptor_count(1)
-    //     .stage_flags(vk::ShaderStageFlags::FRAGMENT);
 
     let bindings = &[ubo_binding, texture_sampler_binding];
     let info = vk::DescriptorSetLayoutCreateInfo::default().bindings(bindings);
@@ -405,9 +385,6 @@ fn create_descriptor_pool(device: &Device, count: usize) -> Result<vk::Descripto
     let sampler_size = vk::DescriptorPoolSize::default()
         .ty(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
         .descriptor_count(count as u32);
-    // let image_size = vk::DescriptorPoolSize::default()
-    //     .ty(vk::DescriptorType::SAMPLED_IMAGE)
-    //     .descriptor_count(count as u32);
 
     let pool_sizes = &[ubo_size, sampler_size];
     let info = vk::DescriptorPoolCreateInfo::default()
