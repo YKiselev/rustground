@@ -235,8 +235,7 @@ impl VkInstance {
     }
 
     pub fn create_texture_image(&self, files: &Files) -> Result<VkImage, VkError> {
-        let file = files
-            .read("textures/tex1.png")?;
+        let file = files.read("textures/tex1.png")?;
         let image = BufReader::new(file);
 
         let decoder = png::Decoder::new(image);
@@ -244,29 +243,31 @@ impl VkInstance {
             .read_info()
             .map_err(|e| VkError::GenericError(e.to_string()))?;
 
-        let mut pixels = vec![0; reader.info().raw_bytes()];
+        let size_in_bytes = reader.output_buffer_size().ok_or(VkError::GenericError("Out of memory!".to_string()))?;
+        let mut pixels = vec![0; size_in_bytes];
         reader
             .next_frame(&mut pixels)
             .map_err(|e| VkError::GenericError(e.to_string()))?;
 
         let (width, height) = reader.info().size();
+        let layers = [pixels];
 
-        self.create_texture_image_from_pixels(width, height, pixels, vk::Format::R8G8B8A8_SRGB)
+        self.create_texture_image_from_pixels(width, height, &layers, vk::Format::R8G8B8A8_SRGB)
     }
 
     pub fn create_texture_image_from_pixels(
         &self,
         width: u32,
         height: u32,
-        pixels: Vec<u8>,
+        layer_pixels: &[Vec<u8>],
         format: vk::Format,
     ) -> Result<VkImage, VkError> {
-        let size = pixels.len() as u64; // reader.info().raw_bytes() as u64;
-        //let (width, height) = reader.info().size();
+        assert!(!layer_pixels.is_empty(), "There is no layers!");
 
         // Create (staging)
+        let buf_size: usize = layer_pixels.iter().map(|l| l.len()).sum();
         let (staging_buffer, staging_buffer_memory) = self.create_buffer(
-            size,
+            buf_size as u64,
             vk::BufferUsageFlags::TRANSFER_SRC,
             vk::MemoryPropertyFlags::HOST_COHERENT | vk::MemoryPropertyFlags::HOST_VISIBLE,
         )?;
@@ -274,14 +275,19 @@ impl VkInstance {
         // Copy (staging)
         let device = &self.device;
 
-        self.copy_memory(
-            staging_buffer_memory,
-            0,
-            size,
-            vk::MemoryMapFlags::empty(),
-            pixels.as_ptr(),
-            pixels.len(),
-        )?;
+        let mut dest_offset = 0;
+        for i in 0..layer_pixels.len() {
+            let layer_size = layer_pixels[i].len();
+            self.copy_memory(
+                staging_buffer_memory,
+                dest_offset,
+                layer_size as u64,
+                vk::MemoryMapFlags::empty(),
+                layer_pixels[i].as_ptr(),
+                layer_size,
+            )?;
+            dest_offset += layer_size as u64;
+        }
 
         // Create (image)
         let (texture_image, texture_image_memory) = create_image(
@@ -292,6 +298,7 @@ impl VkInstance {
             vk::ImageUsageFlags::SAMPLED | vk::ImageUsageFlags::TRANSFER_DST,
             vk::MemoryPropertyFlags::DEVICE_LOCAL,
             &self.memory_properties,
+            layer_pixels.len() as u32,
         )?;
 
         // Transition + Copy (image)
@@ -302,7 +309,7 @@ impl VkInstance {
             vk::ImageLayout::TRANSFER_DST_OPTIMAL,
         )?;
 
-        self.copy_buffer_to_image(staging_buffer, texture_image, width, height)?;
+        self.copy_buffer_to_image(staging_buffer, texture_image, width, height, layer_pixels.len() as u32)?;
 
         self.transition_image_layout(
             texture_image,
@@ -315,16 +322,20 @@ impl VkInstance {
             device.destroy_buffer(staging_buffer, None);
             device.free_memory(staging_buffer_memory, None)
         };
+        let mut view_type = vk::ImageViewType::TYPE_2D;
+        if layer_pixels.len() > 1 {
+            view_type = vk::ImageViewType::TYPE_2D_ARRAY;
+        }
         let view_info = vk::ImageViewCreateInfo::default()
             .image(texture_image)
-            .view_type(vk::ImageViewType::TYPE_2D)
+            .view_type(view_type)
             .format(format)
             .subresource_range(vk::ImageSubresourceRange {
                 aspect_mask: vk::ImageAspectFlags::COLOR,
                 base_mip_level: 0,
                 level_count: 1,
                 base_array_layer: 0,
-                layer_count: 1,
+                layer_count: layer_pixels.len() as u32,
             });
 
         let texture_image_view = unsafe { device.create_image_view(&view_info, None) }?;
@@ -520,36 +531,41 @@ impl VkInstance {
         image: vk::Image,
         width: u32,
         height: u32,
+        layers_count: u32,
     ) -> Result<(), VkError> {
         let command_buffer = self.begin_single_time_commands()?;
 
-        let subresource = vk::ImageSubresourceLayers::default()
-            .aspect_mask(vk::ImageAspectFlags::COLOR)
-            .mip_level(0)
-            .base_array_layer(0)
-            .layer_count(1);
+        let layer_size = width * height;
+        for i in 0..layers_count {
+            let buffer_offset = (i * layer_size) as u64;
+            let subresource = vk::ImageSubresourceLayers::default()
+                .aspect_mask(vk::ImageAspectFlags::COLOR)
+                .mip_level(0)
+                .base_array_layer(i)
+                .layer_count(1);
 
-        let region = vk::BufferImageCopy::default()
-            .buffer_offset(0)
-            .buffer_row_length(0)
-            .buffer_image_height(0)
-            .image_subresource(subresource)
-            .image_offset(vk::Offset3D { x: 0, y: 0, z: 0 })
-            .image_extent(vk::Extent3D {
-                width,
-                height,
-                depth: 1,
-            });
+            let region = vk::BufferImageCopy::default()
+                .buffer_offset(buffer_offset)
+                .buffer_row_length(0)
+                .buffer_image_height(0)
+                .image_subresource(subresource)
+                .image_offset(vk::Offset3D { x: 0, y: 0, z: 0 })
+                .image_extent(vk::Extent3D {
+                    width,
+                    height,
+                    depth: 1,
+                });
 
-        unsafe {
-            let regions = [region];
-            self.device.cmd_copy_buffer_to_image(
-                command_buffer,
-                buffer,
-                image,
-                vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-                regions.as_slice(),
-            )
+            unsafe {
+                let regions = [region];
+                self.device.cmd_copy_buffer_to_image(
+                    command_buffer,
+                    buffer,
+                    image,
+                    vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                    regions.as_slice(),
+                )
+            }
         }
 
         self.end_single_time_commands(command_buffer)?;

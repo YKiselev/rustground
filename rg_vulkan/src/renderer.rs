@@ -14,7 +14,7 @@ use crate::{
     debug::DebugUtils,
     error::{VkError, to_generic},
     instance::VkInstance,
-    pipelines::{textured_triangle::TexturedTriangle, triangle::Triangle},
+    pipelines::{textured_triangle::TexturedTriangle, triangle::Triangle, ui::UiPipeline},
     window::{MAX_VIDEO_MODE, create_window},
 };
 
@@ -30,6 +30,7 @@ pub struct VulkanRenderer {
     start: Instant,
     triangle: Triangle,
     tex_triangle: TexturedTriangle,
+    ui: UiPipeline,
 }
 
 const RESIZE_DEBOUNCE_DURATION: Duration = Duration::from_millis(200);
@@ -53,6 +54,7 @@ impl VulkanRenderer {
         info!("Creating pipelines...");
         let triangle = Triangle::new(&vk_instance, app)?;
         let tex_triangle = TexturedTriangle::new(&vk_instance, app)?;
+        let ui = UiPipeline::new(&vk_instance, app)?;
 
         info!("Vulkan renderer initialzied");
         window.set_visible(true);
@@ -69,6 +71,7 @@ impl VulkanRenderer {
             start: Instant::now(),
             triangle,
             tex_triangle,
+            ui,
         })
     }
 
@@ -76,11 +79,6 @@ impl VulkanRenderer {
         let mut recreate_swapchain = false;
         if let Some(resize_time) = self.window_resized_at.as_ref() {
             if resize_time.elapsed() >= RESIZE_DEBOUNCE_DURATION {
-                info!(
-                    "{:?} > {:?}",
-                    resize_time.elapsed(),
-                    RESIZE_DEBOUNCE_DURATION
-                );
                 recreate_swapchain = true;
             }
         }
@@ -190,6 +188,19 @@ impl VulkanRenderer {
             Err(e) => warn!("Failed to draw to command buffer: {:?}", e),
         }
 
+        match self
+            .ui
+            .draw_to_buffer(&self.vk_instance, frame_index, command_buffer)
+        {
+            Ok(_) => {
+                let _ = self.ui.update_uniform_buffer(
+                    &self.vk_instance,
+                    frame_index
+                );
+            }
+            Err(e) => warn!("Failed to draw to command buffer: {:?}", e),
+        }
+
         match self.end_frame(command_buffer) {
             Ok(_) => {}
             Err(e) => warn!("Failed to end frame: {:?}", e),
@@ -267,6 +278,7 @@ impl Drop for VulkanRenderer {
     fn drop(&mut self) {
         info!("Destroing renderer");
         self.vk_instance.wait_idle().unwrap();
+        self.ui.destroy(&self.vk_instance.device);
         self.triangle.destroy(&self.vk_instance.device);
         self.tex_triangle.destroy(&self.vk_instance.device);
         self.vk_instance.destroy();

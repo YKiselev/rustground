@@ -98,6 +98,7 @@ fn main() {
     while dst_dir.file_name().unwrap() != "target" {
         let _ = dst_dir.pop();
     }
+    dst_dir.push("base/resources");
 
     let mut vulkan_sdk = env::var_os("VULKAN_SDK").expect("VULKAN_SDK is not set!");
     vulkan_sdk.push("/bin");

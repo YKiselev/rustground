@@ -383,6 +383,7 @@ pub fn create_depth_image(
         vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
         memory_properties,
+        1
     )?;
 
     let view_info = vk::ImageViewCreateInfo::default()

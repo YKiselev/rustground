@@ -174,12 +174,19 @@ impl Files {
         folders.push(current_dir.join("base/resources"));
 
         // Add build target dir in case we developing
-        if let Ok(out_dir) = std::env::var("OUT_DIR") {
-            let mut dst_dir = PathBuf::from(&out_dir);
-            while dst_dir.file_name().unwrap() != "target" {
-                let _ = dst_dir.pop();
+        if let Ok(mut out_dir) = std::env::current_exe() {
+            while let Some(name) = out_dir.file_name() {
+                if name.to_ascii_lowercase() == "target" {
+                    break;
+                }
+                let _ = out_dir.pop();
             }
-            folders.push(dst_dir);
+            out_dir.push("base/resources");
+            // let mut dst_dir = PathBuf::from(&out_dir);
+            // while dst_dir.file_name().unwrap() != "target" {
+            //     let _ = dst_dir.pop();
+            // }
+            folders.push(out_dir);
         }
 
         let roots = folders

@@ -16,10 +16,10 @@ use std::sync::Arc;
 
 use crate::buffer::VkBuffer;
 use crate::dyn_buffer::VkDynamicBuffer;
-use crate::font::VkFont;
+use crate::font::VkFontAtlas;
 use crate::image::VkImage;
-use crate::loaders::FontLoaderContext;
-use crate::loaders::load_font;
+use crate::loaders::FontAtlasLoaderContext;
+use crate::loaders::load_font_atlas;
 use crate::renderer::create_default_viewport_and_scissor;
 use crate::vertex::GlyphInstance;
 use crate::{
@@ -30,40 +30,12 @@ use crate::{
     uniform::UniformBufferObject,
 };
 
-// const MAX_VERTICES: usize = 4 * 80;
-// const MAX_INDICES: usize = 6 * 80;
-
-// #[rustfmt::skip]
-// static VERTICES: [Pos2Color4Tex2Vertex; 4] = [
-//     Pos2Color4Tex2Vertex::new(vec2(-0.5, -0.5), vec4(1.0, 0.0, 0.0, 1.0), vec2(0.0, 0.0)),
-//     Pos2Color4Tex2Vertex::new(vec2(0.5, -0.5), vec4(0.0, 1.0, 0.0, 1.0), vec2(1.0, 0.0)),
-//     Pos2Color4Tex2Vertex::new(vec2(0.5, 0.5), vec4(0.0, 0.0, 1.0, 1.0), vec2(1.0, 1.0)),
-//     Pos2Color4Tex2Vertex::new(vec2(-0.5, 0.5), vec4(1.0, 1.0, 1.0, 1.0), vec2(0.0, 1.0)),
-// ];
-//const QUAD_INDICES: [u16; 6] = [0, 1, 2, 2, 3, 0];
-
 ///
 /// UI pipeline config
 ///
 #[derive(Serialize, Deserialize)]
-struct CharacterRange(u32, u32);
-
-impl From<CharacterRange> for RangeInclusive<u32> {
-    fn from(value: CharacterRange) -> RangeInclusive<u32> {
-        value.0..=value.1
-    }
-}
-
-#[derive(Serialize, Deserialize)]
-struct Font {
-    name: String,
-    size: u32,
-    char_ranges: Vec<CharacterRange>,
-}
-
-#[derive(Serialize, Deserialize)]
 struct Config {
-    fonts: HashMap<String, Font>,
+    //fonts: HashMap<String, Font>,
     vertex_shader: String,
     fragment_schader: String,
 }
@@ -81,8 +53,7 @@ pub struct UiPipeline {
     descriptor_set_layout: vk::DescriptorSetLayout,
     descriptor_pool: vk::DescriptorPool,
     descriptor_sets: Vec<vk::DescriptorSet>,
-    texture: VkImage,
-    fonts: HashMap<String, VkFont>,
+    font_atlas: VkFontAtlas,
 }
 
 impl UiPipeline {
@@ -94,17 +65,12 @@ impl UiPipeline {
         )?;
 
         // Load fonts
-        let mut fonts = HashMap::new();
         let atlas_size = vk::Extent2D {
             width: 1024,
             height: 1024,
         };
-        for (name, info) in config.fonts {
-            let ranges = info.char_ranges.iter().map(|r| (r.0..=r.1)).collect();
-            let ctx = FontLoaderContext::new(instance, info.size, ranges, atlas_size);
-            let font = app.load_resource(&name, &load_font, &ctx)?;
-            fonts.insert(name, font);
-        }
+        let ctx = FontAtlasLoaderContext::new(instance, app, atlas_size);
+        let font_atlas = app.load_resource("configs/ui-pipeline.toml", &load_font_atlas, &ctx)?;
 
         let vert = app.load_resource(config.vertex_shader, &load_bytes, ())?;
         let frag = app.load_resource(config.fragment_schader, &load_bytes, ())?;
@@ -223,8 +189,6 @@ impl UiPipeline {
             descriptor_pool,
             descriptor_set_count,
         )?;
-        // todo font atlas (texture array)
-        let texture = instance.create_texture_image(&app.files)?;
 
         let vertex_buffer = VkDynamicBuffer::vertex::<GlyphInstance>(instance, 2048)?;
         let uniform_buffers = create_uniform_buffers(instance)?;
@@ -237,8 +201,7 @@ impl UiPipeline {
             descriptor_set_layout,
             descriptor_pool,
             descriptor_sets,
-            texture,
-            fonts,
+            font_atlas,
         };
         result.update_descriptor_sets(instance)?;
 
@@ -301,7 +264,7 @@ impl UiPipeline {
 
             let image_info = [vk::DescriptorImageInfo::default()
                 .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-                .image_view(self.texture.view)];
+                .image_view(self.font_atlas.image.view)];
             let image_write = vk::WriteDescriptorSet::default()
                 .dst_set(descriptor_set)
                 .dst_binding(2)
@@ -366,10 +329,7 @@ impl UiPipeline {
     pub fn destroy(&mut self, device: &Device) {
         self.destroy_uniform_buffers(device);
         unsafe {
-            self.fonts.values_mut().for_each(|f| {
-                f.destroy(device);
-            });
-            self.texture.destroy(device);
+            self.font_atlas.destroy(device);
             device.destroy_descriptor_pool(self.descriptor_pool, None);
             device.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
             self.vertex_buffer.destroy(device);
@@ -452,34 +412,9 @@ mod tests {
     #[test]
     fn test() {
         let c = Config {
-            fonts: HashMap::from([
-                (
-                    "console".to_string(),
-                    Font {
-                        name: "font-1".to_string(),
-                        size: 14,
-                        char_ranges: vec![
-                            CharacterRange(0x0020, 0x007E),
-                            CharacterRange(0x0400, 0x04FF),
-                        ],
-                    },
-                ),
-                (
-                    "menu".to_string(),
-                    Font {
-                        name: "font-2".to_string(),
-                        size: 28,
-                        char_ranges: vec![
-                            CharacterRange(0x0020, 0x007E),
-                            CharacterRange(0x0400, 0x04FF),
-                        ],
-                    },
-                ),
-            ]),
             vertex_shader: "aaa".to_string(),
             fragment_schader: "bbb".to_string(),
         };
         let str = toml::to_string(&c).unwrap();
-        println!("toml: {}", str);
     }
 }

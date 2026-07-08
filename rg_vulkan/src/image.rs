@@ -35,6 +35,7 @@ pub(crate) fn create_image(
     usage: vk::ImageUsageFlags,
     properties: vk::MemoryPropertyFlags,
     memory_properties: &vk::PhysicalDeviceMemoryProperties,
+    array_layers: u32
 ) -> Result<(vk::Image, vk::DeviceMemory), VkError> {
     let info = vk::ImageCreateInfo::default()
         .image_type(vk::ImageType::TYPE_2D)
@@ -44,7 +45,7 @@ pub(crate) fn create_image(
             depth: 1,
         })
         .mip_levels(1)
-        .array_layers(1)
+        .array_layers(array_layers)
         .format(format)
         .tiling(vk::ImageTiling::OPTIMAL)
         .initial_layout(vk::ImageLayout::UNDEFINED)
