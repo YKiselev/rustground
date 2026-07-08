@@ -27,10 +27,12 @@ pub struct VulkanRenderer {
     debug_utils: Option<DebugUtils>,
     vk_instance: VkInstance,
     window_resized_at: Option<Instant>,
+    recreate_swapchain: bool,
     start: Instant,
     triangle: Triangle,
     tex_triangle: TexturedTriangle,
     ui: UiPipeline,
+    image_index: Option<usize>,
 }
 
 const RESIZE_DEBOUNCE_DURATION: Duration = Duration::from_millis(200);
@@ -68,46 +70,61 @@ impl VulkanRenderer {
             debug_utils,
             vk_instance,
             window_resized_at: None,
+            recreate_swapchain: false,
             start: Instant::now(),
             triangle,
             tex_triangle,
             ui,
+            image_index: None,
         })
     }
 
-    pub fn render(&mut self) -> bool {
-        let mut recreate_swapchain = false;
+    pub fn begin_frame(&mut self) {
+        self.image_index = None;
+
         if let Some(resize_time) = self.window_resized_at.as_ref() {
             if resize_time.elapsed() >= RESIZE_DEBOUNCE_DURATION {
-                recreate_swapchain = true;
+                self.recreate_swapchain = true;
             }
         }
-        if !recreate_swapchain {
+
+        if !self.recreate_swapchain {
             match self.vk_instance.begin_frame() {
                 Ok(image_index) => {
-                    self.render_frame(image_index);
-
-                    match self.vk_instance.end_frame(image_index, &self.window) {
-                        Ok(changed) => {
-                            if self.window_resized_at.is_none() {
-                                recreate_swapchain = changed
-                            }
-                        }
-                        Err(e) => {
-                            warn!("Failed to end frame: {:?}", e);
-                            return false;
-                        }
-                    }
+                    self.image_index = Some(image_index);
                 }
                 Err(VkError::SwapchainChanged) => {
                     if self.window_resized_at.is_none() {
-                        recreate_swapchain = true
+                        self.recreate_swapchain = true
                     }
                 }
                 Err(e) => warn!("Failed to begin frame: {:?}", e),
             }
         }
-        if recreate_swapchain {
+    }
+
+    pub fn render(&mut self) {
+        if let Some(image_index) = self.image_index {
+            self.render_frame(image_index);
+        }
+    }
+
+    pub fn end_frame(&mut self) -> bool {
+        if let Some(image_index) = self.image_index {
+            match self.vk_instance.end_frame(image_index, &self.window) {
+                Ok(changed) => {
+                    if self.window_resized_at.is_none() {
+                        self.recreate_swapchain = changed
+                    }
+                }
+                Err(e) => {
+                    warn!("Failed to end frame: {:?}", e);
+                    return false;
+                }
+            }
+            self.image_index = None;
+        }
+        if self.recreate_swapchain {
             match self.config.write() {
                 Ok(mut cfg) => {
                     let scale_factor = self.window.scale_factor();
@@ -117,9 +134,15 @@ impl VulkanRenderer {
                 }
                 Err(_) => warn!("Unable to update window size in config - lock is poisoned!"),
             }
-            let _ = self
+            match self
                 .recreate_swapchain()
-                .inspect_err(|e| warn!("Failed to recreate swapchain: {:?}", e));
+                .inspect_err(|e| warn!("Failed to recreate swapchain: {:?}", e))
+            {
+                Ok(_) => self.recreate_swapchain = false,
+                Err(e) => {
+                    warn!("Failed to recreate swapchain: {:?}", e);
+                }
+            }
         }
         self.window.request_redraw();
         true
@@ -145,7 +168,7 @@ impl VulkanRenderer {
     }
 
     fn render_frame(&mut self, image_index: usize) {
-        let command_buffer = match self.begin_frame(image_index) {
+        let command_buffer = match self.begin_render_pass(image_index) {
             Ok(buf) => buf,
             Err(e) => {
                 warn!("Failed to begin frame: {:?}", e);
@@ -188,30 +211,24 @@ impl VulkanRenderer {
             Err(e) => warn!("Failed to draw to command buffer: {:?}", e),
         }
 
-        let _ = self.ui.update_uniform_buffer(
-                    &self.vk_instance,
-                    frame_index
-                );
+        let _ = self
+            .ui
+            .update_uniform_buffer(&self.vk_instance, frame_index);
         match self
             .ui
             .draw_to_buffer(&self.vk_instance, frame_index, command_buffer)
         {
-            Ok(_) => {
-                // let _ = self.ui.update_uniform_buffer(
-                //     &self.vk_instance,
-                //     frame_index
-                // );
-            }
-            Err(e) => warn!("Failed to draw to command buffer: {:?}", e),
+            Ok(_) => {}
+            Err(e) => warn!("Failed to draw ui to command buffer: {:?}", e),
         }
 
-        match self.end_frame(command_buffer) {
+        match self.end_render_pass(command_buffer) {
             Ok(_) => {}
             Err(e) => warn!("Failed to end frame: {:?}", e),
         }
     }
 
-    fn begin_frame(&self, image_index: usize) -> Result<vk::CommandBuffer, VkError> {
+    fn begin_render_pass(&self, image_index: usize) -> Result<vk::CommandBuffer, VkError> {
         let info = vk::CommandBufferBeginInfo::default();
         let instance = &self.vk_instance;
         let command_buffer = self
@@ -265,7 +282,7 @@ impl VulkanRenderer {
         Ok(command_buffer)
     }
 
-    fn end_frame(&self, command_buffer: vk::CommandBuffer) -> Result<(), VkError> {
+    fn end_render_pass(&self, command_buffer: vk::CommandBuffer) -> Result<(), VkError> {
         unsafe {
             self.vk_instance.device.cmd_end_render_pass(command_buffer);
             self.vk_instance.device.end_command_buffer(command_buffer)?;

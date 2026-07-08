@@ -12,6 +12,7 @@ use crate::image::VkImage;
 use crate::instance::MAX_FRAMES_IN_FLIGHT;
 use crate::renderer::create_default_viewport_and_scissor;
 use crate::vertex::Pos2Color4Tex2Vertex;
+use crate::vertex::vertex_input_descriptions;
 use crate::{
     error::{VkError, to_generic},
     instance::VkInstance,
@@ -61,10 +62,11 @@ impl TexturedTriangle {
             .module(frag_shader_module)
             .name(c"main");
 
-        let binding_descriptions = &[Pos2Color4Tex2Vertex::binding_description()];
-        let attribute_descriptions = Pos2Color4Tex2Vertex::attribute_descriptions();
+        let (binding_description, attribute_descriptions) =
+            vertex_input_descriptions::<Pos2Color4Tex2Vertex>();
+        let binding_descriptions = [binding_description];
         let vertex_input_state = vk::PipelineVertexInputStateCreateInfo::default()
-            .vertex_binding_descriptions(binding_descriptions)
+            .vertex_binding_descriptions(&binding_descriptions)
             .vertex_attribute_descriptions(&attribute_descriptions);
 
         let input_assembly_state = vk::PipelineInputAssemblyStateCreateInfo::default()
@@ -135,12 +137,11 @@ impl TexturedTriangle {
 
         let infos = [info];
         let mut result = unsafe {
-            instance.device.create_graphics_pipelines(
-                vk::PipelineCache::null(),
-                &infos,
-                None,
-            )
-        }.map_err(|(_,e)| VkError::VkErrorCode(e))?;
+            instance
+                .device
+                .create_graphics_pipelines(vk::PipelineCache::null(), &infos, None)
+        }
+        .map_err(|(_, e)| VkError::VkErrorCode(e))?;
 
         if result.is_empty() {
             error!("No pipeline in result!");

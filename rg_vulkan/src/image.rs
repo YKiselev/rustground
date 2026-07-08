@@ -35,7 +35,7 @@ pub(crate) fn create_image(
     usage: vk::ImageUsageFlags,
     properties: vk::MemoryPropertyFlags,
     memory_properties: &vk::PhysicalDeviceMemoryProperties,
-    array_layers: u32
+    array_layers: u32,
 ) -> Result<(vk::Image, vk::DeviceMemory), VkError> {
     let info = vk::ImageCreateInfo::default()
         .image_type(vk::ImageType::TYPE_2D)

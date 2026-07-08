@@ -8,7 +8,10 @@ use log::{debug, error, info};
 use rg_common::{App, Plugin};
 use rg_vulkan::renderer::VulkanRenderer;
 use winit::{
-    event::{Event, MouseScrollDelta, WindowEvent}, event_loop::ActiveEventLoop, keyboard::{KeyCode, ModifiersState, PhysicalKey}, window::WindowId,
+    event::{Event, MouseScrollDelta, WindowEvent},
+    event_loop::ActiveEventLoop,
+    keyboard::{KeyCode, ModifiersState, PhysicalKey},
+    window::WindowId,
 };
 
 use crate::{
@@ -58,20 +61,25 @@ impl ClientState {
 
         // Start frame
         self.net.frame_start(&self.app);
+        if let Some(renderer) = self.renderer.as_mut() {
+            renderer.begin_frame();
+        }
 
         // Update
         self.net.update(&self.app);
-        let mut render_failed = false;
         if let Some(renderer) = self.renderer.as_mut() {
-            render_failed = !renderer.render();
+            renderer.render();
         }
 
         // End frame
         self.net.frame_end(&self.app);
+        let mut render_failed = false;
+        if let Some(renderer) = self.renderer.as_mut() {
+            render_failed = !renderer.end_frame();
+        }
 
         if render_failed {
             self.renderer.take();
-            
         }
         self.cap_fps(started.elapsed());
     }

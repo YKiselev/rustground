@@ -1,6 +1,14 @@
-use ash::vk;
+use ash::vk::{self};
 
 use crate::types::{Vec2, Vec2u16, Vec4, Vec4u16};
+
+///
+/// Vertex trait
+///
+pub(crate) trait Vertex {
+    fn input_binding_description() -> vk::VertexInputBindingDescription;
+    fn input_attribute_descriptions() -> Vec<vk::VertexInputAttributeDescription>;
+}
 
 ///
 /// Pos2Color4Vertex
@@ -16,15 +24,17 @@ impl Pos2Color4Vertex {
     pub const fn new(pos: Vec2, color: Vec4) -> Self {
         Self { pos, color }
     }
+}
 
-    pub fn binding_description() -> vk::VertexInputBindingDescription {
+impl Vertex for Pos2Color4Vertex {
+    fn input_binding_description() -> vk::VertexInputBindingDescription {
         vk::VertexInputBindingDescription::default()
             .binding(0)
             .stride(size_of::<Pos2Color4Vertex>() as u32)
             .input_rate(vk::VertexInputRate::VERTEX)
     }
 
-    pub fn attribute_descriptions() -> [vk::VertexInputAttributeDescription; 2] {
+    fn input_attribute_descriptions() -> Vec<vk::VertexInputAttributeDescription> {
         let pos = vk::VertexInputAttributeDescription::default()
             .binding(0)
             .location(0)
@@ -35,7 +45,7 @@ impl Pos2Color4Vertex {
             .location(1)
             .format(vk::Format::R32G32B32A32_SFLOAT)
             .offset(std::mem::offset_of!(Pos2Color4Vertex, color) as u32);
-        [pos, color]
+        vec![pos, color]
     }
 }
 
@@ -54,15 +64,17 @@ impl Pos2Color4Tex2Vertex {
     pub const fn new(pos: Vec2, color: Vec4, tex: Vec2) -> Self {
         Self { pos, color, tex }
     }
+}
 
-    pub fn binding_description() -> vk::VertexInputBindingDescription {
+impl Vertex for Pos2Color4Tex2Vertex {
+    fn input_binding_description() -> vk::VertexInputBindingDescription {
         vk::VertexInputBindingDescription::default()
             .binding(0)
             .stride(size_of::<Pos2Color4Tex2Vertex>() as u32)
             .input_rate(vk::VertexInputRate::VERTEX)
     }
 
-    pub fn attribute_descriptions() -> [vk::VertexInputAttributeDescription; 3] {
+    fn input_attribute_descriptions() -> Vec<vk::VertexInputAttributeDescription> {
         let pos = vk::VertexInputAttributeDescription::default()
             .binding(0)
             .location(0)
@@ -78,7 +90,7 @@ impl Pos2Color4Tex2Vertex {
             .location(2)
             .format(vk::Format::R32G32_SFLOAT)
             .offset(std::mem::offset_of!(Pos2Color4Tex2Vertex, tex) as u32);
-        [pos, color, tex]
+        vec![pos, color, tex]
     }
 }
 
@@ -93,18 +105,18 @@ pub struct GlyphInstance {
     pub color: Vec4u16,
     pub uv: Vec2u16,
     pub uv_size: Vec2u16,
-    pub layer_index: u32
+    pub layer_index: u32,
 }
 
-impl GlyphInstance {
-    pub fn binding_description() -> vk::VertexInputBindingDescription {
+impl Vertex for GlyphInstance {
+    fn input_binding_description() -> vk::VertexInputBindingDescription {
         vk::VertexInputBindingDescription::default()
             .binding(0)
             .stride(size_of::<GlyphInstance>() as u32)
             .input_rate(vk::VertexInputRate::INSTANCE)
     }
 
-    pub fn attribute_descriptions() -> [vk::VertexInputAttributeDescription; 6] {
+    fn input_attribute_descriptions() -> Vec<vk::VertexInputAttributeDescription> {
         let pos = vk::VertexInputAttributeDescription::default()
             .binding(0)
             .location(0)
@@ -135,6 +147,21 @@ impl GlyphInstance {
             .location(5)
             .format(vk::Format::R32_UINT)
             .offset(std::mem::offset_of!(GlyphInstance, layer_index) as u32);
-        [pos, size, color, uv, uv_size, layer_index]
+        vec![pos, size, color, uv, uv_size, layer_index]
     }
+}
+
+///
+/// Helpers
+///
+pub(crate) fn vertex_input_descriptions<V>() -> (
+    vk::VertexInputBindingDescription,
+    Vec<vk::VertexInputAttributeDescription>,
+)
+where
+    V: Vertex,
+{
+    let binding_descriptions = V::input_binding_description();
+    let attribute_descriptions = V::input_attribute_descriptions();
+    (binding_descriptions, attribute_descriptions)
 }

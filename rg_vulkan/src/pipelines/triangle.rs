@@ -11,6 +11,7 @@ use std::sync::Arc;
 use crate::buffer::VkBuffer;
 use crate::instance::MAX_FRAMES_IN_FLIGHT;
 use crate::renderer::create_default_viewport_and_scissor;
+use crate::vertex::vertex_input_descriptions;
 use crate::{
     error::{VkError, to_generic},
     instance::VkInstance,
@@ -60,10 +61,11 @@ impl Triangle {
             .module(frag_shader_module)
             .name(c"main");
 
-        let binding_descriptions = &[Pos2Color4Vertex::binding_description()];
-        let attribute_descriptions = Pos2Color4Vertex::attribute_descriptions();
+        let (binding_description, attribute_descriptions) =
+            vertex_input_descriptions::<Pos2Color4Vertex>();
+        let binding_descriptions = [binding_description];
         let vertex_input_state = vk::PipelineVertexInputStateCreateInfo::default()
-            .vertex_binding_descriptions(binding_descriptions)
+            .vertex_binding_descriptions(&binding_descriptions)
             .vertex_attribute_descriptions(&attribute_descriptions);
 
         let input_assembly_state = vk::PipelineInputAssemblyStateCreateInfo::default()

@@ -56,7 +56,7 @@ pub(crate) fn optimize_ranges(source: &Vec<RangeInclusive<u32>>) -> Vec<RangeInc
 
     for range in sorted.into_iter().skip(1) {
         if range.start() <= &(*previous.end() + 1) {
-            previous = (*previous.start()..=max(*previous.end(), *range.end()));
+            previous = *previous.start()..=max(*previous.end(), *range.end());
         } else {
             result.push(previous);
             previous = range;

@@ -1,27 +1,21 @@
 use ash::Device;
 use ash::vk;
-use cgmath::One;
-use cgmath::vec4;
-use cgmath::{point3, vec2, vec3};
 use log::error;
 use rg_common::App;
 use rg_common::load_bytes;
 use rg_common::load_deserializable;
 use serde::Deserialize;
 use serde::Serialize;
-use std::collections::HashMap;
-use std::ops::RangeInclusive;
-use std::range::Range;
 use std::sync::Arc;
 
 use crate::buffer::VkBuffer;
 use crate::dyn_buffer::VkDynamicBuffer;
 use crate::font::VkFontAtlas;
-use crate::image::VkImage;
 use crate::loaders::FontAtlasLoaderContext;
 use crate::loaders::load_font_atlas;
 use crate::renderer::create_default_viewport_and_scissor;
 use crate::vertex::GlyphInstance;
+use crate::vertex::vertex_input_descriptions;
 use crate::{
     error::{VkError, to_generic},
     instance::VkInstance,
@@ -34,6 +28,8 @@ use crate::{
 ///
 #[derive(Serialize, Deserialize)]
 struct Config {
+    atlas_width: u32,
+    atlas_height: u32,
     vertex_shader: String,
     fragment_schader: String,
 }
@@ -48,6 +44,35 @@ pub struct UniformBufferObject {
 }
 
 ///
+/// Frame objects
+///
+struct FrameObjects {
+    vertex_buffer: VkDynamicBuffer,
+    uniform_buffer: VkBuffer,
+    total_glyph_count: u32,
+    glyph_buffer: Vec<GlyphInstance>,
+}
+
+const MAX_GLYPH_BATCH: usize = 200;
+
+impl FrameObjects {
+    fn new(instance: &VkInstance) -> Result<Self, VkError> {
+        let vertex_buffer = VkDynamicBuffer::vertex::<GlyphInstance>(instance, 2048)?;
+        let uniform_buffer = VkBuffer::uniform::<UniformBufferObject>(instance)?;
+        Ok(Self {
+            vertex_buffer,
+            uniform_buffer,
+            total_glyph_count: 0,
+            glyph_buffer: Vec::with_capacity(MAX_GLYPH_BATCH),
+        })
+    }
+
+    fn destroy(&self, device: &ash::Device) {
+        self.vertex_buffer.destroy(device);
+        self.uniform_buffer.destroy(device);
+    }
+}
+///
 /// UI pipeline
 ///
 #[derive()]
@@ -55,8 +80,7 @@ pub struct UiPipeline {
     app: Arc<App>,
     pub layout: vk::PipelineLayout,
     pub pipeline: vk::Pipeline,
-    pub vertex_buffer: VkDynamicBuffer,
-    uniform_buffers: Vec<VkBuffer>,
+    frame_objects: Vec<FrameObjects>,
     descriptor_set_layout: vk::DescriptorSetLayout,
     descriptor_pool: vk::DescriptorPool,
     descriptor_sets: Vec<vk::DescriptorSet>,
@@ -73,8 +97,8 @@ impl UiPipeline {
 
         // Load fonts
         let atlas_size = vk::Extent2D {
-            width: 1024,
-            height: 1024,
+            width: config.atlas_width,
+            height: config.atlas_height,
         };
         let ctx = FontAtlasLoaderContext::new(instance, app, atlas_size);
         let font_atlas = app.load_resource("configs/ui-pipeline.toml", &load_font_atlas, &ctx)?;
@@ -94,10 +118,11 @@ impl UiPipeline {
             .module(frag_shader_module)
             .name(c"main");
 
-        let binding_descriptions = &[GlyphInstance::binding_description()];
-        let attribute_descriptions = GlyphInstance::attribute_descriptions();
+        let (binding_description, attribute_descriptions) =
+            vertex_input_descriptions::<GlyphInstance>();
+        let binding_descriptions = [binding_description];
         let vertex_input_state = vk::PipelineVertexInputStateCreateInfo::default()
-            .vertex_binding_descriptions(binding_descriptions)
+            .vertex_binding_descriptions(&binding_descriptions)
             .vertex_attribute_descriptions(&attribute_descriptions);
 
         let input_assembly_state = vk::PipelineInputAssemblyStateCreateInfo::default()
@@ -148,6 +173,11 @@ impl UiPipeline {
         let dynamic_state =
             vk::PipelineDynamicStateCreateInfo::default().dynamic_states(&dynamic_states);
 
+        let depth_stencil_state = vk::PipelineDepthStencilStateCreateInfo::default()
+            .depth_test_enable(false)
+            .depth_write_enable(false)
+            .depth_compare_op(vk::CompareOp::ALWAYS);
+
         let stages = &[vert_stage, frag_stage];
         let info = vk::GraphicsPipelineCreateInfo::default()
             .stages(stages)
@@ -155,6 +185,7 @@ impl UiPipeline {
             .input_assembly_state(&input_assembly_state)
             .viewport_state(&viewport_state)
             .dynamic_state(&dynamic_state)
+            .depth_stencil_state(&depth_stencil_state)
             .rasterization_state(&rasterization_state)
             .multisample_state(&multisample_state)
             .color_blend_state(&color_blend_state)
@@ -197,14 +228,22 @@ impl UiPipeline {
             descriptor_set_count,
         )?;
 
-        let vertex_buffer = VkDynamicBuffer::vertex::<GlyphInstance>(instance, 2048)?;
-        let uniform_buffers = create_uniform_buffers(instance)?;
+        let frame_objects = instance
+            .swapchain
+            .images
+            .iter()
+            .map(|_| FrameObjects::new(instance))
+            .collect::<Result<Vec<FrameObjects>, VkError>>()?;
+
+        //let vertex_buffer = VkDynamicBuffer::vertex::<GlyphInstance>(instance, 2048)?;
+        //let uniform_buffers = create_uniform_buffers(instance)?;
         let mut result = Self {
             app: Arc::clone(app),
             layout,
             pipeline,
-            vertex_buffer,
-            uniform_buffers,
+            frame_objects,
+            //vertex_buffer,
+            //uniform_buffers,
             descriptor_set_layout,
             descriptor_pool,
             descriptor_sets,
@@ -218,16 +257,14 @@ impl UiPipeline {
     pub fn update_uniform_buffer(
         &self,
         instance: &VkInstance,
-        image_index: usize,
+        frame_index: usize,
     ) -> Result<(), VkError> {
-        let model = Mat4::one();
-        let view = Mat4::one();
         let mut proj = cgmath::ortho(0.0, 800.0, 600.0, 0.0, -1.0, 1.0);
 
         proj.y.y *= -1.0; // OGL legacy)
 
         let ubo = UniformBufferObject { proj };
-        let buf_memory = self.uniform_buffers[image_index].memory;
+        let buf_memory = self.frame_objects[frame_index].uniform_buffer.memory;
 
         instance.copy_memory(
             buf_memory,
@@ -246,9 +283,9 @@ impl UiPipeline {
     }
 
     fn update_descriptor_sets(&mut self, instance: &VkInstance) -> Result<(), VkError> {
-        for i in 0..self.uniform_buffers.len() {
+        for i in 0..self.frame_objects.len() {
             let info = vk::DescriptorBufferInfo::default()
-                .buffer(self.uniform_buffers[i].buffer)
+                .buffer(self.frame_objects[i].uniform_buffer.buffer)
                 .offset(0)
                 .range(size_of::<UniformBufferObject>() as u64);
 
@@ -261,30 +298,29 @@ impl UiPipeline {
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
                 .buffer_info(buffer_info);
 
-            let sampler_info = [vk::DescriptorImageInfo::default().sampler(instance.sampler)];
+            let sampler_info = [vk::DescriptorImageInfo::default()
+                .sampler(instance.sampler)
+                .image_view(self.font_atlas.image.view)
+                .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)];
             let sampler_write = vk::WriteDescriptorSet::default()
                 .dst_set(descriptor_set)
                 .dst_binding(1)
                 .dst_array_element(0)
-                .descriptor_type(vk::DescriptorType::SAMPLER)
+                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
                 .image_info(&sampler_info);
 
-            let image_info = [vk::DescriptorImageInfo::default()
-                .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-                .image_view(self.font_atlas.image.view)];
-            let image_write = vk::WriteDescriptorSet::default()
-                .dst_set(descriptor_set)
-                .dst_binding(2)
-                .dst_array_element(0)
-                .descriptor_type(vk::DescriptorType::SAMPLED_IMAGE)
-                .image_info(&image_info);
+            // let image_info = [vk::DescriptorImageInfo::default()
+            //     .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+            //     .image_view(self.font_atlas.image.view)];
+            // let image_write = vk::WriteDescriptorSet::default()
+            //     .dst_set(descriptor_set)
+            //     .dst_binding(2)
+            //     .dst_array_element(0)
+            //     .descriptor_type(vk::DescriptorType::SAMPLED_IMAGE)
+            //     .image_info(&image_info);
 
-            unsafe {
-                instance.device.update_descriptor_sets(
-                    &[ubo_write, sampler_write, image_write],
-                    &[] as &[vk::CopyDescriptorSet],
-                )
-            };
+            let writes = [ubo_write, sampler_write];
+            unsafe { instance.device.update_descriptor_sets(&writes, &[]) };
         }
 
         Ok(())
@@ -293,7 +329,7 @@ impl UiPipeline {
     pub fn draw_to_buffer(
         &mut self,
         instance: &VkInstance,
-        image_index: usize,
+        frame_index: usize,
         command_buffer: vk::CommandBuffer,
     ) -> Result<(), VkError> {
         let device = &instance.device;
@@ -304,10 +340,10 @@ impl UiPipeline {
                 self.pipeline,
             );
 
-            let buffers = [self.vertex_buffer.buffer];
+            let buffers = [self.frame_objects[frame_index].vertex_buffer.buffer];
             let offsets = [0];
             device.cmd_bind_vertex_buffers(command_buffer, 0, &buffers, &offsets);
-            let descriptor_sets = [self.descriptor_sets[image_index]];
+            let descriptor_sets = [self.descriptor_sets[frame_index]];
             let dyn_offsets = [];
             device.cmd_bind_descriptor_sets(
                 command_buffer,
@@ -323,18 +359,15 @@ impl UiPipeline {
         Ok(())
     }
 
-    pub fn destroy_uniform_buffers(&mut self, device: &Device) {
-        self.uniform_buffers.iter().for_each(|b| b.destroy(device));
-        self.uniform_buffers.clear();
-    }
-
     pub fn destroy(&mut self, device: &Device) {
-        self.destroy_uniform_buffers(device);
+        self.frame_objects
+            .iter()
+            .for_each(|obj| obj.destroy(device));
+        self.frame_objects.clear();
         unsafe {
             self.font_atlas.destroy(device);
             device.destroy_descriptor_pool(self.descriptor_pool, None);
             device.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
-            self.vertex_buffer.destroy(device);
             device.destroy_pipeline(self.pipeline, None);
             device.destroy_pipeline_layout(self.layout, None);
         }
@@ -349,16 +382,16 @@ fn create_descriptor_set_layout(device: &Device) -> Result<vk::DescriptorSetLayo
         .stage_flags(vk::ShaderStageFlags::VERTEX);
     let texture_sampler_binding = vk::DescriptorSetLayoutBinding::default()
         .binding(1)
-        .descriptor_type(vk::DescriptorType::SAMPLER)
+        .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
         .descriptor_count(1)
         .stage_flags(vk::ShaderStageFlags::FRAGMENT);
-    let texture_layout_binding = vk::DescriptorSetLayoutBinding::default()
-        .binding(2)
-        .descriptor_type(vk::DescriptorType::SAMPLED_IMAGE)
-        .descriptor_count(1)
-        .stage_flags(vk::ShaderStageFlags::FRAGMENT);
+    // let texture_layout_binding = vk::DescriptorSetLayoutBinding::default()
+    //     .binding(2)
+    //     .descriptor_type(vk::DescriptorType::SAMPLED_IMAGE)
+    //     .descriptor_count(1)
+    //     .stage_flags(vk::ShaderStageFlags::FRAGMENT);
 
-    let bindings = &[ubo_binding, texture_sampler_binding, texture_layout_binding];
+    let bindings = &[ubo_binding, texture_sampler_binding];
     let info = vk::DescriptorSetLayoutCreateInfo::default().bindings(bindings);
     let layout = unsafe { device.create_descriptor_set_layout(&info, None) }?;
 
@@ -370,13 +403,13 @@ fn create_descriptor_pool(device: &Device, count: usize) -> Result<vk::Descripto
         .ty(vk::DescriptorType::UNIFORM_BUFFER)
         .descriptor_count(count as u32);
     let sampler_size = vk::DescriptorPoolSize::default()
-        .ty(vk::DescriptorType::SAMPLER)
+        .ty(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
         .descriptor_count(count as u32);
-    let image_size = vk::DescriptorPoolSize::default()
-        .ty(vk::DescriptorType::SAMPLED_IMAGE)
-        .descriptor_count(count as u32);
+    // let image_size = vk::DescriptorPoolSize::default()
+    //     .ty(vk::DescriptorType::SAMPLED_IMAGE)
+    //     .descriptor_count(count as u32);
 
-    let pool_sizes = &[ubo_size, sampler_size, image_size];
+    let pool_sizes = &[ubo_size, sampler_size];
     let info = vk::DescriptorPoolCreateInfo::default()
         .pool_sizes(pool_sizes)
         .max_sets(count as u32);
@@ -396,27 +429,4 @@ fn create_descriptor_sets(
         .set_layouts(&layouts);
 
     unsafe { device.allocate_descriptor_sets(&info) }.map_err(|e| VkError::VkErrorCode(e))
-}
-
-fn create_uniform_buffers(instance: &VkInstance) -> Result<Vec<VkBuffer>, VkError> {
-    instance
-        .swapchain
-        .images
-        .iter()
-        .map(|_| VkBuffer::uniform::<UniformBufferObject>(instance))
-        .collect::<Result<Vec<VkBuffer>, VkError>>()
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::pipelines::ui::*;
-
-    #[test]
-    fn test() {
-        let c = Config {
-            vertex_shader: "aaa".to_string(),
-            fragment_schader: "bbb".to_string(),
-        };
-        let str = toml::to_string(&c).unwrap();
-    }
 }

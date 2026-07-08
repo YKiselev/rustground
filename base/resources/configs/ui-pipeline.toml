@@ -1,5 +1,7 @@
 vertex_shader = "shaders/ui.vert.spv"
 fragment_schader = "shaders/ui.frag.spv"
+atlas_width = 1024
+atlas_height = 1024
 
 [fonts.console]
 name = "fonts/FiraCode-Regular.ttf"

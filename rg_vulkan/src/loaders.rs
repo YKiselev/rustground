@@ -77,6 +77,7 @@ pub(crate) fn load_font_atlas(
             ctx.atlas_size.height,
             &atlas_layers,
             vk::Format::R8_UNORM,
+            vk::ImageViewType::TYPE_2D_ARRAY
         )
         .map_err(|e| LoaderError::Custom(e.to_string()))?;
 

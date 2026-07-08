@@ -16,7 +16,7 @@ use crate::memory::VkMemoryProperties;
 use crate::surface::VkSurface;
 use crate::{
     device::{create_logical_device, pick_physical_device},
-    error::{VkError, to_generic},
+    error::VkError,
     image::VkImage,
     queue_family::QueueFamilyIndices,
     swapchain::swapchain::Swapchain,
@@ -252,7 +252,7 @@ impl VkInstance {
         let (width, height) = reader.info().size();
         let layers = [pixels];
 
-        self.create_texture_image_from_pixels(width, height, &layers, vk::Format::R8G8B8A8_SRGB)
+        self.create_texture_image_from_pixels(width, height, &layers, vk::Format::R8G8B8A8_SRGB, vk::ImageViewType::TYPE_2D)
     }
 
     pub fn create_texture_image_from_pixels(
@@ -261,6 +261,7 @@ impl VkInstance {
         height: u32,
         layer_pixels: &[Vec<u8>],
         format: vk::Format,
+        view_type: vk::ImageViewType
     ) -> Result<VkImage, VkError> {
         assert!(!layer_pixels.is_empty(), "There is no layers!");
 
@@ -322,10 +323,6 @@ impl VkInstance {
             device.destroy_buffer(staging_buffer, None);
             device.free_memory(staging_buffer_memory, None)
         };
-        let mut view_type = vk::ImageViewType::TYPE_2D;
-        if layer_pixels.len() > 1 {
-            view_type = vk::ImageViewType::TYPE_2D_ARRAY;
-        }
         let view_info = vk::ImageViewCreateInfo::default()
             .image(texture_image)
             .view_type(view_type)
