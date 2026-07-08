@@ -14,6 +14,8 @@ use crate::font::VkFontAtlas;
 use crate::loaders::FontAtlasLoaderContext;
 use crate::loaders::load_font_atlas;
 use crate::renderer::create_default_viewport_and_scissor;
+use crate::types::Vec2i16;
+use crate::types::Vec4i16;
 use crate::vertex::GlyphInstance;
 use crate::vertex::vertex_input_descriptions;
 use crate::{
@@ -247,6 +249,45 @@ impl UiPipeline {
         result.update_descriptor_sets(instance)?;
 
         Ok(result)
+    }
+
+    pub fn draw_text<S>(&mut self, x: i32, y: i32, text: S, font: S)
+    where
+        S: AsRef<str>,
+    {
+        if let Some(font) = self.font_atlas.fonts.get(font.as_ref()) {
+            let mut x = x;
+            let mut y = y;
+            for ch in text.as_ref().chars() {
+                if let Some(glyph) = font.get(&ch) {
+                    let gx = (x + glyph.offset.x as i32) as i16;
+                    let gy = (y + glyph.offset.y as i32) as i16;
+                    let gw = glyph.width as i16;
+                    let gh = glyph.height as i16;
+                    let u = (glyph.uv_min.x * 32767.0) as i16;
+                    let v = (glyph.uv_min.y * 32767.0) as i16;
+                    let size = glyph.uv_max - glyph.uv_min;
+                    let uw = (size.x * 32767.0) as i16;
+                    let vh = (size.y * 32767.0) as i16;
+
+                    let g = GlyphInstance {
+                        pos: Vec2i16 { x: gx, y: gy },
+                        size: Vec2i16 { x: gw, y: gh },
+                        color: Vec4i16 {
+                            x: 32767,
+                            y: 32767,
+                            z: 32767,
+                            w: 32767,
+                        },
+                        uv: Vec2i16 { x: u, y: v },
+                        uv_size: Vec2i16 { x: uw, y: vh },
+                        layer_index: glyph.layer_index,
+                    };
+
+                    x += glyph.h_advance as i32;
+                }
+            }
+        }
     }
 
     pub fn update_uniform_buffer(

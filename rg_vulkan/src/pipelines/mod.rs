@@ -3,3 +3,4 @@ pub(crate) mod shader;
 pub(crate) mod textured_triangle;
 pub(crate) mod triangle;
 pub(crate) mod ui;
+mod text;

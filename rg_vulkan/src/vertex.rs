@@ -1,6 +1,6 @@
 use ash::vk::{self};
 
-use crate::types::{Vec2, Vec2u16, Vec4, Vec4u16};
+use crate::types::{Vec2, Vec2i16, Vec4, Vec4i16};
 
 ///
 /// Vertex trait
@@ -100,11 +100,11 @@ impl Vertex for Pos2Color4Tex2Vertex {
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct GlyphInstance {
-    pub pos: Vec2u16,
-    pub size: Vec2u16,
-    pub color: Vec4u16,
-    pub uv: Vec2u16,
-    pub uv_size: Vec2u16,
+    pub pos: Vec2i16,
+    pub size: Vec2i16,
+    pub color: Vec4i16,
+    pub uv: Vec2i16,
+    pub uv_size: Vec2i16,
     pub layer_index: u32,
 }
 
