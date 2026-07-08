@@ -27,7 +27,6 @@ use crate::{
     instance::VkInstance,
     pipelines::shader::create_shader_module,
     types::Mat4,
-    uniform::UniformBufferObject,
 };
 
 ///
@@ -35,9 +34,17 @@ use crate::{
 ///
 #[derive(Serialize, Deserialize)]
 struct Config {
-    //fonts: HashMap<String, Font>,
     vertex_shader: String,
     fragment_schader: String,
+}
+
+///
+///
+///
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct UniformBufferObject {
+    pub proj: Mat4,
 }
 
 ///
@@ -219,7 +226,7 @@ impl UiPipeline {
 
         proj.y.y *= -1.0; // OGL legacy)
 
-        let ubo = UniformBufferObject { model, view, proj };
+        let ubo = UniformBufferObject { proj };
         let buf_memory = self.uniform_buffers[image_index].memory;
 
         instance.copy_memory(
@@ -299,12 +306,7 @@ impl UiPipeline {
 
             let buffers = [self.vertex_buffer.buffer];
             let offsets = [0];
-            device.cmd_bind_vertex_buffers(
-                command_buffer,
-                0,
-                &buffers,
-                &offsets,
-            );
+            device.cmd_bind_vertex_buffers(command_buffer, 0, &buffers, &offsets);
             let descriptor_sets = [self.descriptor_sets[image_index]];
             let dyn_offsets = [];
             device.cmd_bind_descriptor_sets(

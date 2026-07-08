@@ -188,15 +188,19 @@ impl VulkanRenderer {
             Err(e) => warn!("Failed to draw to command buffer: {:?}", e),
         }
 
+        let _ = self.ui.update_uniform_buffer(
+                    &self.vk_instance,
+                    frame_index
+                );
         match self
             .ui
             .draw_to_buffer(&self.vk_instance, frame_index, command_buffer)
         {
             Ok(_) => {
-                let _ = self.ui.update_uniform_buffer(
-                    &self.vk_instance,
-                    frame_index
-                );
+                // let _ = self.ui.update_uniform_buffer(
+                //     &self.vk_instance,
+                //     frame_index
+                // );
             }
             Err(e) => warn!("Failed to draw to command buffer: {:?}", e),
         }

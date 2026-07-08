@@ -1,7 +1,5 @@
 use crate::types::Mat4;
 
-
-
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct UniformBufferObject {
