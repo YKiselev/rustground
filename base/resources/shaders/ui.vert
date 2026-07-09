@@ -4,11 +4,11 @@ layout(binding = 0) uniform UniformBufferObject {
     mat4 proj;
 } ubo;
 
-layout(location = 0) in uvec2 inPosition;
+layout(location = 0) in ivec2 inPosition;
 layout(location = 1) in uvec2 inSize;
-layout(location = 2) in uvec4 inColor;
-layout(location = 3) in uvec2 inTexCoord;
-layout(location = 4) in uvec2 inTexSize;
+layout(location = 2) in vec4 inColor;
+layout(location = 3) in vec2 inUvMin;
+layout(location = 4) in vec2 inUvMax;
 layout(location = 5) in uint  inLayerIndex;
 
 layout(location = 0) out vec4 fragColor;
@@ -19,28 +19,27 @@ layout(location = 2) flat out uint layerIndex;
 void main() {
     vec2 pos = vec2(inPosition);
     vec2 size = vec2(inSize);
-    vec4 color = vec4(inColor);
-    vec2 uv = vec2(inTexCoord);
-    vec2 uvSize = vec2(inTexSize);
-    vec2 offset = vec2(0.0);
+    vec2 uvMin = inUvMin;
+    vec2 uvMax = inUvMax;
     vec2 outUv = vec2(0.0);
 
+    vec2 offset = vec2(
+        float(gl_VertexIndex & 1),
+        float((gl_VertexIndex >> 1) & 1)
+    );
+
     if (gl_VertexIndex == 0) {
-        offset = vec2(0.0, 0.0); 
-        outUv = vec2(uv.x, uv.y);
+        outUv = vec2(uvMin.x, uvMin.y);
     } else if (gl_VertexIndex == 1) {
-        offset = vec2(0.0, size.y); 
-        outUv = vec2(uv.x, uvSize.y);
+        outUv = vec2(uvMax.x, uvMin.y);
     } else if (gl_VertexIndex == 2) {
-        offset = vec2(size.x, 0.0); 
-        outUv = vec2(uvSize.x, uv.y);
+        outUv = vec2(uvMin.x, uvMax.y);
     } else if (gl_VertexIndex == 3) {
-        offset = vec2(size.x, size.y); 
-        outUv = vec2(uvSize.x, uvSize.y);
+        outUv = vec2(uvMax.x, uvMax.y);
     }
 
     fragColor = inColor;
     fragTexCoord = outUv;
     layerIndex = inLayerIndex;
-    gl_Position = ubo.proj * vec4(pos.xy + offset, 0.0, 1.0);
+    gl_Position = ubo.proj * vec4(pos + offset * size, 0.0, 1.0);
 }

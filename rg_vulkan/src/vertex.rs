@@ -1,6 +1,6 @@
 use ash::vk::{self};
 
-use crate::types::{Vec2, Vec2i16, Vec4, Vec4i16};
+use crate::types::{Vec2, Vec2i16, Vec2u16, Vec4, Vec4i16, Vec4u16};
 
 ///
 /// Vertex trait
@@ -8,6 +8,7 @@ use crate::types::{Vec2, Vec2i16, Vec4, Vec4i16};
 pub(crate) trait Vertex {
     fn input_binding_description() -> vk::VertexInputBindingDescription;
     fn input_attribute_descriptions() -> Vec<vk::VertexInputAttributeDescription>;
+    fn size_in_bytes() -> usize;
 }
 
 ///
@@ -46,6 +47,10 @@ impl Vertex for Pos2Color4Vertex {
             .format(vk::Format::R32G32B32A32_SFLOAT)
             .offset(std::mem::offset_of!(Pos2Color4Vertex, color) as u32);
         vec![pos, color]
+    }
+
+    fn size_in_bytes() -> usize {
+        size_of::<Pos2Color4Vertex>()
     }
 }
 
@@ -92,6 +97,10 @@ impl Vertex for Pos2Color4Tex2Vertex {
             .offset(std::mem::offset_of!(Pos2Color4Tex2Vertex, tex) as u32);
         vec![pos, color, tex]
     }
+    
+    fn size_in_bytes() -> usize {
+        size_of::<Pos2Color4Tex2Vertex>()
+    }
 }
 
 ///
@@ -101,10 +110,10 @@ impl Vertex for Pos2Color4Tex2Vertex {
 #[derive(Copy, Clone, Debug)]
 pub struct GlyphInstance {
     pub pos: Vec2i16,
-    pub size: Vec2i16,
-    pub color: Vec4i16,
-    pub uv: Vec2i16,
-    pub uv_size: Vec2i16,
+    pub size: Vec2u16,
+    pub color: Vec4u16,
+    pub uv_min: Vec2u16,
+    pub uv_max: Vec2u16,
     pub layer_index: u32,
 }
 
@@ -120,7 +129,7 @@ impl Vertex for GlyphInstance {
         let pos = vk::VertexInputAttributeDescription::default()
             .binding(0)
             .location(0)
-            .format(vk::Format::R16G16_UINT)
+            .format(vk::Format::R16G16_SINT)
             .offset(std::mem::offset_of!(GlyphInstance, pos) as u32);
         let size = vk::VertexInputAttributeDescription::default()
             .binding(0)
@@ -130,24 +139,28 @@ impl Vertex for GlyphInstance {
         let color = vk::VertexInputAttributeDescription::default()
             .binding(0)
             .location(2)
-            .format(vk::Format::R16G16B16A16_UINT)
+            .format(vk::Format::R16G16B16A16_UNORM)
             .offset(std::mem::offset_of!(GlyphInstance, color) as u32);
-        let uv = vk::VertexInputAttributeDescription::default()
+        let uv_min = vk::VertexInputAttributeDescription::default()
             .binding(0)
             .location(3)
-            .format(vk::Format::R16G16_UINT)
-            .offset(std::mem::offset_of!(GlyphInstance, uv) as u32);
-        let uv_size = vk::VertexInputAttributeDescription::default()
+            .format(vk::Format::R16G16_UNORM)
+            .offset(std::mem::offset_of!(GlyphInstance, uv_min) as u32);
+        let uv_max = vk::VertexInputAttributeDescription::default()
             .binding(0)
             .location(4)
-            .format(vk::Format::R16G16_UINT)
-            .offset(std::mem::offset_of!(GlyphInstance, uv_size) as u32);
+            .format(vk::Format::R16G16_UNORM)
+            .offset(std::mem::offset_of!(GlyphInstance, uv_max) as u32);
         let layer_index = vk::VertexInputAttributeDescription::default()
             .binding(0)
             .location(5)
             .format(vk::Format::R32_UINT)
             .offset(std::mem::offset_of!(GlyphInstance, layer_index) as u32);
-        vec![pos, size, color, uv, uv_size, layer_index]
+        vec![pos, size, color, uv_min, uv_max, layer_index]
+    }
+    
+    fn size_in_bytes() -> usize {
+        size_of::<GlyphInstance>()
     }
 }
 

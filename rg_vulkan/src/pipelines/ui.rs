@@ -1,6 +1,8 @@
 use ash::Device;
 use ash::vk;
+use log::debug;
 use log::error;
+use log::warn;
 use rg_common::App;
 use rg_common::load_bytes;
 use rg_common::load_deserializable;
@@ -13,10 +15,10 @@ use crate::dyn_buffer::VkDynamicBuffer;
 use crate::font::VkFontAtlas;
 use crate::loaders::FontAtlasLoaderContext;
 use crate::loaders::load_font_atlas;
+use crate::pipelines::text::ToGlyphInstance;
 use crate::renderer::create_default_viewport_and_scissor;
-use crate::types::Vec2i16;
-use crate::types::Vec4i16;
 use crate::vertex::GlyphInstance;
+use crate::vertex::Vertex;
 use crate::vertex::vertex_input_descriptions;
 use crate::{
     error::{VkError, to_generic},
@@ -51,21 +53,29 @@ pub struct UniformBufferObject {
 struct FrameObjects {
     vertex_buffer: VkDynamicBuffer,
     uniform_buffer: VkBuffer,
-    total_glyph_count: u32,
     glyph_buffer: Vec<GlyphInstance>,
 }
 
-const MAX_GLYPH_BATCH: usize = 200;
+const DEFAULT_GLYPH_BUFFER_SIZE: usize = 20_000;
+const MAX_GLYPHS_PER_FRAME: usize = 100_000;
+
+#[rustfmt::skip]
+const VK_CORRECTION_MATRIX: Mat4 = Mat4::new(
+    1.0, 0.0, 0.0, 0.0, 
+    0.0, -1.0, 0.0, 0.0, // Inversion of Y
+    0.0, 0.0, 0.5, 0.0, // Map depth Z from (-1..1) to (0..1)
+    0.0, 0.0, 0.5, 1.0,
+);
 
 impl FrameObjects {
     fn new(instance: &VkInstance) -> Result<Self, VkError> {
-        let vertex_buffer = VkDynamicBuffer::vertex::<GlyphInstance>(instance, 2048)?;
+        let vertex_buffer =
+            VkDynamicBuffer::vertex::<GlyphInstance>(instance, MAX_GLYPHS_PER_FRAME)?;
         let uniform_buffer = VkBuffer::uniform::<UniformBufferObject>(instance)?;
         Ok(Self {
             vertex_buffer,
             uniform_buffer,
-            total_glyph_count: 0,
-            glyph_buffer: Vec::with_capacity(MAX_GLYPH_BATCH),
+            glyph_buffer: Vec::with_capacity(DEFAULT_GLYPH_BUFFER_SIZE),
         })
     }
 
@@ -87,10 +97,11 @@ pub struct UiPipeline {
     descriptor_pool: vk::DescriptorPool,
     descriptor_sets: Vec<vk::DescriptorSet>,
     font_atlas: VkFontAtlas,
+    frame_index: Option<usize>,
 }
 
 impl UiPipeline {
-    pub fn new(instance: &VkInstance, app: &Arc<App>) -> Result<Self, VkError> {
+    pub fn new(instance: &VkInstance, app: &Arc<App>, scale_factor: f64) -> Result<Self, VkError> {
         let config = app.load_resource(
             "configs/ui-pipeline.toml",
             &load_deserializable::<Config>,
@@ -102,7 +113,7 @@ impl UiPipeline {
             width: config.atlas_width,
             height: config.atlas_height,
         };
-        let ctx = FontAtlasLoaderContext::new(instance, app, atlas_size);
+        let ctx = FontAtlasLoaderContext::new(instance, app, atlas_size, scale_factor);
         let font_atlas = app.load_resource("configs/ui-pipeline.toml", &load_font_atlas, &ctx)?;
 
         let vert = app.load_resource(config.vertex_shader, &load_bytes, ())?;
@@ -143,7 +154,7 @@ impl UiPipeline {
             .rasterizer_discard_enable(false)
             .polygon_mode(vk::PolygonMode::FILL)
             .line_width(1.0)
-            .cull_mode(vk::CullModeFlags::BACK)
+            .cull_mode(vk::CullModeFlags::NONE)
             .front_face(vk::FrontFace::COUNTER_CLOCKWISE)
             .depth_bias_enable(false);
 
@@ -245,59 +256,52 @@ impl UiPipeline {
             descriptor_pool,
             descriptor_sets,
             font_atlas,
+            frame_index: None,
         };
         result.update_descriptor_sets(instance)?;
 
         Ok(result)
     }
 
-    pub fn draw_text<S>(&mut self, x: i32, y: i32, text: S, font: S)
+    pub fn draw_text<S>(&mut self, x: i32, y: i32, text: S)
     where
         S: AsRef<str>,
     {
-        if let Some(font) = self.font_atlas.fonts.get(font.as_ref()) {
+        let font = "console";
+        if let Some(font) = self.font_atlas.fonts.get(font) {
             let mut x = x;
             let mut y = y;
             for ch in text.as_ref().chars() {
                 if let Some(glyph) = font.get(&ch) {
-                    let gx = (x + glyph.offset.x as i32) as i16;
-                    let gy = (y + glyph.offset.y as i32) as i16;
-                    let gw = glyph.width as i16;
-                    let gh = glyph.height as i16;
-                    let u = (glyph.uv_min.x * 32767.0) as i16;
-                    let v = (glyph.uv_min.y * 32767.0) as i16;
-                    let size = glyph.uv_max - glyph.uv_min;
-                    let uw = (size.x * 32767.0) as i16;
-                    let vh = (size.y * 32767.0) as i16;
-
-                    let g = GlyphInstance {
-                        pos: Vec2i16 { x: gx, y: gy },
-                        size: Vec2i16 { x: gw, y: gh },
-                        color: Vec4i16 {
-                            x: 32767,
-                            y: 32767,
-                            z: 32767,
-                            w: 32767,
-                        },
-                        uv: Vec2i16 { x: u, y: v },
-                        uv_size: Vec2i16 { x: uw, y: vh },
-                        layer_index: glyph.layer_index,
-                    };
-
+                    let g = glyph.to_glyph_instance(x, y);
+                    if let Some(frame_index) = self.frame_index {
+                        let buf = &mut self.frame_objects[frame_index].glyph_buffer;
+                        if buf.len() >= MAX_GLYPHS_PER_FRAME {
+                            warn!("Maximim glyphs per frame reached ({})", buf.len());
+                            return;
+                        } else {
+                            buf.push(g);
+                        }
+                    } else {
+                        warn!("draw_text() called not between begin/end of renderer frame!");
+                        return;
+                    }
                     x += glyph.h_advance as i32;
                 }
             }
+        } else {
+            debug!("Font not found: {}", font);
         }
     }
 
-    pub fn update_uniform_buffer(
+    fn update_uniform_buffer(
         &self,
         instance: &VkInstance,
         frame_index: usize,
     ) -> Result<(), VkError> {
-        let mut proj = cgmath::ortho(0.0, 800.0, 600.0, 0.0, -1.0, 1.0);
-
-        proj.y.y *= -1.0; // OGL legacy)
+        let ext = instance.swapchain.extent;
+        let proj = cgmath::ortho(0.0, ext.width as f32, 0.0, ext.height as f32, -1.0, 1.0);
+        //let proj = VK_CORRECTION_MATRIX * proj;
 
         let ubo = UniformBufferObject { proj };
         let buf_memory = self.frame_objects[frame_index].uniform_buffer.memory;
@@ -352,12 +356,18 @@ impl UiPipeline {
         Ok(())
     }
 
-    pub fn draw_to_buffer(
+    pub fn begin_frame(
         &mut self,
         instance: &VkInstance,
         frame_index: usize,
         command_buffer: vk::CommandBuffer,
     ) -> Result<(), VkError> {
+        self.frame_index = Some(frame_index);
+
+        let frame_obj = &mut self.frame_objects[frame_index];
+
+        frame_obj.glyph_buffer.clear();
+
         let device = &instance.device;
         unsafe {
             device.cmd_bind_pipeline(
@@ -366,11 +376,14 @@ impl UiPipeline {
                 self.pipeline,
             );
 
-            let buffers = [self.frame_objects[frame_index].vertex_buffer.buffer];
+            let buffers = [frame_obj.vertex_buffer.buffer];
             let offsets = [0];
+
             device.cmd_bind_vertex_buffers(command_buffer, 0, &buffers, &offsets);
+
             let descriptor_sets = [self.descriptor_sets[frame_index]];
             let dyn_offsets = [];
+
             device.cmd_bind_descriptor_sets(
                 command_buffer,
                 vk::PipelineBindPoint::GRAPHICS,
@@ -379,8 +392,37 @@ impl UiPipeline {
                 &descriptor_sets,
                 &dyn_offsets,
             );
+        }
 
-            device.cmd_draw(command_buffer, 4, 1, 0, 0);
+        let _ = self.update_uniform_buffer(instance, frame_index)?;
+
+        self.draw_text(0, 10, "Hello, Vulkan user!");
+        self.draw_text(50, 50, "Hello, Vulkan user!");
+        self.draw_text(100, 100, "Hello, Vulkan user!");
+
+        Ok(())
+    }
+
+    pub fn end_frame(
+        &mut self,
+        instance: &VkInstance,
+        command_buffer: vk::CommandBuffer,
+    ) -> Result<(), VkError> {
+        if let Some(frame_index) = self.frame_index.take() {
+            let frame_obj = &self.frame_objects[frame_index];
+            frame_obj.vertex_buffer.copy_from(
+                frame_obj.glyph_buffer.as_ptr(),
+                frame_obj.glyph_buffer.len(),
+            );
+            let instance_count = frame_obj.glyph_buffer.len() as u32;
+            let vertex_count = 4;
+            unsafe {
+                if instance_count > 0 {
+                    instance
+                        .device
+                        .cmd_draw(command_buffer, vertex_count, instance_count, 0, 0);
+                }
+            }
         }
         Ok(())
     }

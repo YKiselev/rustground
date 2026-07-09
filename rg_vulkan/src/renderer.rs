@@ -33,6 +33,7 @@ pub struct VulkanRenderer {
     tex_triangle: TexturedTriangle,
     ui: UiPipeline,
     image_index: Option<usize>,
+    command_buffer: Option<vk::CommandBuffer>,
 }
 
 const RESIZE_DEBOUNCE_DURATION: Duration = Duration::from_millis(200);
@@ -56,7 +57,7 @@ impl VulkanRenderer {
         info!("Creating pipelines...");
         let triangle = Triangle::new(&vk_instance, app)?;
         let tex_triangle = TexturedTriangle::new(&vk_instance, app)?;
-        let ui = UiPipeline::new(&vk_instance, app)?;
+        let ui = UiPipeline::new(&vk_instance, app, window.scale_factor())?;
 
         info!("Vulkan renderer initialzied");
         window.set_visible(true);
@@ -76,11 +77,13 @@ impl VulkanRenderer {
             tex_triangle,
             ui,
             image_index: None,
+            command_buffer: None,
         })
     }
 
     pub fn begin_frame(&mut self) {
         self.image_index = None;
+        self.command_buffer = None;
 
         if let Some(resize_time) = self.window_resized_at.as_ref() {
             if resize_time.elapsed() >= RESIZE_DEBOUNCE_DURATION {
@@ -101,15 +104,46 @@ impl VulkanRenderer {
                 Err(e) => warn!("Failed to begin frame: {:?}", e),
             }
         }
+        if let Some(image_index) = self.image_index {
+            self.command_buffer = match self.begin_render_pass(image_index) {
+                Ok(buf) => Some(buf),
+                Err(e) => {
+                    warn!("Failed to begin frame: {:?}", e);
+                    return;
+                }
+            };
+        }
+        if let Some(command_buffer) = self.command_buffer {
+            let frame_index = self.vk_instance.swapchain.frames_in_flight.current_frame;
+            if let Err(e) = self
+                .ui
+                .begin_frame(&self.vk_instance, frame_index, command_buffer)
+            {
+                warn!("Failed to begin ui frame: {}", e);
+            }
+        }
     }
 
     pub fn render(&mut self) {
-        if let Some(image_index) = self.image_index {
-            self.render_frame(image_index);
+        if let Some(command_buffer) = self.command_buffer {
+            let frame_index = self.vk_instance.swapchain.frames_in_flight.current_frame;
+
+            self.draw_frame(frame_index, command_buffer);
+
+            match self.ui.end_frame(&self.vk_instance, command_buffer) {
+                Ok(_) => {}
+                Err(e) => warn!("Failed to draw ui to command buffer: {:?}", e),
+            }
         }
     }
 
     pub fn end_frame(&mut self) -> bool {
+        if let Some(command_buffer) = self.command_buffer {
+            match self.end_render_pass(command_buffer) {
+                Ok(_) => {}
+                Err(e) => warn!("Failed to end render pass: {:?}", e),
+            }
+        }
         if let Some(image_index) = self.image_index {
             match self.vk_instance.end_frame(image_index, &self.window) {
                 Ok(changed) => {
@@ -167,19 +201,11 @@ impl VulkanRenderer {
         Ok(())
     }
 
-    fn render_frame(&mut self, image_index: usize) {
-        let command_buffer = match self.begin_render_pass(image_index) {
-            Ok(buf) => buf,
-            Err(e) => {
-                warn!("Failed to begin frame: {:?}", e);
-                return;
-            }
-        };
+    fn draw_frame(&mut self, frame_index: usize, command_buffer: vk::CommandBuffer) {
         let time = self.start.elapsed().as_secs_f32();
         let extent = self.vk_instance.swapchain.extent;
         let ratio = extent.width as f32 / extent.height as f32;
-        let frame_index = self.vk_instance.swapchain.frames_in_flight.current_frame;
-
+/*
         match self
             .triangle
             .draw_to_buffer(&self.vk_instance, frame_index, command_buffer)
@@ -209,23 +235,7 @@ impl VulkanRenderer {
                 );
             }
             Err(e) => warn!("Failed to draw to command buffer: {:?}", e),
-        }
-
-        let _ = self
-            .ui
-            .update_uniform_buffer(&self.vk_instance, frame_index);
-        match self
-            .ui
-            .draw_to_buffer(&self.vk_instance, frame_index, command_buffer)
-        {
-            Ok(_) => {}
-            Err(e) => warn!("Failed to draw ui to command buffer: {:?}", e),
-        }
-
-        match self.end_render_pass(command_buffer) {
-            Ok(_) => {}
-            Err(e) => warn!("Failed to end frame: {:?}", e),
-        }
+        }*/
     }
 
     fn begin_render_pass(&self, image_index: usize) -> Result<vk::CommandBuffer, VkError> {

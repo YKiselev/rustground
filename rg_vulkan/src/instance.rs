@@ -344,6 +344,9 @@ impl VkInstance {
         ))
     }
 
+    ///
+    /// 
+    /// count - number of elements of type T
     pub fn copy_memory<T>(
         &self,
         dest: vk::DeviceMemory,

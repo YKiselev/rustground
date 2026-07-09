@@ -29,14 +29,16 @@ pub(crate) struct FontAtlasLoaderContext<'a> {
     instance: &'a VkInstance,
     app: &'a Arc<App>,
     atlas_size: vk::Extent2D,
+    scale_factor: f64
 }
 
 impl<'a> FontAtlasLoaderContext<'a> {
-    pub fn new(instance: &'a VkInstance, app: &'a Arc<App>, atlas_size: vk::Extent2D) -> Self {
+    pub fn new(instance: &'a VkInstance, app: &'a Arc<App>, atlas_size: vk::Extent2D, scale_factor: f64) -> Self {
         Self {
             instance,
             app,
             atlas_size,
+            scale_factor
         }
     }
 }
@@ -60,12 +62,16 @@ pub(crate) fn load_font_atlas(
         .collect::<Result<_, _>>()?;
 
     let mut font_glyphs = HashMap::with_capacity(font_vecs.len());
-    let mut builder = FontAtlasBuilder::new(1024, 1024);
+    let mut builder = FontAtlasBuilder::new(
+        ctx.atlas_size.width as usize,
+        ctx.atlas_size.height as usize,
+    );
     for (key, (font_vec, font_size, char_ranges)) in font_vecs {
         let char_ranges = char_ranges.iter().map(|r| r.0..=r.1).collect();
         let optimized = optimize_ranges(&char_ranges);
         let chars = to_char_set(&optimized);
-        let glyph_infos = builder.add_font(&font_vec, font_size as f32, &chars)?;
+        let scaled_font_size = font_size as f64 * ctx.scale_factor;
+        let glyph_infos = builder.add_font(&font_vec, scaled_font_size as f32, &chars)?;
         font_glyphs.insert(key, glyph_infos);
     }
     let atlas_layers = builder.build()?;
@@ -77,7 +83,7 @@ pub(crate) fn load_font_atlas(
             ctx.atlas_size.height,
             &atlas_layers,
             vk::Format::R8_UNORM,
-            vk::ImageViewType::TYPE_2D_ARRAY
+            vk::ImageViewType::TYPE_2D_ARRAY,
         )
         .map_err(|e| LoaderError::Custom(e.to_string()))?;
 

@@ -5,3 +5,5 @@ pub type Mat4 = cgmath::Matrix4<f32>;
 
 pub type Vec2i16 = cgmath::Vector2<i16>;
 pub type Vec4i16 = cgmath::Vector4<i16>;
+pub type Vec2u16 = cgmath::Vector2<u16>;
+pub type Vec4u16 = cgmath::Vector4<u16>;

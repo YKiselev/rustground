@@ -31,6 +31,12 @@ impl VkDynamicBuffer {
             device.free_memory(self.memory, None);
         }
     }
+
+    pub fn copy_from<T>(&self, src: *const T, count: usize) {
+        unsafe {
+            std::ptr::copy_nonoverlapping(src, self.mapped_ptr.cast(), count);
+        }
+    }
 }
 
 fn create_dynamic_buffer<T: Sized>(

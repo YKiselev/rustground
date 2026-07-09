@@ -1,5 +1,4 @@
 use ab_glyph::{Font, Glyph, PxScale, ScaleFont};
-use ash::vk;
 use cgmath::vec2;
 use guillotiere::euclid::{Size2D, UnknownUnit};
 use guillotiere::{AtlasAllocator, size2};
@@ -7,7 +6,6 @@ use rg_common::LoaderError;
 use std::collections::HashMap;
 use std::{cmp::max, ops::RangeInclusive};
 
-use crate::error::VkError;
 use crate::image::VkImage;
 use crate::types::Vec2;
 
@@ -129,12 +127,12 @@ impl FontAtlasBuilder {
 
             if let Some(outlined) = font.outline_glyph(glyph) {
                 let bounds = outlined.px_bounds();
-                let w = bounds.width() as u32;
-                let h = bounds.height() as u32;
+                let w = bounds.width();
+                let h = bounds.height();
 
                 // Retry loop
                 for _ in 0..=1 {
-                    // Asking allocator for space for new glyph (adding 1px offset to separate glyphs)
+                    // Asking allocator to place new glyph (adding 1px offset to separate glyphs)
                     if let Some(allocation) =
                         self.allocator.allocate(size2(w as i32 + 1, h as i32 + 1))
                     {
@@ -152,14 +150,14 @@ impl FontAtlasBuilder {
                             }
                         });
 
-                        // Calculate normalized UV coordinates (0.0 - 1.0) for Vulkan shader
+                        // Calculate normalized UV coordinates
                         let uv_min = vec2(
                             rect.min.x as f32 / layer_width as f32,
                             rect.min.y as f32 / layer_height as f32,
                         );
                         let uv_max = vec2(
-                            (rect.min.x as u32 + w) as f32 / layer_width as f32,
-                            (rect.min.y as u32 + h) as f32 / layer_height as f32,
+                            (rect.min.x as f32 + w) / layer_width as f32,
+                            (rect.min.y as f32 + h) / layer_height as f32,
                         );
 
                         glyph_map.insert(
@@ -167,8 +165,8 @@ impl FontAtlasBuilder {
                             GlyphInfo {
                                 uv_min,
                                 uv_max,
-                                width: w as f32,
-                                height: h as f32,
+                                width: w,
+                                height: h,
                                 h_advance,
                                 offset: vec2(bounds.min.x, bounds.min.y),
                                 layer_index: self.layers.len() as u32,
