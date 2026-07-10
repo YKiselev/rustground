@@ -1,6 +1,6 @@
 use ash::vk::{self};
 
-use crate::types::{Vec2, Vec2i16, Vec2u16, Vec4, Vec4i16, Vec4u16};
+use crate::types::{Vec2, Vec4};
 
 ///
 /// Vertex trait

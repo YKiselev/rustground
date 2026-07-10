@@ -1,7 +1,4 @@
 use crate::font::GlyphInfo;
-use crate::types::Vec2i16;
-use crate::types::Vec2u16;
-use crate::types::Vec4u16;
 use crate::vertex::GlyphInstance;
 
 pub(crate) trait ToGlyphInstance {

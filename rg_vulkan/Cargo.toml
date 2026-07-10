@@ -12,7 +12,6 @@ winapi = { workspace = true }
 raw-window-handle = { workspace = true }
 ash-window = { workspace = true }
 log = { workspace = true }
-cgmath = { workspace = true }
 thiserror = { workspace = true }
 png = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
@@ -20,3 +19,4 @@ toml = { workspace = true }
 uuid = { workspace = true }
 ab_glyph = "0.2.32"
 guillotiere = "0.7.0"
+glam = { workspace = true }

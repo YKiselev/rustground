@@ -1,16 +1,16 @@
 use ash::Device;
 use ash::vk;
-use cgmath::vec4;
-use cgmath::{Deg, point3, vec2, vec3};
 use log::error;
 use rg_common::App;
 use rg_common::load_bytes;
-use std::ops::Add;
 use std::sync::Arc;
 
 use crate::buffer::VkBuffer;
 use crate::instance::MAX_FRAMES_IN_FLIGHT;
 use crate::renderer::create_default_viewport_and_scissor;
+use crate::types::Vec2;
+use crate::types::Vec3;
+use crate::types::Vec4;
 use crate::vertex::vertex_input_descriptions;
 use crate::{
     error::{VkError, to_generic},
@@ -23,10 +23,10 @@ use crate::{
 
 #[rustfmt::skip]
 static VERTICES: [Pos2Color4Vertex; 4] = [
-    Pos2Color4Vertex::new(vec2(-0.5, -0.5), vec4(1.0, 0.0, 0.0,1.0)),
-    Pos2Color4Vertex::new(vec2(0.5, -0.5), vec4(0.0, 1.0, 0.0,1.0)),
-    Pos2Color4Vertex::new(vec2(0.5, 0.5), vec4(0.0, 0.0, 1.0,1.0)),
-    Pos2Color4Vertex::new(vec2(-0.5, 0.5), vec4(1.0, 1.0, 1.0,1.0)),
+    Pos2Color4Vertex::new(Vec2::new(-0.5, -0.5), Vec4::new(1.0, 0.0, 0.0,1.0)),
+    Pos2Color4Vertex::new(Vec2::new(0.5, -0.5), Vec4::new(0.0, 1.0, 0.0,1.0)),
+    Pos2Color4Vertex::new(Vec2::new(0.5, 0.5), Vec4::new(0.0, 0.0, 1.0,1.0)),
+    Pos2Color4Vertex::new(Vec2::new(-0.5, 0.5), Vec4::new(1.0, 1.0, 1.0,1.0)),
 ];
 const INDICES: [u16; 6] = [0, 1, 2, 2, 3, 0];
 
@@ -196,20 +196,20 @@ impl Triangle {
         time: f32,
         ratio: f32,
     ) -> Result<(), VkError> {
-        let mut model = Mat4::from_axis_angle(vec3(0.0, 0.0, 1.0), Deg(90.0) * time);
-        let trans = Mat4::from_translation(vec3(0.0, 0.0, -0.15));
+        let mut model = Mat4::from_axis_angle(Vec3::new(0.0, 0.0, 1.0), 90.0f32.to_radians() * time);
+        let trans = Mat4::from_translation(Vec3::new(0.0, 0.0, -0.15));
 
         model = trans * model;
 
-        let view = Mat4::look_at_rh(
-            point3::<f32>(2.0, 2.0, 2.0),
-            point3::<f32>(0.0, 0.0, 0.0),
-            vec3(0.0, 0.0, 1.0),
+        let view = glam::camera::lh::view::look_at_mat4(
+            Vec3::new(2.0, 2.0, 2.0),
+            Vec3::new(0.0, 0.0, 0.0),
+            Vec3::new(0.0, 0.0, 1.0),
         );
 
-        let mut proj = cgmath::perspective(Deg(45.0), ratio, 0.1, 10.0);
+        let mut proj = glam::camera::lh::proj::vulkan::perspective(45.0f32.to_radians(), ratio, 0.1, 10.0);
 
-        proj.y.y *= -1.0; // OGL legacy)
+        //proj.y.y *= -1.0; // OGL legacy)
 
         let ubo = UniformBufferObject { model, view, proj };
         let buf_memory = self.uniform_buffers[image_index].memory;

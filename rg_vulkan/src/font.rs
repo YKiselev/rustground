@@ -1,9 +1,9 @@
 use ab_glyph::{Font, Glyph, PxScale, ScaleFont};
-use cgmath::vec2;
 use guillotiere::euclid::{Size2D, UnknownUnit};
 use guillotiere::{AtlasAllocator, size2};
 use rg_common::LoaderError;
 use std::collections::HashMap;
+use std::ops::Index;
 use std::{cmp::max, ops::RangeInclusive};
 
 use crate::image::VkImage;
@@ -27,13 +27,31 @@ pub(crate) struct GlyphInfo {
 ///
 /// Font
 ///
+pub(crate) struct VkFont {
+    pub glyphs: HashMap<char, GlyphInfo>,
+    pub height: u32,
+}
+
+impl VkFont {
+    pub fn new(glyphs: HashMap<char, GlyphInfo>, height: u32) -> Self {
+        Self { glyphs, height }
+    }
+
+    pub fn get(&self, k: char) -> Option<&GlyphInfo> {
+        self.glyphs.get(&k)
+    }
+}
+
+///
+/// Font atlas
+///
 pub(crate) struct VkFontAtlas {
-    pub fonts: HashMap<String, HashMap<char, GlyphInfo>>,
+    pub fonts: HashMap<String, VkFont>,
     pub image: VkImage,
 }
 
 impl VkFontAtlas {
-    pub fn new(fonts: HashMap<String, HashMap<char, GlyphInfo>>, image: VkImage) -> Self {
+    pub fn new(fonts: HashMap<String, VkFont>, image: VkImage) -> Self {
         Self { fonts, image }
     }
 
@@ -151,11 +169,11 @@ impl FontAtlasBuilder {
                         });
 
                         // Calculate normalized UV coordinates
-                        let uv_min = vec2(
+                        let uv_min = Vec2::new(
                             rect.min.x as f32 / layer_width as f32,
                             rect.min.y as f32 / layer_height as f32,
                         );
-                        let uv_max = vec2(
+                        let uv_max = Vec2::new(
                             (rect.min.x as f32 + w) / layer_width as f32,
                             (rect.min.y as f32 + h) / layer_height as f32,
                         );
@@ -168,7 +186,7 @@ impl FontAtlasBuilder {
                                 width: w,
                                 height: h,
                                 h_advance,
-                                offset: vec2(bounds.min.x, bounds.min.y),
+                                offset: Vec2::new(bounds.min.x, bounds.min.y),
                                 layer_index: self.layers.len() as u32,
                             },
                         );
@@ -185,12 +203,12 @@ impl FontAtlasBuilder {
                 glyph_map.insert(
                     ch,
                     GlyphInfo {
-                        uv_min: vec2(0.0, 0.0),
-                        uv_max: vec2(0.0, 0.0),
+                        uv_min: Vec2::new(0.0, 0.0),
+                        uv_max: Vec2::new(0.0, 0.0),
                         width: 0.0,
                         height: 0.0,
                         h_advance,
-                        offset: vec2(0.0, 0.0),
+                        offset: Vec2::new(0.0, 0.0),
                         layer_index: self.layers.len() as u32,
                     },
                 );

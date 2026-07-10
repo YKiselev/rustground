@@ -6,8 +6,7 @@ use rg_common::{App, LoaderError, SeekAndRead, load_bytes};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    font::{FontAtlasBuilder, VkFontAtlas, optimize_ranges, to_char_set},
-    instance::VkInstance,
+    font::{FontAtlasBuilder, VkFont, VkFontAtlas, optimize_ranges, to_char_set}, instance::VkInstance,
 };
 
 #[derive(Serialize, Deserialize)]
@@ -72,7 +71,8 @@ pub(crate) fn load_font_atlas(
         let chars = to_char_set(&optimized);
         let scaled_font_size = font_size as f64 * ctx.scale_factor;
         let glyph_infos = builder.add_font(&font_vec, scaled_font_size as f32, &chars)?;
-        font_glyphs.insert(key, glyph_infos);
+        let font = VkFont::new(glyph_infos, scaled_font_size as u32);
+        font_glyphs.insert(key, font);
     }
     let atlas_layers = builder.build()?;
 
