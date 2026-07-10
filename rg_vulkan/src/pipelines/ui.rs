@@ -52,8 +52,7 @@ pub struct UniformBufferObject {
 ///
 struct FrameObjects {
     vertex_buffer: VkDynamicBuffer,
-    uniform_buffer: VkBuffer,
-    glyph_buffer: Vec<GlyphInstance>,
+    uniform_buffer: VkBuffer
 }
 
 const DEFAULT_GLYPH_BUFFER_SIZE: usize = 20_000;
@@ -74,8 +73,7 @@ impl FrameObjects {
         let uniform_buffer = VkBuffer::uniform::<UniformBufferObject>(instance)?;
         Ok(Self {
             vertex_buffer,
-            uniform_buffer,
-            glyph_buffer: Vec::with_capacity(DEFAULT_GLYPH_BUFFER_SIZE),
+            uniform_buffer
         })
     }
 
@@ -98,6 +96,7 @@ pub struct UiPipeline {
     descriptor_sets: Vec<vk::DescriptorSet>,
     font_atlas: VkFontAtlas,
     frame_index: Option<usize>,
+    glyph_buffer: Vec<GlyphInstance>
 }
 
 impl UiPipeline {
@@ -257,6 +256,7 @@ impl UiPipeline {
             descriptor_sets,
             font_atlas,
             frame_index: None,
+            glyph_buffer: Vec::with_capacity(DEFAULT_GLYPH_BUFFER_SIZE)
         };
         result.update_descriptor_sets(instance)?;
 
@@ -274,18 +274,18 @@ impl UiPipeline {
             for ch in text.as_ref().chars() {
                 if let Some(glyph) = font.get(&ch) {
                     let g = glyph.to_glyph_instance(x, y);
-                    if let Some(frame_index) = self.frame_index {
-                        let buf = &mut self.frame_objects[frame_index].glyph_buffer;
+                    //if let Some(frame_index) = self.frame_index {
+                        let buf = &mut self.glyph_buffer;
                         if buf.len() >= MAX_GLYPHS_PER_FRAME {
                             warn!("Maximim glyphs per frame reached ({})", buf.len());
                             return;
                         } else {
                             buf.push(g);
                         }
-                    } else {
-                        warn!("draw_text() called not between begin/end of renderer frame!");
-                        return;
-                    }
+                    // } else {
+                    //     warn!("draw_text() called not between begin/end of renderer frame!");
+                    //     return;
+                    // }
                     x += glyph.h_advance as i32;
                 }
             }
@@ -366,8 +366,6 @@ impl UiPipeline {
 
         let frame_obj = &mut self.frame_objects[frame_index];
 
-        frame_obj.glyph_buffer.clear();
-
         let device = &instance.device;
         unsafe {
             device.cmd_bind_pipeline(
@@ -396,7 +394,7 @@ impl UiPipeline {
 
         let _ = self.update_uniform_buffer(instance, frame_index)?;
 
-        self.draw_text(0, 10, "Hello, Vulkan user!");
+        self.draw_text(0, 28, "Hello, Vulkan user!");
         self.draw_text(50, 50, "Hello, Vulkan user!");
         self.draw_text(100, 100, "Hello, Vulkan user!");
 
@@ -411,10 +409,10 @@ impl UiPipeline {
         if let Some(frame_index) = self.frame_index.take() {
             let frame_obj = &self.frame_objects[frame_index];
             frame_obj.vertex_buffer.copy_from(
-                frame_obj.glyph_buffer.as_ptr(),
-                frame_obj.glyph_buffer.len(),
+                self.glyph_buffer.as_ptr(),
+                self.glyph_buffer.len(),
             );
-            let instance_count = frame_obj.glyph_buffer.len() as u32;
+            let instance_count = self.glyph_buffer.len() as u32;
             let vertex_count = 4;
             unsafe {
                 if instance_count > 0 {
@@ -423,6 +421,7 @@ impl UiPipeline {
                         .cmd_draw(command_buffer, vertex_count, instance_count, 0, 0);
                 }
             }
+            self.glyph_buffer.clear();
         }
         Ok(())
     }

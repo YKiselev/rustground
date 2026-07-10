@@ -97,7 +97,7 @@ impl Vertex for Pos2Color4Tex2Vertex {
             .offset(std::mem::offset_of!(Pos2Color4Tex2Vertex, tex) as u32);
         vec![pos, color, tex]
     }
-    
+
     fn size_in_bytes() -> usize {
         size_of::<Pos2Color4Tex2Vertex>()
     }
@@ -109,11 +109,11 @@ impl Vertex for Pos2Color4Tex2Vertex {
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct GlyphInstance {
-    pub pos: Vec2i16,
-    pub size: Vec2u16,
-    pub color: Vec4u16,
-    pub uv_min: Vec2u16,
-    pub uv_max: Vec2u16,
+    pub pos: [i16; 2],
+    pub size: [u16; 2],
+    pub color: u32,
+    pub uv_min: [u16; 2],
+    pub uv_max: [u16; 2],
     pub layer_index: u32,
 }
 
@@ -139,7 +139,7 @@ impl Vertex for GlyphInstance {
         let color = vk::VertexInputAttributeDescription::default()
             .binding(0)
             .location(2)
-            .format(vk::Format::R16G16B16A16_UNORM)
+            .format(vk::Format::R8G8B8A8_UNORM)
             .offset(std::mem::offset_of!(GlyphInstance, color) as u32);
         let uv_min = vk::VertexInputAttributeDescription::default()
             .binding(0)
@@ -158,7 +158,7 @@ impl Vertex for GlyphInstance {
             .offset(std::mem::offset_of!(GlyphInstance, layer_index) as u32);
         vec![pos, size, color, uv_min, uv_max, layer_index]
     }
-    
+
     fn size_in_bytes() -> usize {
         size_of::<GlyphInstance>()
     }
