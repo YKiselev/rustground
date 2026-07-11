@@ -1,10 +1,10 @@
 use ash::Device;
 use ash::vk;
 use glam::Mat4;
-use log::debug;
 use log::error;
 use log::warn;
 use rg_common::App;
+use rg_common::Color;
 use rg_common::load_bytes;
 use rg_common::load_deserializable;
 use serde::Deserialize;
@@ -12,18 +12,20 @@ use serde::Serialize;
 use std::sync::Arc;
 
 use crate::buffer::VkBuffer;
+use crate::context::MAX_FRAMES_IN_FLIGHT;
 use crate::dyn_buffer::VkDynamicBuffer;
 use crate::font::VkFontAtlas;
-use crate::context::MAX_FRAMES_IN_FLIGHT;
 use crate::loaders::FontAtlasLoaderContext;
 use crate::loaders::load_font_atlas;
-use crate::pipelines::text::ToGlyphInstance;
+use crate::pipelines::shader::ShaderStages;
+use crate::pipelines::shader::ShaderStagesBuilder;
+use crate::pipelines::ui::text::ToGlyphInstance;
 use crate::renderer::create_default_viewport_and_scissor;
 use crate::vertex::GlyphInstance;
 use crate::vertex::vertex_input_descriptions;
 use crate::{
-    error::{VkError, to_generic},
     context::VkContext,
+    error::{VkError, to_generic},
     pipelines::shader::create_shader_module,
 };
 
@@ -67,7 +69,7 @@ impl FrameObjects {
         Ok(Self {
             vertex_buffer,
             uniform_buffer,
-            descriptor_set
+            descriptor_set,
         })
     }
 
@@ -94,7 +96,7 @@ pub struct UiPipeline {
 }
 
 impl UiPipeline {
-    pub fn new(instance: &VkContext, app: &Arc<App>, scale_factor: f64) -> Result<Self, VkError> {
+    pub fn new(context: &VkContext, app: &Arc<App>, scale_factor: f64) -> Result<Self, VkError> {
         let config = app.load_resource(
             "configs/ui-pipeline.toml",
             &load_deserializable::<Config>,
@@ -106,23 +108,15 @@ impl UiPipeline {
             width: config.atlas_width,
             height: config.atlas_height,
         };
-        let ctx = FontAtlasLoaderContext::new(instance, app, atlas_size, scale_factor);
+        let ctx = FontAtlasLoaderContext::new(context, app, atlas_size, scale_factor);
         let font_atlas = app.load_resource("configs/ui-pipeline.toml", &load_font_atlas, &ctx)?;
 
         let vert = app.load_resource(config.vertex_shader, &load_bytes, ())?;
         let frag = app.load_resource(config.fragment_schader, &load_bytes, ())?;
-        let vert_shader_module = create_shader_module(&instance.device, &vert[..])?;
-        let frag_shader_module = create_shader_module(&instance.device, &frag[..])?;
-
-        let vert_stage = vk::PipelineShaderStageCreateInfo::default()
-            .stage(vk::ShaderStageFlags::VERTEX)
-            .module(vert_shader_module)
-            .name(c"main");
-
-        let frag_stage = vk::PipelineShaderStageCreateInfo::default()
-            .stage(vk::ShaderStageFlags::FRAGMENT)
-            .module(frag_shader_module)
-            .name(c"main");
+        let mut shader_stages = ShaderStages::builder()
+            .with_vertex_shader(&vert)
+            .with_fragment_shader(&frag)
+            .build(context)?;
 
         let (binding_description, attribute_descriptions) =
             vertex_input_descriptions::<GlyphInstance>();
@@ -135,7 +129,7 @@ impl UiPipeline {
             .topology(vk::PrimitiveTopology::TRIANGLE_STRIP)
             .primitive_restart_enable(false);
 
-        let (viewport, scissor) = create_default_viewport_and_scissor(instance.swapchain.extent);
+        let (viewport, scissor) = create_default_viewport_and_scissor(context.swapchain.extent);
         let viewports = &[viewport];
         let scissors = &[scissor];
         let viewport_state = vk::PipelineViewportStateCreateInfo::default()
@@ -168,10 +162,10 @@ impl UiPipeline {
             .attachments(attachments)
             .blend_constants([0.0, 0.0, 0.0, 0.0]);
 
-        let descriptor_set_layout = create_descriptor_set_layout(&instance.device)?;
+        let descriptor_set_layout = create_descriptor_set_layout(&context.device)?;
         let layouts = &[descriptor_set_layout];
         let layout_info = vk::PipelineLayoutCreateInfo::default().set_layouts(layouts);
-        let layout = unsafe { instance.device.create_pipeline_layout(&layout_info, None) }?;
+        let layout = unsafe { context.device.create_pipeline_layout(&layout_info, None) }?;
         let dynamic_states = [
             ash::vk::DynamicState::VIEWPORT,
             ash::vk::DynamicState::SCISSOR,
@@ -184,9 +178,8 @@ impl UiPipeline {
             .depth_write_enable(false)
             .depth_compare_op(vk::CompareOp::ALWAYS);
 
-        let stages = &[vert_stage, frag_stage];
         let info = vk::GraphicsPipelineCreateInfo::default()
-            .stages(stages)
+            .stages(shader_stages.stages())
             .vertex_input_state(&vertex_input_state)
             .input_assembly_state(&input_assembly_state)
             .viewport_state(&viewport_state)
@@ -196,17 +189,18 @@ impl UiPipeline {
             .multisample_state(&multisample_state)
             .color_blend_state(&color_blend_state)
             .layout(layout)
-            .render_pass(instance.swapchain.render_pass)
+            .render_pass(context.swapchain.render_pass)
             .subpass(0);
 
         let infos = [info];
         let mut result = unsafe {
-            instance.device.create_graphics_pipelines(
+            context.device.create_graphics_pipelines(
                 vk::PipelineCache::null(),
                 infos.as_slice(),
                 None,
             )
-        }.map_err(|(_, e)| VkError::VkErrorCode(e))?;
+        }
+        .map_err(|(_, e)| VkError::VkErrorCode(e))?;
 
         if result.is_empty() {
             error!("No pipeline in result!");
@@ -215,26 +209,21 @@ impl UiPipeline {
 
         let pipeline = result.remove(0);
 
-        unsafe {
-            instance
-                .device
-                .destroy_shader_module(vert_shader_module, None);
-            instance
-                .device
-                .destroy_shader_module(frag_shader_module, None);
-        }
+        shader_stages.destroy(&context.device);
 
-        let descriptor_pool = create_descriptor_pool(&instance.device, MAX_FRAMES_IN_FLIGHT)?;
+        let descriptor_pool = create_descriptor_pool(&context.device, MAX_FRAMES_IN_FLIGHT)?;
         let descriptor_sets = create_descriptor_sets(
-            &instance.device,
+            &context.device,
             descriptor_set_layout,
             descriptor_pool,
             MAX_FRAMES_IN_FLIGHT,
         )?;
 
-        let frame_objects = descriptor_sets.into_iter()
-            .map(|ds| FrameObjects::new(instance, ds))
+        let frame_objects = descriptor_sets
+            .into_iter()
+            .map(|ds| FrameObjects::new(context, ds))
             .collect::<Result<Vec<FrameObjects>, VkError>>()?;
+
         let mut result = Self {
             app: Arc::clone(app),
             layout,
@@ -246,12 +235,13 @@ impl UiPipeline {
             frame_index: None,
             glyph_buffer: Vec::with_capacity(DEFAULT_GLYPH_BUFFER_SIZE),
         };
-        result.update_descriptor_sets(instance)?;
+        
+        result.update_descriptor_sets(context)?;
 
         Ok(result)
     }
 
-    pub fn draw_text<S>(&mut self, x: i32, y: i32, text: S)
+    pub fn draw_text<S>(&mut self, x: i32, y: i32, text: S, color: Color)
     where
         S: AsRef<str>,
     {
@@ -261,7 +251,8 @@ impl UiPipeline {
             let mut y = y + font.height as i32;
             for ch in text.as_ref().chars() {
                 if let Some(glyph) = font.get(ch) {
-                    let g = glyph.to_glyph_instance(x, y);
+                    let mut g = glyph.to_glyph_instance(x, y);
+                    g.color = color.into();
                     let buf = &mut self.glyph_buffer;
                     if buf.len() >= MAX_GLYPHS_PER_FRAME {
                         warn!("Maximim glyphs per frame reached ({})", buf.len());
@@ -273,7 +264,7 @@ impl UiPipeline {
                 }
             }
         } else {
-            debug!("Font not found: {}", font);
+            warn!("Font not found: {}", font);
         }
     }
 
@@ -376,9 +367,9 @@ impl UiPipeline {
 
         let _ = self.update_uniform_buffer(instance, frame_index)?;
 
-        self.draw_text(0, 0, "Hello, Vulkan user!");
-        self.draw_text(50, 50, "Hello, Vulkan user!");
-        self.draw_text(100, 100, "Hello, Vulkan user!");
+        self.draw_text(0, 0, "Hello, Vulkan user!", Color::RED);
+        self.draw_text(50, 50, "Hello, Vulkan user!", Color::LIGHT_BLUE);
+        self.draw_text(100, 100, "Hello, Vulkan user!", Color::LIGHT_GREEN);
 
         Ok(())
     }

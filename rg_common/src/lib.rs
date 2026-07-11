@@ -4,20 +4,15 @@ pub use app::App;
 pub use arguments::Arguments;
 pub use commands::CommandRegistry;
 pub use config::save_config;
-pub use files::Files;
-pub use files::FileError;
-pub use files::SeekAndRead;
-pub use files::SeekAndWrite;
+pub use files::{FileError, Files, SeekAndRead, SeekAndWrite};
 pub use loader::{Loader, LoaderError, load_bytes, load_deserializable};
 pub use plugin::Plugin;
-pub use vars::FromStrMutator;
-pub use vars::FromValue;
-pub use vars::VarBag;
-pub use vars::VarRegistry;
-pub use vars::VarRegistryError;
-pub use vars::Variable;
-pub use vars::VariableError;
+pub use ui::canvas::{Canvas, StandardFont, WrapMode};
+pub use ui::color::Color;
 pub use vars::wrap_var_bag;
+pub use vars::{
+    FromStrMutator, FromValue, VarBag, VarRegistry, VarRegistryError, Variable, VariableError,
+};
 
 mod app;
 mod arguments;
@@ -28,7 +23,7 @@ mod config;
 mod files;
 mod loader;
 mod plugin;
-mod test;
+mod ui;
 mod v_from;
 mod v_from_str;
 mod v_from_value;

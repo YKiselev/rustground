@@ -9,13 +9,7 @@ use rg_common::{App, wrap_var_bag};
 use winit::{event_loop::ActiveEventLoop, window::Window};
 
 use crate::{
-    config::Config,
-    context::VkContext,
-    create_instance::create_instance,
-    debug::DebugUtils,
-    error::{VkError, to_generic},
-    pipelines::{cube::CubePipeline, textured_triangle::TexturedTriangle, ui::UiPipeline},
-    window::{MAX_VIDEO_MODE, create_window},
+    config::Config, context::VkContext, create_instance::create_instance, debug::DebugUtils, error::{VkError, to_generic}, pipelines::{cube::CubePipeline, textured_triangle::TexturedTriangle, ui::ui::UiPipeline}, window::{MAX_VIDEO_MODE, create_window},
 };
 
 pub struct VulkanRenderer {
@@ -198,18 +192,6 @@ impl VulkanRenderer {
         if let Err(e) = self.cube.draw_to_buffer(&self.context, frame_index, command_buffer) {
              warn!("Failed to draw cubes to command buffer: {:?}", e);
         }
-
-        // Triangle
-        // let time1 = 0.98 * time;
-        // let _ = self
-        //     .tex_triangle
-        //     .update_uniform_buffer(&self.context, frame_index, time1, ratio);
-        // if let Err(e) = self
-        //     .tex_triangle
-        //     .draw_to_buffer(&self.context, frame_index, command_buffer)
-        // {
-        //     warn!("Failed to draw to command buffer: {:?}", e);
-        // }
 
         // UI
         if let Err(e) = self
