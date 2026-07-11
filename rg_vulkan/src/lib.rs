@@ -1,7 +1,7 @@
 pub mod renderer;
 mod error;
 mod types;
-mod instance;
+mod context;
 mod uniform;
 mod vertex;
 mod swapchain;

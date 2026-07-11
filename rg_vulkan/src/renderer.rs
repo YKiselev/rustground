@@ -10,11 +10,11 @@ use winit::{event_loop::ActiveEventLoop, window::Window};
 
 use crate::{
     config::Config,
+    context::VkContext,
     create_instance::create_instance,
     debug::DebugUtils,
     error::{VkError, to_generic},
-    instance::VkInstance,
-    pipelines::{textured_triangle::TexturedTriangle, triangle::Triangle, ui::UiPipeline},
+    pipelines::{cube::CubePipeline, textured_triangle::TexturedTriangle, ui::UiPipeline},
     window::{MAX_VIDEO_MODE, create_window},
 };
 
@@ -25,12 +25,12 @@ pub struct VulkanRenderer {
     window: Window,
     instance: ash::Instance,
     debug_utils: Option<DebugUtils>,
-    vk_instance: VkInstance,
+    context: VkContext,
     window_resized_at: Option<Instant>,
     recreate_swapchain: bool,
     start: Instant,
-    triangle: Triangle,
     tex_triangle: TexturedTriangle,
+    cube: CubePipeline,
     ui: UiPipeline,
     image_index: Option<usize>,
     command_buffer: Option<vk::CommandBuffer>,
@@ -52,12 +52,12 @@ impl VulkanRenderer {
         let (instance, debug_utils) = create_instance(app, &window, &entry)?;
 
         info!("Creating Vulkan device...");
-        let vk_instance = VkInstance::new(app, &config, &entry, &instance, &window)?;
+        let context = VkContext::new(app, &config, &entry, &instance, &window)?;
 
         info!("Creating pipelines...");
-        let triangle = Triangle::new(&vk_instance, app)?;
-        let tex_triangle = TexturedTriangle::new(&vk_instance, app)?;
-        let ui = UiPipeline::new(&vk_instance, app, window.scale_factor())?;
+        let tex_triangle = TexturedTriangle::new(&context, app)?;
+        let ui = UiPipeline::new(&context, app, window.scale_factor())?;
+        let cube = CubePipeline::new(&context, app)?;
 
         info!("Vulkan renderer initialzied");
         window.set_visible(true);
@@ -69,12 +69,12 @@ impl VulkanRenderer {
             window,
             instance,
             debug_utils,
-            vk_instance,
+            context,
             window_resized_at: None,
             recreate_swapchain: false,
             start: Instant::now(),
-            triangle,
             tex_triangle,
+            cube,
             ui,
             image_index: None,
             command_buffer: None,
@@ -92,7 +92,7 @@ impl VulkanRenderer {
         }
 
         if !self.recreate_swapchain {
-            match self.vk_instance.begin_frame() {
+            match self.context.begin_frame() {
                 Ok(image_index) => {
                     self.image_index = Some(image_index);
                 }
@@ -117,7 +117,7 @@ impl VulkanRenderer {
 
     pub fn render(&mut self) {
         if let Some(command_buffer) = self.command_buffer {
-            let frame_index = self.vk_instance.swapchain.frames_in_flight.current_frame;
+            let frame_index = self.context.swapchain.frames_in_flight.current_frame;
 
             self.draw_frame(frame_index, command_buffer);
         }
@@ -131,7 +131,7 @@ impl VulkanRenderer {
             }
         }
         if let Some(image_index) = self.image_index {
-            match self.vk_instance.end_frame(image_index, &self.window) {
+            match self.context.end_frame(image_index, &self.window) {
                 Ok(changed) => {
                     if self.window_resized_at.is_none() {
                         self.recreate_swapchain = changed
@@ -176,12 +176,10 @@ impl VulkanRenderer {
         }
 
         self.window_resized_at = None;
-        self.vk_instance
+        self.context
             .recreate_swapchain(&self.instance, &self.window)?;
 
-        self.triangle.on_swapchain_recreated(&self.vk_instance)?;
-        self.tex_triangle
-            .on_swapchain_recreated(&self.vk_instance)?;
+        self.tex_triangle.on_swapchain_recreated(&self.context)?;
 
         info!("Swapchain recreated");
         Ok(())
@@ -189,43 +187,38 @@ impl VulkanRenderer {
 
     fn draw_frame(&mut self, frame_index: usize, command_buffer: vk::CommandBuffer) {
         let time = self.start.elapsed().as_secs_f32();
-        let extent = self.vk_instance.swapchain.extent;
+        let extent = self.context.swapchain.extent;
         let ratio = extent.width as f32 / extent.height as f32;
 
+        // Cube
         let _ = self
-            .triangle
-            .update_uniform_buffer(&self.vk_instance, frame_index, time, ratio);
-        match self
-            .triangle
-            .draw_to_buffer(&self.vk_instance, frame_index, command_buffer)
-        {
-            Ok(_) => {}
-            Err(e) => warn!("Failed to draw to command buffer: {:?}", e),
+            .cube
+            .update_uniform_buffer(&self.context, frame_index, time, ratio);
+        
+        if let Err(e) = self.cube.draw_to_buffer(&self.context, frame_index, command_buffer) {
+             warn!("Failed to draw cubes to command buffer: {:?}", e);
         }
 
-        match self
-            .tex_triangle
-            .draw_to_buffer(&self.vk_instance, frame_index, command_buffer)
-        {
-            Ok(_) => {
-                let time = 0.98 * time;
-                let _ = self.tex_triangle.update_uniform_buffer(
-                    &self.vk_instance,
-                    frame_index,
-                    time,
-                    ratio,
-                );
-            }
-            Err(e) => warn!("Failed to draw to command buffer: {:?}", e),
-        }
+        // Triangle
+        // let time1 = 0.98 * time;
+        // let _ = self
+        //     .tex_triangle
+        //     .update_uniform_buffer(&self.context, frame_index, time1, ratio);
+        // if let Err(e) = self
+        //     .tex_triangle
+        //     .draw_to_buffer(&self.context, frame_index, command_buffer)
+        // {
+        //     warn!("Failed to draw to command buffer: {:?}", e);
+        // }
 
+        // UI
         if let Err(e) = self
             .ui
-            .begin_frame(&self.vk_instance, frame_index, command_buffer)
+            .begin_frame(&self.context, frame_index, command_buffer)
         {
             warn!("Failed to begin ui frame: {}", e);
         }
-        match self.ui.end_frame(&self.vk_instance, command_buffer) {
+        match self.ui.end_frame(&self.context, command_buffer) {
             Ok(_) => {}
             Err(e) => warn!("Failed to draw ui to command buffer: {:?}", e),
         }
@@ -233,9 +226,9 @@ impl VulkanRenderer {
 
     fn begin_render_pass(&self, image_index: usize) -> Result<vk::CommandBuffer, VkError> {
         let info = vk::CommandBufferBeginInfo::default();
-        let instance = &self.vk_instance;
+        let instance = &self.context;
         let command_buffer = self
-            .vk_instance
+            .context
             .swapchain
             .frames_in_flight
             .frame()
@@ -287,8 +280,8 @@ impl VulkanRenderer {
 
     fn end_render_pass(&self, command_buffer: vk::CommandBuffer) -> Result<(), VkError> {
         unsafe {
-            self.vk_instance.device.cmd_end_render_pass(command_buffer);
-            self.vk_instance.device.end_command_buffer(command_buffer)?;
+            self.context.device.cmd_end_render_pass(command_buffer);
+            self.context.device.end_command_buffer(command_buffer)?;
         }
         Ok(())
     }
@@ -301,11 +294,11 @@ impl VulkanRenderer {
 impl Drop for VulkanRenderer {
     fn drop(&mut self) {
         info!("Destroing renderer");
-        self.vk_instance.wait_idle().unwrap();
-        self.ui.destroy(&self.vk_instance.device);
-        self.triangle.destroy(&self.vk_instance.device);
-        self.tex_triangle.destroy(&self.vk_instance.device);
-        self.vk_instance.destroy();
+        self.context.wait_idle().unwrap();
+        self.ui.destroy(&self.context.device);
+        self.tex_triangle.destroy(&self.context.device);
+        self.cube.destroy(&self.context.device);
+        self.context.destroy();
         if let Some(debug_utils) = self.debug_utils.as_mut() {
             debug_utils.destroy();
         }

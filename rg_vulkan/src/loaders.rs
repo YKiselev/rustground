@@ -6,7 +6,7 @@ use rg_common::{App, LoaderError, SeekAndRead, load_bytes};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    font::{FontAtlasBuilder, VkFont, VkFontAtlas, optimize_ranges, to_char_set}, instance::VkInstance,
+    font::{FontAtlasBuilder, VkFont, VkFontAtlas, optimize_ranges, to_char_set}, context::VkContext,
 };
 
 #[derive(Serialize, Deserialize)]
@@ -25,14 +25,14 @@ struct Config {
 }
 
 pub(crate) struct FontAtlasLoaderContext<'a> {
-    instance: &'a VkInstance,
+    instance: &'a VkContext,
     app: &'a Arc<App>,
     atlas_size: vk::Extent2D,
     scale_factor: f64
 }
 
 impl<'a> FontAtlasLoaderContext<'a> {
-    pub fn new(instance: &'a VkInstance, app: &'a Arc<App>, atlas_size: vk::Extent2D, scale_factor: f64) -> Self {
+    pub fn new(instance: &'a VkContext, app: &'a Arc<App>, atlas_size: vk::Extent2D, scale_factor: f64) -> Self {
         Self {
             instance,
             app,

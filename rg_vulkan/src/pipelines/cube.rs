@@ -6,49 +6,207 @@ use rg_common::load_bytes;
 use std::sync::Arc;
 
 use crate::buffer::VkBuffer;
-use crate::image::VkImage;
 use crate::context::MAX_FRAMES_IN_FLIGHT;
+use crate::dyn_buffer::VkDynamicBuffer;
+use crate::image::VkImage;
 use crate::renderer::create_default_viewport_and_scissor;
-use crate::types::Vec2;
 use crate::types::Vec3;
-use crate::types::Vec4;
-use crate::vertex::Pos2Color4Tex2Vertex;
-use crate::vertex::vertex_input_descriptions;
+use crate::vertex::Vertex;
 use crate::{
-    error::{VkError, to_generic},
     context::VkContext,
+    error::{VkError, to_generic},
     pipelines::shader::create_shader_module,
     types::Mat4,
     uniform::UniformBufferObject,
 };
 
+///
+/// Cube vertex
+///
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+struct Pos4Norm4Uv2Vertex {
+    pub position: [f32; 4],
+    pub normal: [f32; 4],
+    pub uv: [f32; 2],
+}
+
+impl Pos4Norm4Uv2Vertex {
+    pub const fn new(x: f32, y: f32, z: f32, nx: f32, ny: f32, nz: f32, u: f32, v: f32) -> Self {
+        Self {
+            position: [x, y, z, 1.0],
+            normal: [nx, ny, nz, 1.0],
+            uv: [u, v],
+        }
+    }
+}
+
+impl Vertex for Pos4Norm4Uv2Vertex {
+    fn input_binding_description(binding: u32) -> vk::VertexInputBindingDescription {
+        vk::VertexInputBindingDescription::default()
+            .binding(binding)
+            .stride(Self::size_in_bytes() as u32)
+            .input_rate(vk::VertexInputRate::VERTEX)
+    }
+
+    fn input_attribute_descriptions(
+        binding: u32,
+        location: u32,
+    ) -> Vec<vk::VertexInputAttributeDescription> {
+        let pos = vk::VertexInputAttributeDescription::default()
+            .binding(binding)
+            .location(location)
+            .format(vk::Format::R32G32B32A32_SFLOAT)
+            .offset(std::mem::offset_of!(Self, position) as u32);
+        let normal = vk::VertexInputAttributeDescription::default()
+            .binding(binding)
+            .location(location + 1)
+            .format(vk::Format::R32G32B32A32_SFLOAT)
+            .offset(std::mem::offset_of!(Self, normal) as u32);
+        let uv = vk::VertexInputAttributeDescription::default()
+            .binding(binding)
+            .location(location + 2)
+            .format(vk::Format::R32G32_SFLOAT)
+            .offset(std::mem::offset_of!(Self, uv) as u32);
+        vec![pos, normal, uv]
+    }
+}
+
 #[rustfmt::skip]
-static VERTICES: [Pos2Color4Tex2Vertex; 4] = [
-    Pos2Color4Tex2Vertex::new(Vec2::new(-0.5, -0.5), Vec4::new(1.0, 0.0, 0.0,1.0), Vec2::new(0.0, 0.0)),
-    Pos2Color4Tex2Vertex::new(Vec2::new(0.5, -0.5), Vec4::new(0.0, 1.0, 0.0,1.0), Vec2::new(1.0, 0.0)),
-    Pos2Color4Tex2Vertex::new(Vec2::new(0.5, 0.5), Vec4::new(0.0, 0.0, 1.0,1.0), Vec2::new(1.0, 1.0)),
-    Pos2Color4Tex2Vertex::new(Vec2::new(-0.5, 0.5), Vec4::new(1.0, 1.0, 1.0,1.0), Vec2::new(0.0, 1.0)),
+static VERTICES: [Pos4Norm4Uv2Vertex; 24] = [
+    // --- Передняя грань (нормаль Z+) ---
+    Pos4Norm4Uv2Vertex::new(-0.5, -0.5,  0.5, 0.0,  0.0,  1.0,0.0, 0.0),
+    Pos4Norm4Uv2Vertex::new( 0.5, -0.5,  0.5, 0.0,  0.0,  1.0,1.0, 0.0),
+    Pos4Norm4Uv2Vertex::new( 0.5,  0.5,  0.5, 0.0,  0.0,  1.0,1.0, 1.0),
+    Pos4Norm4Uv2Vertex::new(-0.5,  0.5,  0.5, 0.0,  0.0,  1.0,0.0, 1.0),
+
+    // --- Задняя грань (нормаль Z-) ---
+    Pos4Norm4Uv2Vertex::new( 0.5, -0.5, -0.5, 0.0,  0.0, -1.0,0.0, 0.0),
+    Pos4Norm4Uv2Vertex::new(-0.5, -0.5, -0.5, 0.0,  0.0, -1.0,1.0, 0.0),
+    Pos4Norm4Uv2Vertex::new(-0.5,  0.5, -0.5, 0.0,  0.0, -1.0,1.0, 1.0),
+    Pos4Norm4Uv2Vertex::new( 0.5,  0.5, -0.5, 0.0,  0.0, -1.0,0.0, 1.0),
+
+    // --- Левая грань (нормаль X-) ---
+    Pos4Norm4Uv2Vertex::new(-0.5, -0.5, -0.5,-1.0,  0.0,  0.0,0.0, 0.0),
+    Pos4Norm4Uv2Vertex::new(-0.5, -0.5,  0.5,-1.0,  0.0,  0.0,1.0, 0.0),
+    Pos4Norm4Uv2Vertex::new(-0.5,  0.5,  0.5,-1.0,  0.0,  0.0,1.0, 1.0),
+    Pos4Norm4Uv2Vertex::new(-0.5,  0.5, -0.5,-1.0,  0.0,  0.0,0.0, 1.0),
+
+    // --- Правая грань (нормаль X+) ---
+    Pos4Norm4Uv2Vertex::new( 0.5, -0.5,  0.5, 1.0,  0.0,  0.0,0.0, 0.0),
+    Pos4Norm4Uv2Vertex::new( 0.5, -0.5, -0.5, 1.0,  0.0,  0.0,1.0, 0.0),
+    Pos4Norm4Uv2Vertex::new( 0.5,  0.5, -0.5, 1.0,  0.0,  0.0,1.0, 1.0),
+    Pos4Norm4Uv2Vertex::new( 0.5,  0.5,  0.5, 1.0,  0.0,  0.0,0.0, 1.0),
+
+    // --- Верхняя грань (нормаль Y+) ---
+    Pos4Norm4Uv2Vertex::new(-0.5,  0.5,  0.5, 0.0,  1.0,  0.0,0.0, 0.0),
+    Pos4Norm4Uv2Vertex::new( 0.5,  0.5,  0.5, 0.0,  1.0,  0.0,1.0, 0.0),
+    Pos4Norm4Uv2Vertex::new( 0.5,  0.5, -0.5, 0.0,  1.0,  0.0,1.0, 1.0),
+    Pos4Norm4Uv2Vertex::new(-0.5,  0.5, -0.5, 0.0,  1.0, -0.0,0.0, 1.0),
+
+    // --- Нижняя грань (нормаль Y-) ---
+    Pos4Norm4Uv2Vertex::new(-0.5, -0.5, -0.5, 0.0, -1.0,  0.0,0.0, 0.0),
+    Pos4Norm4Uv2Vertex::new( 0.5, -0.5, -0.5, 0.0, -1.0,  0.0,1.0, 0.0),
+    Pos4Norm4Uv2Vertex::new( 0.5, -0.5,  0.5, 0.0, -1.0,  0.0,1.0, 1.0),
+    Pos4Norm4Uv2Vertex::new(-0.5, -0.5,  0.5, 0.0, -1.0,  0.0,0.0, 1.0),
 ];
-const INDICES: [u16; 6] = [0, 1, 2, 2, 3, 0];
+
+#[rustfmt::skip]
+const INDICES: [u16; 36] = [
+    0,  1,  2,     2,  3,  0,  // Передняя
+    4,  5,  6,     6,  7,  4,  // Задняя
+    8,  9,  10,    10, 11, 8,  // Левая
+    12, 13, 14,    14, 15, 12, // Правая
+    16, 17, 18,    18, 19, 16, // Верхняя
+    20, 21, 22,    22, 23, 20, // Нижняя
+];
+
+const MAX_CUBES_PER_FRAME: usize = 100_000;
+
+///
+/// Cube instance vertex
+///
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+struct CubeInstance {
+    pub offset: [u16; 4], // Offset in hyper-cube CS
+}
+
+impl CubeInstance {
+    pub fn new(x: u16, y: u16, z: u16) -> Self {
+        Self {
+            offset: [x, y, z, 0],
+        }
+    }
+}
+impl Vertex for CubeInstance {
+    fn input_binding_description(binding: u32) -> vk::VertexInputBindingDescription {
+        vk::VertexInputBindingDescription::default()
+            .binding(binding)
+            .stride(Self::size_in_bytes() as u32)
+            .input_rate(vk::VertexInputRate::INSTANCE)
+    }
+
+    fn input_attribute_descriptions(
+        binding: u32,
+        location: u32,
+    ) -> Vec<vk::VertexInputAttributeDescription> {
+        let offset = vk::VertexInputAttributeDescription::default()
+            .binding(binding)
+            .location(location)
+            .format(vk::Format::R16G16B16A16_UINT)
+            .offset(std::mem::offset_of!(Self, offset) as u32);
+        vec![offset]
+    }
+}
+
+struct FrameObjects {
+    vertex_buffer: VkBuffer,
+    index_buffer: VkBuffer,
+    instance_buffer: VkDynamicBuffer,
+    uniform_buffer: VkBuffer,
+    descriptor_set: vk::DescriptorSet,
+}
+
+impl FrameObjects {
+    fn new(instance: &VkContext, descriptor_set: vk::DescriptorSet) -> Result<Self, VkError> {
+        let instance_buffer =
+            VkDynamicBuffer::vertex::<CubeInstance>(instance, MAX_CUBES_PER_FRAME)?;
+        let vertex_buffer = VkBuffer::vertex(instance, VERTICES.as_ptr(), VERTICES.len())?;
+        let index_buffer = VkBuffer::index(instance, INDICES.as_ptr(), INDICES.len())?;
+        let uniform_buffer = VkBuffer::uniform::<UniformBufferObject>(instance)?;
+        Ok(Self {
+            vertex_buffer,
+            index_buffer,
+            instance_buffer,
+            uniform_buffer,
+            descriptor_set,
+        })
+    }
+
+    fn destroy(&self, device: &ash::Device) {
+        self.uniform_buffer.destroy(device);
+        self.index_buffer.destroy(device);
+        self.vertex_buffer.destroy(device);
+        self.instance_buffer.destroy(device);
+    }
+}
 
 #[derive()]
-pub struct TexturedTriangle {
+pub struct CubePipeline {
     app: Arc<App>,
     pub layout: vk::PipelineLayout,
     pub pipeline: vk::Pipeline,
-    pub vertex_buffer: VkBuffer,
-    pub index_buffer: VkBuffer,
-    uniform_buffers: Vec<VkBuffer>,
     descriptor_set_layout: vk::DescriptorSetLayout,
     descriptor_pool: vk::DescriptorPool,
-    descriptor_sets: Vec<vk::DescriptorSet>,
+    frame_objects: [FrameObjects; MAX_FRAMES_IN_FLIGHT],
     texture: VkImage,
 }
 
-impl TexturedTriangle {
+impl CubePipeline {
     pub fn new(instance: &VkContext, app: &Arc<App>) -> Result<Self, VkError> {
-        let vert = app.load_resource("shaders/tex-shader.vert.spv", &load_bytes, ())?;
-        let frag = app.load_resource("shaders/tex-shader.frag.spv", &load_bytes, ())?;
+        let vert = app.load_resource("shaders/cube.vert.spv", &load_bytes, ())?;
+        let frag = app.load_resource("shaders/cube.frag.spv", &load_bytes, ())?;
 
         let vert_shader_module = create_shader_module(&instance.device, &vert[..])?;
         let frag_shader_module = create_shader_module(&instance.device, &frag[..])?;
@@ -63,12 +221,18 @@ impl TexturedTriangle {
             .module(frag_shader_module)
             .name(c"main");
 
-        let (binding_description, attribute_descriptions) =
-            vertex_input_descriptions::<Pos2Color4Tex2Vertex>();
-        let binding_descriptions = [binding_description];
+        let vertex_binding = Pos4Norm4Uv2Vertex::input_binding_description(0);
+        let instance_binding = CubeInstance::input_binding_description(1);
+        let vertex_attrs = Pos4Norm4Uv2Vertex::input_attribute_descriptions(0, 0);
+        let instance_attrs =
+            CubeInstance::input_attribute_descriptions(1, vertex_attrs.len() as u32);
+        let attribute_descriptions: Vec<vk::VertexInputAttributeDescription> =
+            vertex_attrs.into_iter().chain(instance_attrs).collect();
+
+        let bindings = [vertex_binding, instance_binding];
         let vertex_input_state = vk::PipelineVertexInputStateCreateInfo::default()
-            .vertex_binding_descriptions(&binding_descriptions)
-            .vertex_attribute_descriptions(&attribute_descriptions);
+            .vertex_binding_descriptions(&bindings)
+            .vertex_attribute_descriptions(&attribute_descriptions[..]);
 
         let input_assembly_state = vk::PipelineInputAssemblyStateCreateInfo::default()
             .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
@@ -86,7 +250,7 @@ impl TexturedTriangle {
             .rasterizer_discard_enable(false)
             .polygon_mode(vk::PolygonMode::FILL)
             .line_width(1.0)
-            .cull_mode(vk::CullModeFlags::BACK)
+            .cull_mode(vk::CullModeFlags::NONE)
             .front_face(vk::FrontFace::CLOCKWISE)
             .depth_bias_enable(false);
 
@@ -171,19 +335,20 @@ impl TexturedTriangle {
             descriptor_set_count,
         )?;
         let texture = instance.create_texture_image(&app.files)?;
-        let vertex_buffer = VkBuffer::vertex(instance, VERTICES.as_ptr(), VERTICES.len())?;
-        let index_buffer = VkBuffer::index(instance, INDICES.as_ptr(), INDICES.len())?;
-        let uniform_buffers = create_uniform_buffers(instance)?;
+        let frame_objects = descriptor_sets
+            .into_iter()
+            .map(|ds| FrameObjects::new(instance, ds))
+            .collect::<Result<Vec<_>, VkError>>()?
+            .try_into()
+            .map_err(|_| VkError::GenericError("Array size mismatch!".to_string()))?;
+
         let mut result = Self {
             app: Arc::clone(app),
             layout,
             pipeline,
-            vertex_buffer,
-            index_buffer,
-            uniform_buffers,
             descriptor_set_layout,
             descriptor_pool,
-            descriptor_sets,
+            frame_objects,
             texture,
         };
         result.update_descriptor_sets(instance)?;
@@ -194,7 +359,7 @@ impl TexturedTriangle {
     pub fn update_uniform_buffer(
         &self,
         instance: &VkContext,
-        image_index: usize,
+        frame_index: usize,
         time: f32,
         ratio: f32,
     ) -> Result<(), VkError> {
@@ -206,13 +371,12 @@ impl TexturedTriangle {
             Vec3::new(0.0, 0.0, 1.0),
         );
 
-        let mut proj =
+        let proj =
             glam::camera::lh::proj::vulkan::perspective(45.0f32.to_radians(), ratio, 0.1, 10.0);
 
-        //proj.y.y *= -1.0; // OGL legacy)
-
+        let frame_obj = &self.frame_objects[frame_index];
         let ubo = UniformBufferObject { model, view, proj };
-        let buf_memory = self.uniform_buffers[image_index].memory;
+        let buf_memory = frame_obj.uniform_buffer.memory;
 
         instance.copy_memory(
             buf_memory,
@@ -232,13 +396,13 @@ impl TexturedTriangle {
     }
 
     fn update_descriptor_sets(&mut self, instance: &VkContext) -> Result<(), VkError> {
-        for i in 0..self.uniform_buffers.len() {
+        for frame_obj in self.frame_objects.iter() {
             let info = vk::DescriptorBufferInfo::default()
-                .buffer(self.uniform_buffers[i].buffer)
+                .buffer(frame_obj.uniform_buffer.buffer)
                 .offset(0)
                 .range(size_of::<UniformBufferObject>() as u64);
 
-            let descriptor_set = self.descriptor_sets[i];
+            let descriptor_set = frame_obj.descriptor_set;
             let buffer_info = &[info];
             let ubo_write = vk::WriteDescriptorSet::default()
                 .dst_set(descriptor_set)
@@ -283,6 +447,12 @@ impl TexturedTriangle {
         command_buffer: vk::CommandBuffer,
     ) -> Result<(), VkError> {
         let device = &instance.device;
+        let frame_obj = &self.frame_objects[frame_index];
+
+
+        let src = [CubeInstance::new(0, 0, 0)];
+        frame_obj.instance_buffer.copy_from(src.as_ptr(), 1);
+
         unsafe {
             device.cmd_bind_pipeline(
                 command_buffer,
@@ -290,29 +460,24 @@ impl TexturedTriangle {
                 self.pipeline,
             );
 
-            let buffers = [self.vertex_buffer.buffer];
-            let offsets = [0];
-            device.cmd_bind_vertex_buffers(
-                command_buffer,
-                0,
-                buffers.as_slice(),
-                offsets.as_slice(),
-            );
+            let buffers = [frame_obj.vertex_buffer.buffer, frame_obj.instance_buffer.buffer];
+            let offsets = [0, 0];
+            device.cmd_bind_vertex_buffers(command_buffer, 0, &buffers, &offsets);
             device.cmd_bind_index_buffer(
                 command_buffer,
-                self.index_buffer.buffer,
+                frame_obj.index_buffer.buffer,
                 0,
                 vk::IndexType::UINT16,
             );
-            let descriptor_sets = [self.descriptor_sets[frame_index]];
+            let descriptor_sets = [frame_obj.descriptor_set];
             let dyn_offsets = [];
             device.cmd_bind_descriptor_sets(
                 command_buffer,
                 vk::PipelineBindPoint::GRAPHICS,
                 self.layout,
                 0,
-                descriptor_sets.as_slice(),
-                dyn_offsets.as_slice(),
+                &descriptor_sets,
+                &dyn_offsets,
             );
 
             device.cmd_draw_indexed(command_buffer, INDICES.len() as u32, 1, 0, 0, 0);
@@ -320,19 +485,12 @@ impl TexturedTriangle {
         Ok(())
     }
 
-    pub fn destroy_uniform_buffers(&mut self, device: &Device) {
-        self.uniform_buffers.iter().for_each(|b| b.destroy(device));
-        self.uniform_buffers.clear();
-    }
-
     pub fn destroy(&mut self, device: &Device) {
-        self.destroy_uniform_buffers(device);
         unsafe {
             self.texture.destroy(device);
+            self.frame_objects.iter().for_each(|fo| fo.destroy(device));
             device.destroy_descriptor_pool(self.descriptor_pool, None);
             device.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
-            self.index_buffer.destroy(device);
-            self.vertex_buffer.destroy(device);
             device.destroy_pipeline(self.pipeline, None);
             device.destroy_pipeline_layout(self.layout, None);
         }
@@ -394,11 +552,4 @@ fn create_descriptor_sets(
         .set_layouts(&layouts);
 
     unsafe { device.allocate_descriptor_sets(&info) }.map_err(|e| VkError::VkErrorCode(e))
-}
-
-fn create_uniform_buffers(instance: &VkContext) -> Result<Vec<VkBuffer>, VkError> {
-    (0..MAX_FRAMES_IN_FLIGHT)
-        .into_iter()
-        .map(|_| VkBuffer::uniform::<UniformBufferObject>(instance))
-        .collect::<Result<Vec<VkBuffer>, VkError>>()
 }

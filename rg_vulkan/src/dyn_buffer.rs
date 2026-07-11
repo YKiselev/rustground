@@ -2,7 +2,7 @@ use std::os::raw::c_void;
 
 use ash::{Device, vk};
 
-use crate::{error::VkError, instance::VkInstance};
+use crate::{error::VkError, context::VkContext};
 
 pub struct VkDynamicBuffer {
     pub buffer: vk::Buffer,
@@ -12,15 +12,15 @@ pub struct VkDynamicBuffer {
 }
 
 impl VkDynamicBuffer {
-    pub fn vertex<V: Sized>(instance: &VkInstance, max_vertices: usize) -> Result<Self, VkError> {
+    pub fn vertex<V: Sized>(instance: &VkContext, max_vertices: usize) -> Result<Self, VkError> {
         create_dynamic_buffer::<V>(instance, max_vertices, vk::BufferUsageFlags::VERTEX_BUFFER)
     }
 
-    pub fn index<I: Sized>(instance: &VkInstance, max_indices: usize) -> Result<Self, VkError> {
+    pub fn index<I: Sized>(instance: &VkContext, max_indices: usize) -> Result<Self, VkError> {
         create_dynamic_buffer::<I>(instance, max_indices, vk::BufferUsageFlags::INDEX_BUFFER)
     }
 
-    pub fn uniform<U: Sized>(instance: &VkInstance) -> Result<Self, VkError> {
+    pub fn uniform<U: Sized>(instance: &VkContext) -> Result<Self, VkError> {
         create_dynamic_buffer::<U>(instance, 1, vk::BufferUsageFlags::UNIFORM_BUFFER)
     }
 
@@ -40,7 +40,7 @@ impl VkDynamicBuffer {
 }
 
 fn create_dynamic_buffer<T: Sized>(
-    instance: &VkInstance,
+    instance: &VkContext,
     max_items: usize,
     usage_flags: vk::BufferUsageFlags,
 ) -> Result<VkDynamicBuffer, VkError> {

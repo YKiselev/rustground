@@ -1,6 +1,6 @@
 use ash::{Device, vk};
 
-use crate::{error::VkError, instance::VkInstance};
+use crate::{error::VkError, context::VkContext};
 
 pub struct VkBuffer {
     pub buffer: vk::Buffer,
@@ -9,7 +9,7 @@ pub struct VkBuffer {
 
 impl VkBuffer {
     pub fn vertex<V: Sized>(
-        instance: &VkInstance,
+        instance: &VkContext,
         data: *const V,
         count: usize,
     ) -> Result<Self, VkError> {
@@ -47,7 +47,7 @@ impl VkBuffer {
     }
 
     pub fn index<I: Sized>(
-        instance: &VkInstance,
+        instance: &VkContext,
         data: *const I,
         count: usize,
     ) -> Result<Self, VkError> {
@@ -84,7 +84,7 @@ impl VkBuffer {
         Ok(Self { buffer, memory })
     }
 
-    pub fn uniform<I: Sized>(instance: &VkInstance) -> Result<Self, VkError> {
+    pub fn uniform<I: Sized>(instance: &VkContext) -> Result<Self, VkError> {
         let (buffer, memory) = instance.create_buffer(
             size_of::<I>() as u64,
             vk::BufferUsageFlags::UNIFORM_BUFFER,

@@ -6,9 +6,18 @@ use crate::types::{Vec2, Vec4};
 /// Vertex trait
 ///
 pub(crate) trait Vertex {
-    fn input_binding_description() -> vk::VertexInputBindingDescription;
-    fn input_attribute_descriptions() -> Vec<vk::VertexInputAttributeDescription>;
-    fn size_in_bytes() -> usize;
+    fn input_binding_description(binding: u32) -> vk::VertexInputBindingDescription;
+    fn input_attribute_descriptions(
+        binding: u32,
+        location: u32,
+    ) -> Vec<vk::VertexInputAttributeDescription>;
+
+    fn size_in_bytes() -> usize
+    where
+        Self: Sized,
+    {
+        std::mem::size_of::<Self>()
+    }
 }
 
 ///
@@ -28,29 +37,28 @@ impl Pos2Color4Vertex {
 }
 
 impl Vertex for Pos2Color4Vertex {
-    fn input_binding_description() -> vk::VertexInputBindingDescription {
+    fn input_binding_description(binding: u32) -> vk::VertexInputBindingDescription {
         vk::VertexInputBindingDescription::default()
-            .binding(0)
-            .stride(size_of::<Pos2Color4Vertex>() as u32)
+            .binding(binding)
+            .stride(Self::size_in_bytes() as u32)
             .input_rate(vk::VertexInputRate::VERTEX)
     }
 
-    fn input_attribute_descriptions() -> Vec<vk::VertexInputAttributeDescription> {
+    fn input_attribute_descriptions(
+        binding: u32,
+        location: u32,
+    ) -> Vec<vk::VertexInputAttributeDescription> {
         let pos = vk::VertexInputAttributeDescription::default()
-            .binding(0)
-            .location(0)
+            .binding(binding)
+            .location(location)
             .format(vk::Format::R32G32_SFLOAT)
             .offset(std::mem::offset_of!(Pos2Color4Vertex, pos) as u32);
         let color = vk::VertexInputAttributeDescription::default()
-            .binding(0)
-            .location(1)
+            .binding(binding)
+            .location(location + 1)
             .format(vk::Format::R32G32B32A32_SFLOAT)
             .offset(std::mem::offset_of!(Pos2Color4Vertex, color) as u32);
         vec![pos, color]
-    }
-
-    fn size_in_bytes() -> usize {
-        size_of::<Pos2Color4Vertex>()
     }
 }
 
@@ -72,34 +80,33 @@ impl Pos2Color4Tex2Vertex {
 }
 
 impl Vertex for Pos2Color4Tex2Vertex {
-    fn input_binding_description() -> vk::VertexInputBindingDescription {
+    fn input_binding_description(binding: u32) -> vk::VertexInputBindingDescription {
         vk::VertexInputBindingDescription::default()
-            .binding(0)
-            .stride(size_of::<Pos2Color4Tex2Vertex>() as u32)
+            .binding(binding)
+            .stride(Self::size_in_bytes() as u32)
             .input_rate(vk::VertexInputRate::VERTEX)
     }
 
-    fn input_attribute_descriptions() -> Vec<vk::VertexInputAttributeDescription> {
+    fn input_attribute_descriptions(
+        binding: u32,
+        location: u32,
+    ) -> Vec<vk::VertexInputAttributeDescription> {
         let pos = vk::VertexInputAttributeDescription::default()
-            .binding(0)
-            .location(0)
+            .binding(binding)
+            .location(location)
             .format(vk::Format::R32G32_SFLOAT)
             .offset(std::mem::offset_of!(Pos2Color4Tex2Vertex, pos) as u32);
         let color = vk::VertexInputAttributeDescription::default()
-            .binding(0)
-            .location(1)
+            .binding(binding)
+            .location(location + 1)
             .format(vk::Format::R32G32B32A32_SFLOAT)
             .offset(std::mem::offset_of!(Pos2Color4Tex2Vertex, color) as u32);
         let tex = vk::VertexInputAttributeDescription::default()
-            .binding(0)
-            .location(2)
+            .binding(binding)
+            .location(location + 2)
             .format(vk::Format::R32G32_SFLOAT)
             .offset(std::mem::offset_of!(Pos2Color4Tex2Vertex, tex) as u32);
         vec![pos, color, tex]
-    }
-
-    fn size_in_bytes() -> usize {
-        size_of::<Pos2Color4Tex2Vertex>()
     }
 }
 
@@ -118,49 +125,48 @@ pub struct GlyphInstance {
 }
 
 impl Vertex for GlyphInstance {
-    fn input_binding_description() -> vk::VertexInputBindingDescription {
+    fn input_binding_description(binding: u32) -> vk::VertexInputBindingDescription {
         vk::VertexInputBindingDescription::default()
-            .binding(0)
-            .stride(size_of::<GlyphInstance>() as u32)
+            .binding(binding)
+            .stride(Self::size_in_bytes() as u32)
             .input_rate(vk::VertexInputRate::INSTANCE)
     }
 
-    fn input_attribute_descriptions() -> Vec<vk::VertexInputAttributeDescription> {
+    fn input_attribute_descriptions(
+        binding: u32,
+        location: u32,
+    ) -> Vec<vk::VertexInputAttributeDescription> {
         let pos = vk::VertexInputAttributeDescription::default()
-            .binding(0)
-            .location(0)
+            .binding(binding)
+            .location(location)
             .format(vk::Format::R16G16_SINT)
             .offset(std::mem::offset_of!(GlyphInstance, pos) as u32);
         let size = vk::VertexInputAttributeDescription::default()
-            .binding(0)
-            .location(1)
+            .binding(binding)
+            .location(location + 1)
             .format(vk::Format::R16G16_UINT)
             .offset(std::mem::offset_of!(GlyphInstance, size) as u32);
         let color = vk::VertexInputAttributeDescription::default()
-            .binding(0)
-            .location(2)
+            .binding(binding)
+            .location(location + 2)
             .format(vk::Format::R8G8B8A8_UNORM)
             .offset(std::mem::offset_of!(GlyphInstance, color) as u32);
         let uv_min = vk::VertexInputAttributeDescription::default()
-            .binding(0)
-            .location(3)
+            .binding(binding)
+            .location(location + 3)
             .format(vk::Format::R16G16_UNORM)
             .offset(std::mem::offset_of!(GlyphInstance, uv_min) as u32);
         let uv_max = vk::VertexInputAttributeDescription::default()
-            .binding(0)
-            .location(4)
+            .binding(binding)
+            .location(location + 4)
             .format(vk::Format::R16G16_UNORM)
             .offset(std::mem::offset_of!(GlyphInstance, uv_max) as u32);
         let layer_index = vk::VertexInputAttributeDescription::default()
-            .binding(0)
-            .location(5)
+            .binding(binding)
+            .location(location + 5)
             .format(vk::Format::R32_UINT)
             .offset(std::mem::offset_of!(GlyphInstance, layer_index) as u32);
         vec![pos, size, color, uv_min, uv_max, layer_index]
-    }
-
-    fn size_in_bytes() -> usize {
-        size_of::<GlyphInstance>()
     }
 }
 
@@ -174,7 +180,7 @@ pub(crate) fn vertex_input_descriptions<V>() -> (
 where
     V: Vertex,
 {
-    let binding_descriptions = V::input_binding_description();
-    let attribute_descriptions = V::input_attribute_descriptions();
-    (binding_descriptions, attribute_descriptions)
+    let bindings = V::input_binding_description(0);
+    let attribute_descriptions = V::input_attribute_descriptions(0, 0);
+    (bindings, attribute_descriptions)
 }

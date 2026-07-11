@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use crate::{
     error::{VkError, to_suitability},
-    instance::DEVICE_EXTENSIONS,
+    context::DEVICE_EXTENSIONS,
     queue_family::QueueFamilyIndices,
     surface::VkSurface,
     swapchain::swapchain::SwapchainSupport,

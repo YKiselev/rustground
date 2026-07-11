@@ -14,6 +14,7 @@ use std::sync::Arc;
 use crate::buffer::VkBuffer;
 use crate::dyn_buffer::VkDynamicBuffer;
 use crate::font::VkFontAtlas;
+use crate::context::MAX_FRAMES_IN_FLIGHT;
 use crate::loaders::FontAtlasLoaderContext;
 use crate::loaders::load_font_atlas;
 use crate::pipelines::text::ToGlyphInstance;
@@ -22,7 +23,7 @@ use crate::vertex::GlyphInstance;
 use crate::vertex::vertex_input_descriptions;
 use crate::{
     error::{VkError, to_generic},
-    instance::VkInstance,
+    context::VkContext,
     pipelines::shader::create_shader_module,
 };
 
@@ -52,22 +53,21 @@ pub struct UniformBufferObject {
 struct FrameObjects {
     vertex_buffer: VkDynamicBuffer,
     uniform_buffer: VkBuffer,
+    descriptor_set: vk::DescriptorSet,
 }
 
 const DEFAULT_GLYPH_BUFFER_SIZE: usize = 20_000;
 const MAX_GLYPHS_PER_FRAME: usize = 100_000;
 
-//#[rustfmt::skip]
-const VK_CORRECTION_MATRIX: Mat4 = Mat4::IDENTITY;
-
 impl FrameObjects {
-    fn new(instance: &VkInstance) -> Result<Self, VkError> {
+    fn new(instance: &VkContext, descriptor_set: vk::DescriptorSet) -> Result<Self, VkError> {
         let vertex_buffer =
             VkDynamicBuffer::vertex::<GlyphInstance>(instance, MAX_GLYPHS_PER_FRAME)?;
         let uniform_buffer = VkBuffer::uniform::<UniformBufferObject>(instance)?;
         Ok(Self {
             vertex_buffer,
             uniform_buffer,
+            descriptor_set
         })
     }
 
@@ -76,6 +76,7 @@ impl FrameObjects {
         self.uniform_buffer.destroy(device);
     }
 }
+
 ///
 /// UI pipeline
 ///
@@ -87,14 +88,13 @@ pub struct UiPipeline {
     frame_objects: Vec<FrameObjects>,
     descriptor_set_layout: vk::DescriptorSetLayout,
     descriptor_pool: vk::DescriptorPool,
-    descriptor_sets: Vec<vk::DescriptorSet>,
     font_atlas: VkFontAtlas,
     frame_index: Option<usize>,
     glyph_buffer: Vec<GlyphInstance>,
 }
 
 impl UiPipeline {
-    pub fn new(instance: &VkInstance, app: &Arc<App>, scale_factor: f64) -> Result<Self, VkError> {
+    pub fn new(instance: &VkContext, app: &Arc<App>, scale_factor: f64) -> Result<Self, VkError> {
         let config = app.load_resource(
             "configs/ui-pipeline.toml",
             &load_deserializable::<Config>,
@@ -206,8 +206,7 @@ impl UiPipeline {
                 infos.as_slice(),
                 None,
             )
-        }
-        .unwrap();
+        }.map_err(|(_, e)| VkError::VkErrorCode(e))?;
 
         if result.is_empty() {
             error!("No pipeline in result!");
@@ -225,20 +224,16 @@ impl UiPipeline {
                 .destroy_shader_module(frag_shader_module, None);
         }
 
-        let descriptor_set_count = instance.swapchain.images.len();
-        let descriptor_pool = create_descriptor_pool(&instance.device, descriptor_set_count)?;
+        let descriptor_pool = create_descriptor_pool(&instance.device, MAX_FRAMES_IN_FLIGHT)?;
         let descriptor_sets = create_descriptor_sets(
             &instance.device,
             descriptor_set_layout,
             descriptor_pool,
-            descriptor_set_count,
+            MAX_FRAMES_IN_FLIGHT,
         )?;
 
-        let frame_objects = instance
-            .swapchain
-            .images
-            .iter()
-            .map(|_| FrameObjects::new(instance))
+        let frame_objects = descriptor_sets.into_iter()
+            .map(|ds| FrameObjects::new(instance, ds))
             .collect::<Result<Vec<FrameObjects>, VkError>>()?;
         let mut result = Self {
             app: Arc::clone(app),
@@ -247,7 +242,6 @@ impl UiPipeline {
             frame_objects,
             descriptor_set_layout,
             descriptor_pool,
-            descriptor_sets,
             font_atlas,
             frame_index: None,
             glyph_buffer: Vec::with_capacity(DEFAULT_GLYPH_BUFFER_SIZE),
@@ -285,15 +279,17 @@ impl UiPipeline {
 
     fn update_uniform_buffer(
         &self,
-        instance: &VkInstance,
+        instance: &VkContext,
         frame_index: usize,
     ) -> Result<(), VkError> {
         let ext = instance.swapchain.extent;
         let proj = glam::camera::rh::proj::vulkan::orthographic(
-            0.0, ext.width as f32,
             0.0,
-            -(ext.height as f32), 
-            -1.0, 1.0,
+            ext.width as f32,
+            0.0,
+            -(ext.height as f32),
+            -1.0,
+            1.0,
         );
 
         let ubo = UniformBufferObject { proj };
@@ -311,18 +307,18 @@ impl UiPipeline {
         Ok(())
     }
 
-    pub fn on_swapchain_recreated(&mut self, instance: &VkInstance) -> Result<(), VkError> {
+    pub fn on_swapchain_recreated(&mut self, instance: &VkContext) -> Result<(), VkError> {
         self.update_descriptor_sets(instance)
     }
 
-    fn update_descriptor_sets(&mut self, instance: &VkInstance) -> Result<(), VkError> {
-        for i in 0..self.frame_objects.len() {
+    fn update_descriptor_sets(&mut self, instance: &VkContext) -> Result<(), VkError> {
+        for (i, frame_obj) in self.frame_objects.iter().enumerate() {
             let info = vk::DescriptorBufferInfo::default()
                 .buffer(self.frame_objects[i].uniform_buffer.buffer)
                 .offset(0)
                 .range(size_of::<UniformBufferObject>() as u64);
 
-            let descriptor_set = self.descriptor_sets[i];
+            let descriptor_set = frame_obj.descriptor_set;
             let buffer_info = &[info];
             let ubo_write = vk::WriteDescriptorSet::default()
                 .dst_set(descriptor_set)
@@ -351,7 +347,7 @@ impl UiPipeline {
 
     pub fn begin_frame(
         &mut self,
-        instance: &VkInstance,
+        instance: &VkContext,
         frame_index: usize,
         command_buffer: vk::CommandBuffer,
     ) -> Result<(), VkError> {
@@ -365,7 +361,7 @@ impl UiPipeline {
                 self.pipeline,
             );
 
-            let descriptor_sets = [self.descriptor_sets[frame_index]];
+            let descriptor_sets = [self.frame_objects[frame_index].descriptor_set];
             let dyn_offsets = [];
 
             device.cmd_bind_descriptor_sets(
@@ -389,7 +385,7 @@ impl UiPipeline {
 
     pub fn end_frame(
         &mut self,
-        instance: &VkInstance,
+        instance: &VkContext,
         command_buffer: vk::CommandBuffer,
     ) -> Result<(), VkError> {
         if let Some(frame_index) = self.frame_index.take() {
@@ -404,7 +400,9 @@ impl UiPipeline {
             let offsets = [0];
 
             unsafe {
-                instance.device.cmd_bind_vertex_buffers(command_buffer, 0, &buffers, &offsets);
+                instance
+                    .device
+                    .cmd_bind_vertex_buffers(command_buffer, 0, &buffers, &offsets);
 
                 if instance_count > 0 {
                     instance

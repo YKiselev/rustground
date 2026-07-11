@@ -27,7 +27,7 @@ pub(crate) const DEVICE_EXTENSIONS: [&CStr; 1] = [swapchain::NAME];
 pub(crate) const MAX_FRAMES_IN_FLIGHT: usize = 2;
 
 #[derive()]
-pub struct VkInstance {
+pub struct VkContext {
     surface: VkSurface,
     pub physical_device: vk::PhysicalDevice,
     pub device: ash::Device,
@@ -41,7 +41,7 @@ pub struct VkInstance {
     pub depth_format: vk::Format,
 }
 
-impl VkInstance {
+impl VkContext {
     pub fn new(
         app: &Arc<App>,
         config: &Arc<RwLock<Config>>,
