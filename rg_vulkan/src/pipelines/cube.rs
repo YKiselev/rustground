@@ -201,6 +201,7 @@ pub struct CubePipeline {
     descriptor_pool: vk::DescriptorPool,
     frame_objects: [FrameObjects; MAX_FRAMES_IN_FLIGHT],
     texture: VkImage,
+    cubes: Vec<CubeInstance>,
 }
 
 impl CubePipeline {
@@ -350,6 +351,7 @@ impl CubePipeline {
             descriptor_pool,
             frame_objects,
             texture,
+            cubes: Vec::with_capacity(MAX_CUBES_PER_FRAME),
         };
         result.update_descriptor_sets(instance)?;
 
@@ -448,10 +450,13 @@ impl CubePipeline {
     ) -> Result<(), VkError> {
         let device = &instance.device;
         let frame_obj = &self.frame_objects[frame_index];
+        let cubes = &mut self.cubes;
 
+        cubes.push(CubeInstance::new(0, 0, 0));
 
-        let src = [CubeInstance::new(0, 0, 0)];
-        frame_obj.instance_buffer.copy_from(src.as_ptr(), 1);
+        frame_obj
+            .instance_buffer
+            .copy_from(cubes.as_ptr(), cubes.len());
 
         unsafe {
             device.cmd_bind_pipeline(
@@ -460,7 +465,10 @@ impl CubePipeline {
                 self.pipeline,
             );
 
-            let buffers = [frame_obj.vertex_buffer.buffer, frame_obj.instance_buffer.buffer];
+            let buffers = [
+                frame_obj.vertex_buffer.buffer,
+                frame_obj.instance_buffer.buffer,
+            ];
             let offsets = [0, 0];
             device.cmd_bind_vertex_buffers(command_buffer, 0, &buffers, &offsets);
             device.cmd_bind_index_buffer(
@@ -480,8 +488,16 @@ impl CubePipeline {
                 &dyn_offsets,
             );
 
-            device.cmd_draw_indexed(command_buffer, INDICES.len() as u32, 1, 0, 0, 0);
+            device.cmd_draw_indexed(
+                command_buffer,
+                INDICES.len() as u32,
+                cubes.len() as u32,
+                0,
+                0,
+                0,
+            );
         }
+        cubes.clear();
         Ok(())
     }
 
