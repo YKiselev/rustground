@@ -4,9 +4,12 @@ use glam::Mat4;
 use log::error;
 use log::warn;
 use rg_common::App;
-use rg_common::Color;
 use rg_common::load_bytes;
 use rg_common::load_deserializable;
+use rg_common::ui::canvas::Canvas;
+use rg_common::ui::canvas::FontId;
+use rg_common::ui::canvas::WrapMode;
+use rg_common::ui::color::Color;
 use serde::Deserialize;
 use serde::Serialize;
 use std::sync::Arc;
@@ -18,7 +21,7 @@ use crate::font::VkFontAtlas;
 use crate::loaders::FontAtlasLoaderContext;
 use crate::loaders::load_font_atlas;
 use crate::pipelines::shader::ShaderStages;
-use crate::pipelines::shader::ShaderStagesBuilder;
+use crate::pipelines::ui::text::TextLayoutScratch;
 use crate::pipelines::ui::text::ToGlyphInstance;
 use crate::renderer::create_default_viewport_and_scissor;
 use crate::vertex::GlyphInstance;
@@ -26,7 +29,6 @@ use crate::vertex::vertex_input_descriptions;
 use crate::{
     context::VkContext,
     error::{VkError, to_generic},
-    pipelines::shader::create_shader_module,
 };
 
 ///
@@ -53,13 +55,13 @@ pub struct UniformBufferObject {
 /// Frame objects
 ///
 struct FrameObjects {
-    vertex_buffer: VkDynamicBuffer,
+    pub(super) vertex_buffer: VkDynamicBuffer,
     uniform_buffer: VkBuffer,
     descriptor_set: vk::DescriptorSet,
 }
 
 const DEFAULT_GLYPH_BUFFER_SIZE: usize = 20_000;
-const MAX_GLYPHS_PER_FRAME: usize = 100_000;
+pub(super) const MAX_GLYPHS_PER_FRAME: usize = 100_000;
 
 impl FrameObjects {
     fn new(instance: &VkContext, descriptor_set: vk::DescriptorSet) -> Result<Self, VkError> {
@@ -87,12 +89,16 @@ pub struct UiPipeline {
     app: Arc<App>,
     pub layout: vk::PipelineLayout,
     pub pipeline: vk::Pipeline,
-    frame_objects: Vec<FrameObjects>,
+    pub(super) frame_objects: Vec<FrameObjects>,
     descriptor_set_layout: vk::DescriptorSetLayout,
     descriptor_pool: vk::DescriptorPool,
-    font_atlas: VkFontAtlas,
-    frame_index: Option<usize>,
-    glyph_buffer: Vec<GlyphInstance>,
+    pub(super) font_atlas: VkFontAtlas,
+    pub(super) frame_index: Option<usize>,
+    pub(super) glyph_buffer: Vec<GlyphInstance>,
+    pub(super) canvas_font: FontId,
+    pub(super) canvas_color: Color,
+    pub(super) canvas_wrap_mode: WrapMode,
+    pub(super) text_layout_scratch: TextLayoutScratch,
 }
 
 impl UiPipeline {
@@ -234,14 +240,18 @@ impl UiPipeline {
             font_atlas,
             frame_index: None,
             glyph_buffer: Vec::with_capacity(DEFAULT_GLYPH_BUFFER_SIZE),
+            canvas_font: FontId::DEFAULT,
+            canvas_color: Color::WHITE,
+            canvas_wrap_mode: WrapMode::None,
+            text_layout_scratch: TextLayoutScratch::default(),
         };
-        
+
         result.update_descriptor_sets(context)?;
 
         Ok(result)
     }
 
-    pub fn draw_text<S>(&mut self, x: i32, y: i32, text: S, color: Color)
+    pub fn draw_text_old<S>(&mut self, x: i32, y: i32, text: S, color: Color)
     where
         S: AsRef<str>,
     {
@@ -367,9 +377,17 @@ impl UiPipeline {
 
         let _ = self.update_uniform_buffer(instance, frame_index)?;
 
-        self.draw_text(0, 0, "Hello, Vulkan user!", Color::RED);
-        self.draw_text(50, 50, "Hello, Vulkan user!", Color::LIGHT_BLUE);
-        self.draw_text(100, 100, "Hello, Vulkan user!", Color::LIGHT_GREEN);
+        self.set_color(Color::RED);
+        self.set_font(FontId::CONSOLE);
+        
+        self.set_wrap_mode(WrapMode::Word);
+        self.draw_text(0, 0, 100, "Hello, Vulkan user! What is your name? Do you like ballons?");
+
+        self.set_wrap_mode(WrapMode::Character);
+        //self.draw_text(50, 150, 30, "Hello, Vulkan user!");
+
+        self.set_wrap_mode(WrapMode::None);
+        //self.draw_text(100, 200, 0, "Hello, Vulkan user!");
 
         Ok(())
     }
