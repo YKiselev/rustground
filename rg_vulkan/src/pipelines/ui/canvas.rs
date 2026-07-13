@@ -4,68 +4,60 @@ use rg_common::ui::{
     color::Color,
 };
 
-use crate::pipelines::ui::{
-    text::{TextLayout, ToGlyphInstance},
-    ui::{MAX_GLYPHS_PER_FRAME, UiPipeline},
+use crate::{
+    pipelines::ui::{
+        text::{TextLayout, ToGlyphInstance},
+        ui::UiPipeline,
+    },
+    vertex::GlyphInstance,
 };
+
+const FULL_BLOCK: char = unsafe { char::from_u32_unchecked(0x2588) };
 
 impl Canvas for UiPipeline {
     fn set_font(&mut self, id: FontId) {
-        self.canvas_font = id;
+        self.canvas_context.font_id = id;
+    }
+
+    fn set_line_spacing(&mut self, spacing: usize) {
+        self.canvas_context.line_spacing = spacing;
     }
 
     fn set_color(&mut self, color: Color) {
-        self.canvas_color = color;
+        self.canvas_context.color = color;
     }
 
     fn set_wrap_mode(&mut self, mode: WrapMode) {
-        self.canvas_wrap_mode = mode;
+        self.canvas_context.wrap_mode = mode;
     }
 
     fn draw_text<S>(&mut self, x0: i32, y0: i32, width: u32, text: S)
     where
         S: AsRef<str>,
     {
-        if let Some(font) = self.font_atlas.fonts.get(self.canvas_font.as_ref()) {
-            match self.canvas_wrap_mode.layout(
-                &mut self.text_layout_scratch,
-                x0,
-                y0,
-                width,
-                0,
-                font,
-                self.canvas_color,
-                text,
-            ) {
-                Ok(_) => {
-                    let scratch = &mut self.text_layout_scratch;
-                    if !scratch.line_lengths.is_empty() {
-                        let mut x = x0 as i16;
-                        let mut y = y0 as i16;
-                        let mut offset = 0;
-                        for &line_length in scratch.line_lengths.iter() {
-                            for _ in 0..line_length {
-                                let g = &mut scratch.glyphs[offset];
-                                g.pos[0] += x;
-                                g.pos[1] += y;
-                                offset += 1;
-                            }
-                            x = x0 as i16;
-                        }
-
-                        self.glyph_buffer.append(&mut scratch.glyphs);
-                    }
-                }
-                Err(e) => warn!("Failed to draw text: {}", e.to_string()),
+        let ctx = &mut self.canvas_context;
+        if let Some(font) = self.font_atlas.fonts.get(ctx.font_id.as_ref()) {
+            let wrap_mode = ctx.wrap_mode;
+            if let Err(e) = wrap_mode.layout(ctx, x0, y0, width, font, text) {
+                warn!("Failed to layout text: {}", e.to_string());
             }
         }
     }
 
-    fn measure_text<S>(&self, x: i32, y: i32, width: u32, text: S) -> u32
+    fn measure_text<S>(&self, width: u32, text: S) -> u32
     where
         S: AsRef<str>,
     {
-        todo!()
+        let mut height = 0;
+        let ctx = &self.canvas_context;
+        if let Some(font) = self.font_atlas.fonts.get(ctx.font_id.as_ref()) {
+            let wrap_mode = ctx.wrap_mode;
+            match wrap_mode.measure(ctx, width, font, text) {
+                Ok(h) => height = h,
+                Err(e) => warn!("Failed to measure text: {}", e.to_string()),
+            }
+        }
+        height as u32
     }
 
     fn draw_sprite(
@@ -80,6 +72,17 @@ impl Canvas for UiPipeline {
     }
 
     fn draw_rect(&mut self, x: i32, y: i32, width: u32, height: u32) {
-        todo!()
+        let ctx = &mut self.canvas_context;
+        if let Some(font) = self.font_atlas.fonts.get(ctx.font_id.as_ref()) {
+            if let Some(glyph) = font.get(FULL_BLOCK) {
+                let mut g = glyph.to_glyph_instance(0, 0);
+                g.color = ctx.color.into();
+                g.pos = [x as i16, y as i16];
+                g.size = [width as u16, height as u16];
+                ctx.glyphs.push(g);
+            } else {
+                warn!("Full block character (0x2588) is not mapped!");
+            }
+        }
     }
 }

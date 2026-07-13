@@ -1,8 +1,9 @@
-use rg_common::ui::canvas::WrapMode;
+use rg_common::ui::canvas::{FontId, WrapMode};
 use rg_common::ui::color::Color;
 
 use crate::error::VkError;
 use crate::font::{GlyphInfo, VkFont};
+use crate::pipelines::ui::ui::DEFAULT_GLYPH_BUFFER_SIZE;
 use crate::vertex::GlyphInstance;
 
 pub(crate) trait ToGlyphInstance {
@@ -32,12 +33,28 @@ impl ToGlyphInstance for GlyphInfo {
 }
 
 ///
-/// Text layout scratch
+/// Canvas context
 ///
-#[derive(Default)]
-pub(super) struct TextLayoutScratch {
-    pub(super) glyphs: Vec<GlyphInstance>,
-    pub(super) line_lengths: Vec<usize>,
+pub(super) struct CanvasContext {
+    pub font_id: FontId,
+    pub color: Color,
+    pub wrap_mode: WrapMode,
+    pub line_spacing: usize,
+    pub glyphs: Vec<GlyphInstance>,
+    pub line_lengths: Vec<usize>,
+}
+
+impl CanvasContext {
+    pub fn new() -> Self {
+        Self {
+            font_id: FontId::DEFAULT,
+            color: Color::WHITE,
+            wrap_mode: WrapMode::None,
+            line_spacing: 0,
+            glyphs: Vec::with_capacity(DEFAULT_GLYPH_BUFFER_SIZE),
+            line_lengths: Vec::new(),
+        }
+    }
 }
 
 ///
@@ -46,15 +63,23 @@ pub(super) struct TextLayoutScratch {
 pub(super) trait TextLayout {
     fn layout<S>(
         &self,
-        scratch: &mut TextLayoutScratch,
+        context: &mut CanvasContext,
         x: i32,
         y: i32,
         width: u32,
-        line_spacing: u32,
         font: &VkFont,
-        color: Color,
         text: S,
     ) -> Result<(), VkError>
+    where
+        S: AsRef<str>;
+
+    fn measure<S>(
+        &self,
+        context: &CanvasContext,
+        width: u32,
+        font: &VkFont,
+        text: S,
+    ) -> Result<i32, VkError>
     where
         S: AsRef<str>;
 }
@@ -62,142 +87,188 @@ pub(super) trait TextLayout {
 impl TextLayout for WrapMode {
     fn layout<S>(
         &self,
-        scratch: &mut TextLayoutScratch,
+        context: &mut CanvasContext,
         x: i32,
         y: i32,
         width: u32,
-        line_spacing: u32,
         font: &VkFont,
-        color: Color,
         text: S,
     ) -> Result<(), VkError>
     where
         S: AsRef<str>,
     {
         match self {
-            WrapMode::None => layout_no_wrap(scratch, x, y, width, line_spacing, font, color, text),
-            WrapMode::Character => {
-                layout_char_wrap(scratch, x, y, width, line_spacing, font, color, text)
-            }
-            WrapMode::Word => {
-                layout_word_wrap(scratch, x, y, width, line_spacing, font, color, text)
-            }
+            WrapMode::None => layout_no_wrap(context, x, y, font, text.as_ref()),
+            WrapMode::Character => layout_char_wrap(context, x, y, width, font, text.as_ref()),
+            WrapMode::Word => layout_word_wrap(context, x, y, width, font, text.as_ref()),
+        }
+    }
+
+    fn measure<S>(
+        &self,
+        context: &CanvasContext,
+        width: u32,
+        font: &VkFont,
+        text: S,
+    ) -> Result<i32, VkError>
+    where
+        S: AsRef<str>,
+    {
+        match self {
+            WrapMode::None => measure_no_wrap(context, font, text.as_ref()),
+            WrapMode::Character => measure_char_wrap(context, width, font, text.as_ref()),
+            WrapMode::Word => measure_word_wrap(context, width, font, text.as_ref()),
         }
     }
 }
 
-fn layout_no_wrap<S>(
-    scratch: &mut TextLayoutScratch,
-    x: i32,
-    y: i32,
-    width: u32,
-    line_spacing: u32,
+fn layout_no_wrap(
+    context: &mut CanvasContext,
+    x0: i32,
+    y0: i32,
     font: &VkFont,
-    color: Color,
-    text: S,
-) -> Result<(), VkError>
-where
-    S: AsRef<str>,
-{
-    scratch.glyphs.clear();
-    scratch.line_lengths.clear();
+    text: &str,
+) -> Result<(), VkError> {
+    context.line_lengths.clear();
 
-    let mut color = color;
-    let mut x = 0;
-    let mut y = 0;
+    let color = context.color;
+    let mut x = x0;
 
-    for ch in text.as_ref().chars() {
+    for ch in text.chars() {
         if let Some(glyph) = font.get(ch).or_else(|| font.get('?')) {
-            let mut g = glyph.to_glyph_instance(x, y);
+            let mut g = glyph.to_glyph_instance(x, y0);
             g.color = color.into();
-            scratch.glyphs.push(g);
+            context.glyphs.push(g);
             x += glyph.h_advance as i32;
         } else {
             return Err(VkError::GenericError(format!("No glyph for {}", ch)));
         }
     }
 
-    scratch.line_lengths.push(scratch.glyphs.len());
+    context.line_lengths.push(context.glyphs.len());
 
     Ok(())
 }
 
-fn layout_char_wrap<S>(
-    scratch: &mut TextLayoutScratch,
-    x: i32,
-    y: i32,
+fn measure_no_wrap(context: &CanvasContext, font: &VkFont, text: &str) -> Result<i32, VkError> {
+    let line_height = (font.height + context.line_spacing as u32) as i32;
+
+    Ok(line_height)
+}
+
+fn layout_char_wrap(
+    context: &mut CanvasContext,
+    x0: i32,
+    y0: i32,
     width: u32,
-    line_spacing: u32,
     font: &VkFont,
-    color: Color,
-    text: S,
-) -> Result<(), VkError>
-where
-    S: AsRef<str>,
-{
-    scratch.glyphs.clear();
-    scratch.line_lengths.clear();
+    text: &str,
+) -> Result<(), VkError> {
+    context.line_lengths.clear();
 
-    let mut color = color;
-    let mut x = 0;
-    let mut y = 0;
+    let color = context.color;
+    let line_height = (font.height + context.line_spacing as u32) as i32;
+    let right_margin = x0 + width as i32;
+    let mut x = x0;
+    let mut y = y0;
     let mut line_glyphs = 0;
-    let line_height = (font.height + line_spacing) as i32;
+    let mut slice = text;
+    let mut it = slice.char_indices();
 
-    for ch in text.as_ref().chars() {
+    while let Some((idx, ch)) = it.next() {
         if let Some(glyph) = font.get(ch).or_else(|| font.get('?')) {
             let mut g = glyph.to_glyph_instance(x, y);
             g.color = color.into();
 
-            if x + glyph.h_advance as i32 > width as i32 && line_glyphs > 0 {
-                scratch.line_lengths.push(line_glyphs);
+            if x + glyph.h_advance as i32 > right_margin as i32 && line_glyphs > 0 {
+                context.line_lengths.push(line_glyphs);
                 line_glyphs = 1;
-                x = 0;
+                x = x0;
                 y += line_height;
+                slice = &slice[idx..];
+                it = slice.char_indices();
+                continue;
             } else {
                 line_glyphs += 1;
                 x += glyph.h_advance as i32;
             }
 
-            scratch.glyphs.push(g);
+            context.glyphs.push(g);
         } else {
             return Err(VkError::GenericError(format!("No glyph for {}", ch)));
         }
     }
 
     if line_glyphs > 0 {
-        scratch.line_lengths.push(line_glyphs);
+        context.line_lengths.push(line_glyphs);
     }
 
     Ok(())
 }
 
-fn layout_word_wrap<S>(
-    scratch: &mut TextLayoutScratch,
-    x: i32,
-    y: i32,
+fn measure_char_wrap(
+    context: &CanvasContext,
     width: u32,
-    line_spacing: u32,
     font: &VkFont,
-    color: Color,
-    text: S,
-) -> Result<(), VkError>
-where
-    S: AsRef<str>,
-{
-    scratch.glyphs.clear();
-    scratch.line_lengths.clear();
-
-    let mut color = color;
-    let line_height = (font.height + line_spacing) as i32;
+    text: &str,
+) -> Result<i32, VkError> {
+    let line_height = (font.height + context.line_spacing as u32) as i32;
+    let right_margin = width as i32;
     let mut x = 0;
     let mut y = 0;
+    let mut line_glyphs = 0;
+    let mut slice = text;
+    let mut it = slice.char_indices();
+
+    while let Some((idx, ch)) = it.next() {
+        if let Some(glyph) = font.get(ch).or_else(|| font.get('?')) {
+            if x + glyph.h_advance as i32 > right_margin as i32 && line_glyphs > 0 {
+                line_glyphs = 1;
+                x = 0;
+                y += line_height;
+                slice = &slice[idx..];
+                it = slice.char_indices();
+                continue;
+            } else {
+                line_glyphs += 1;
+                x += glyph.h_advance as i32;
+            }
+        } else {
+            return Err(VkError::GenericError(format!("No glyph for {}", ch)));
+        }
+    }
+
+    if line_glyphs > 0 {
+        y += line_height;
+    }
+
+    Ok(y)
+}
+
+fn layout_word_wrap(
+    context: &mut CanvasContext,
+    x0: i32,
+    y0: i32,
+    width: u32,
+    font: &VkFont,
+    text: &str,
+) -> Result<(), VkError> {
+    context.line_lengths.clear();
+
+    let line_height = (font.height + context.line_spacing as u32) as i32;
+    let right_margin = x0 + width as i32;
+    let mut slice = text;
+    let mut color = context.color;
+    let mut x = x0;
+    let mut y = y0;
     let mut line_start = 0;
     let mut word_start = 0;
     let mut is_whitespace = false;
     let mut i = 0;
 
-    for ch in text.as_ref().chars() {
+    let mut it = slice.char_indices();
+    let mut word_start_idx = 0;
+    while let Some((idx, ch)) = it.next() {
         if let Some(glyph) = font.get(ch).or_else(|| font.get('?')) {
             let mut g = glyph.to_glyph_instance(x, y);
             g.color = color.into();
@@ -206,30 +277,79 @@ where
                 is_whitespace = true;
             } else if is_whitespace {
                 word_start = i;
+                word_start_idx = idx;
                 is_whitespace = false
             }
 
-            let mut fixup = false;
-            if x + glyph.h_advance as i32 > width as i32 && word_start > line_start {
-                let word_glyphs = i - word_start + 1;
-                let line_length = i - line_start + 1 - word_glyphs;
-                scratch.line_lengths.push(line_length);
+            if x + glyph.h_advance as i32 > right_margin as i32 && word_start > line_start {
+                let word_glyphs = i - word_start; // not counting this char, because we won't put its glyph into buffer!
+                let line_length = word_start - line_start;
+                context.line_lengths.push(line_length);
                 line_start = word_start;
-                x = 0;
+                x = x0;
                 y += line_height;
-                fixup = word_glyphs > 0;
+                is_whitespace = false;
+                slice = &slice[word_start_idx..];
+                it = slice.char_indices();
+                context.glyphs.truncate(context.glyphs.len() - word_glyphs);
+                continue;
             } else {
                 x += glyph.h_advance as i32;
             }
 
-            scratch.glyphs.push(g);
+            context.glyphs.push(g);
+        } else {
+            return Err(VkError::GenericError(format!("No glyph for {}", ch)));
+        }
+        i += 1;
+    }
 
-            if fixup {
-                let mut x = 0;
-                for g in scratch.glyphs[word_start..].iter_mut() {
-                    g.pos[0] -= old_x as i16;
-                    g.pos[1] += line_height as i16;
-                }
+    if i > line_start {
+        context.line_lengths.push(i - line_start);
+    }
+
+    Ok(())
+}
+
+fn measure_word_wrap(
+    context: &CanvasContext,
+    width: u32,
+    font: &VkFont,
+    text: &str,
+) -> Result<i32, VkError> {
+    let line_height = (font.height + context.line_spacing as u32) as i32;
+    let right_margin = width as i32;
+    let mut slice = text;
+    let mut x = 0;
+    let mut y = 0;
+    let mut line_start = 0;
+    let mut word_start = 0;
+    let mut is_whitespace = false;
+    let mut i = 0;
+
+    let mut it = slice.char_indices();
+    let mut word_start_idx = 0;
+    while let Some((idx, ch)) = it.next() {
+        if let Some(glyph) = font.get(ch).or_else(|| font.get('?')) {
+
+            if ch.is_whitespace() {
+                is_whitespace = true;
+            } else if is_whitespace {
+                word_start = i;
+                word_start_idx = idx;
+                is_whitespace = false
+            }
+
+            if x + glyph.h_advance as i32 > right_margin as i32 && word_start > line_start {
+                line_start = word_start;
+                x = 0;
+                y += line_height;
+                is_whitespace = false;
+                slice = &slice[word_start_idx..];
+                it = slice.char_indices();
+                continue;
+            } else {
+                x += glyph.h_advance as i32;
             }
         } else {
             return Err(VkError::GenericError(format!("No glyph for {}", ch)));
@@ -238,13 +358,8 @@ where
     }
 
     if i > line_start {
-        scratch.line_lengths.push(i - line_start);
+        y += line_height;
     }
 
-    let a: usize = scratch.line_lengths.iter().sum();
-    if a > scratch.glyphs.len() {
-        println!("Oops: {} {}", a, scratch.glyphs.len())
-    }
-
-    Ok(())
+    Ok(y)
 }

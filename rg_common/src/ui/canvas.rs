@@ -2,6 +2,7 @@ use std::{fmt::Display, sync::Arc};
 
 use crate::ui::color::Color;
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum WrapMode {
     None,
     Character,
@@ -64,6 +65,8 @@ pub struct SpriteId(u32);
 pub trait Canvas {
     fn set_font(&mut self, id: FontId);
 
+    fn set_line_spacing(&mut self, spacing: usize);
+
     fn set_color(&mut self, color: Color);
 
     fn set_wrap_mode(&mut self, mode: WrapMode);
@@ -71,12 +74,12 @@ pub trait Canvas {
     fn draw_text<S>(&mut self, x: i32, y: i32, width: u32, text: S)
     where
         S: AsRef<str>;
-    
-    fn measure_text<S>(&self, x: i32, y: i32, width: u32, text: S) -> u32
+
+    fn measure_text<S>(&self, width: u32, text: S) -> u32
     where
         S: AsRef<str>;
-    
+
     fn draw_sprite(&mut self, x: i32, y: i32, width: u32, height: u32, sprite_id: SpriteId);
-    
+
     fn draw_rect(&mut self, x: i32, y: i32, width: u32, height: u32);
 }

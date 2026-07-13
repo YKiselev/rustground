@@ -21,7 +21,7 @@ use crate::font::VkFontAtlas;
 use crate::loaders::FontAtlasLoaderContext;
 use crate::loaders::load_font_atlas;
 use crate::pipelines::shader::ShaderStages;
-use crate::pipelines::ui::text::TextLayoutScratch;
+use crate::pipelines::ui::text::CanvasContext;
 use crate::pipelines::ui::text::ToGlyphInstance;
 use crate::renderer::create_default_viewport_and_scissor;
 use crate::vertex::GlyphInstance;
@@ -60,7 +60,7 @@ struct FrameObjects {
     descriptor_set: vk::DescriptorSet,
 }
 
-const DEFAULT_GLYPH_BUFFER_SIZE: usize = 20_000;
+pub(super) const DEFAULT_GLYPH_BUFFER_SIZE: usize = 20_000;
 pub(super) const MAX_GLYPHS_PER_FRAME: usize = 100_000;
 
 impl FrameObjects {
@@ -89,16 +89,13 @@ pub struct UiPipeline {
     app: Arc<App>,
     pub layout: vk::PipelineLayout,
     pub pipeline: vk::Pipeline,
-    pub(super) frame_objects: Vec<FrameObjects>,
+    frame_objects: Vec<FrameObjects>,
     descriptor_set_layout: vk::DescriptorSetLayout,
     descriptor_pool: vk::DescriptorPool,
     pub(super) font_atlas: VkFontAtlas,
     pub(super) frame_index: Option<usize>,
-    pub(super) glyph_buffer: Vec<GlyphInstance>,
-    pub(super) canvas_font: FontId,
-    pub(super) canvas_color: Color,
-    pub(super) canvas_wrap_mode: WrapMode,
-    pub(super) text_layout_scratch: TextLayoutScratch,
+    pub(super) canvas_context: CanvasContext,
+    sampler: vk::Sampler,
 }
 
 impl UiPipeline {
@@ -230,6 +227,17 @@ impl UiPipeline {
             .map(|ds| FrameObjects::new(context, ds))
             .collect::<Result<Vec<FrameObjects>, VkError>>()?;
 
+        let sampler_info = vk::SamplerCreateInfo::default()
+            .mag_filter(vk::Filter::NEAREST)
+            .min_filter(vk::Filter::NEAREST)
+            .address_mode_u(vk::SamplerAddressMode::CLAMP_TO_BORDER)
+            .address_mode_v(vk::SamplerAddressMode::CLAMP_TO_BORDER)
+            .address_mode_w(vk::SamplerAddressMode::CLAMP_TO_BORDER)
+            .anisotropy_enable(false)
+            .unnormalized_coordinates(false);
+
+        let sampler = unsafe { context.device.create_sampler(&sampler_info, None) }?;
+
         let mut result = Self {
             app: Arc::clone(app),
             layout,
@@ -239,43 +247,13 @@ impl UiPipeline {
             descriptor_pool,
             font_atlas,
             frame_index: None,
-            glyph_buffer: Vec::with_capacity(DEFAULT_GLYPH_BUFFER_SIZE),
-            canvas_font: FontId::DEFAULT,
-            canvas_color: Color::WHITE,
-            canvas_wrap_mode: WrapMode::None,
-            text_layout_scratch: TextLayoutScratch::default(),
+            canvas_context: CanvasContext::new(),
+            sampler,
         };
 
         result.update_descriptor_sets(context)?;
 
         Ok(result)
-    }
-
-    pub fn draw_text_old<S>(&mut self, x: i32, y: i32, text: S, color: Color)
-    where
-        S: AsRef<str>,
-    {
-        let font = "console";
-        if let Some(font) = self.font_atlas.fonts.get(font) {
-            let mut x = x;
-            let mut y = y + font.height as i32;
-            for ch in text.as_ref().chars() {
-                if let Some(glyph) = font.get(ch) {
-                    let mut g = glyph.to_glyph_instance(x, y);
-                    g.color = color.into();
-                    let buf = &mut self.glyph_buffer;
-                    if buf.len() >= MAX_GLYPHS_PER_FRAME {
-                        warn!("Maximim glyphs per frame reached ({})", buf.len());
-                        return;
-                    } else {
-                        buf.push(g);
-                    }
-                    x += glyph.h_advance as i32;
-                }
-            }
-        } else {
-            warn!("Font not found: {}", font);
-        }
     }
 
     fn update_uniform_buffer(
@@ -329,7 +307,7 @@ impl UiPipeline {
                 .buffer_info(buffer_info);
 
             let sampler_info = [vk::DescriptorImageInfo::default()
-                .sampler(instance.sampler)
+                .sampler(self.sampler)
                 .image_view(self.font_atlas.image.view)
                 .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)];
             let sampler_write = vk::WriteDescriptorSet::default()
@@ -377,17 +355,29 @@ impl UiPipeline {
 
         let _ = self.update_uniform_buffer(instance, frame_index)?;
 
+        self.set_color(Color::new(255,255,0, 128));
+        self.draw_rect(5, 5, 800, 700);
+
         self.set_color(Color::RED);
-        self.set_font(FontId::CONSOLE);
-        
         self.set_wrap_mode(WrapMode::Word);
-        self.draw_text(0, 0, 100, "Hello, Vulkan user! What is your name? Do you like ballons?");
+        self.draw_text(
+            50,
+            20,
+            100,
+            "Hello, Vulkan user! What is your name? Do you like ballons?",
+        );
 
+        self.set_color(Color::GREEN);
         self.set_wrap_mode(WrapMode::Character);
-        //self.draw_text(50, 150, 30, "Hello, Vulkan user!");
+        self.draw_text(150, 120, 150, "Hello, Vulkan user!");
 
+        self.set_color(Color::BLUE);
         self.set_wrap_mode(WrapMode::None);
-        //self.draw_text(100, 200, 0, "Hello, Vulkan user!");
+        self.draw_text(100, 160, 0, "Blue BBBBBBBBBBBBBBBBBBBBBBBBB");
+
+        self.set_color(Color::YELLOW);
+        self.set_wrap_mode(WrapMode::None);
+        self.draw_text(50, 185, 0, "Yellow");
 
         Ok(())
     }
@@ -399,10 +389,9 @@ impl UiPipeline {
     ) -> Result<(), VkError> {
         if let Some(frame_index) = self.frame_index.take() {
             let frame_obj = &self.frame_objects[frame_index];
-            frame_obj
-                .vertex_buffer
-                .copy_from(self.glyph_buffer.as_ptr(), self.glyph_buffer.len());
-            let instance_count = self.glyph_buffer.len() as u32;
+            let buf = &self.canvas_context.glyphs;
+            frame_obj.vertex_buffer.copy_from(buf.as_ptr(), buf.len());
+            let instance_count = buf.len() as u32;
             let vertex_count = 4;
 
             let buffers = [frame_obj.vertex_buffer.buffer];
@@ -419,12 +408,15 @@ impl UiPipeline {
                         .cmd_draw(command_buffer, vertex_count, instance_count, 0, 0);
                 }
             }
-            self.glyph_buffer.clear();
+            self.canvas_context.glyphs.clear();
         }
         Ok(())
     }
 
     pub fn destroy(&mut self, device: &Device) {
+        unsafe {
+            device.destroy_sampler(self.sampler, None);
+        }
         self.frame_objects
             .iter()
             .for_each(|obj| obj.destroy(device));

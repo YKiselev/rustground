@@ -19,8 +19,11 @@ use crate::{
     error::VkError,
 };
 
-const ENGINE_VERSION: u32 = vk::make_api_version(0, 1, 0, 0);
-const API_VERSION: u32 = vk::API_VERSION_1_1;
+const ENGINE_VERSION: u32 = vk::make_api_version(0, 0, 3, 0);
+///
+/// Vulkan API version used
+/// 
+const API_VERSION: u32 = vk::API_VERSION_1_2;
 
 pub(crate) fn create_instance(
     app: &Arc<App>,
