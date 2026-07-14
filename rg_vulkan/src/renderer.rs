@@ -5,11 +5,19 @@ use std::{
 
 use ash::vk;
 use log::{info, warn};
-use rg_common::{App, wrap_var_bag};
+use rg_common::{App, gfx::world_renderer::{WorldRenderer, WorldRendererContext}, wrap_var_bag};
 use winit::{event_loop::ActiveEventLoop, window::Window};
 
 use crate::{
-    config::Config, error::{VkError, to_generic}, misc::{context::VkContext, create_instance::create_instance, debug::DebugUtils, window::{MAX_VIDEO_MODE, create_window}}, pipelines::{cube::CubePipeline, textured_triangle::TexturedTriangle, ui::ui::UiPipeline}
+    config::Config,
+    error::{VkError, to_generic},
+    misc::{
+        context::VkContext,
+        create_instance::create_instance,
+        debug::DebugUtils,
+        window::{MAX_VIDEO_MODE, create_window},
+    },
+    pipelines::{cube::CubePipeline, textured_triangle::TexturedTriangle, ui::ui::UiPipeline},
 };
 
 pub struct VulkanRenderer {
@@ -112,10 +120,6 @@ impl VulkanRenderer {
     pub fn render(&mut self) {
         if let Some(command_buffer) = self.command_buffer {
             let frame_index = self.context.swapchain.frames_in_flight.current_frame;
-
-            // draw world
-
-            // draw ui
 
             self.draw_frame(frame_index, command_buffer);
         }
@@ -286,6 +290,10 @@ impl VulkanRenderer {
     }
 }
 
+
+///
+/// Drop
+/// 
 impl Drop for VulkanRenderer {
     fn drop(&mut self) {
         info!("Destroing renderer");
@@ -303,6 +311,36 @@ impl Drop for VulkanRenderer {
     }
 }
 
+///
+/// World renderer
+/// 
+impl WorldRenderer for VulkanRenderer {
+    type Context = Self;
+
+    fn draw_world<H>(&mut self, mut handler: H)
+    where
+        H: FnMut(&mut Self::Context),
+    {
+        if let Some(command_buffer) = self.command_buffer {
+            let frame_index = self.context.swapchain.frames_in_flight.current_frame;
+
+            (handler)(self);
+        }
+    }
+}
+
+///
+/// World renderer context
+/// 
+impl WorldRendererContext for VulkanRenderer {
+    fn draw_hyper_cube(&mut self) {
+        todo!()
+    }
+}
+
+///
+/// Helpers
+/// 
 fn create_viewport(width: u32, height: u32) -> vk::Viewport {
     vk::Viewport::default()
         .x(0.0)

@@ -1920,6 +1920,7 @@ dependencies = [
  "guillotiere",
  "log",
  "png",
+ "rand",
  "raw-window-handle",
  "rg_common",
  "rg_macros",

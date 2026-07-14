@@ -5,7 +5,7 @@ use std::{
 };
 
 use log::{debug, error, info};
-use rg_common::{App, Plugin};
+use rg_common::{App, Plugin, gfx::world_renderer::WorldRenderer};
 use rg_vulkan::renderer::VulkanRenderer;
 use winit::{
     event::{Event, MouseScrollDelta, WindowEvent},
@@ -68,6 +68,9 @@ impl ClientState {
         // Update
         self.net.update(&self.app);
         if let Some(renderer) = self.renderer.as_mut() {
+            renderer.draw_world(|ctx|{
+                // todo - draw world!
+            });
             renderer.render();
         }
 

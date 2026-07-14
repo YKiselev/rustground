@@ -352,9 +352,6 @@ impl UiPipeline {
 
         let _ = self.update_uniform_buffer(instance, frame_index)?;
 
-        self.set_color(Color::new(255, 255, 0, 128));
-        self.draw_rect(5, 5, 800, 700);
-
         self.set_color(Color::RED);
         self.set_wrap_mode(WrapMode::Word);
         self.draw_text(
@@ -363,18 +360,6 @@ impl UiPipeline {
             100,
             "Hello, Vulkan user! What is your name? Do you like ballons?",
         );
-
-        self.set_color(Color::GREEN);
-        self.set_wrap_mode(WrapMode::Character);
-        self.draw_text(150, 120, 150, "Hello, Vulkan user!");
-
-        self.set_color(Color::BLUE);
-        self.set_wrap_mode(WrapMode::None);
-        self.draw_text(100, 160, 0, "Blue BBBBBBBBBBBBBBBBBBBBBBBBB");
-
-        self.set_color(Color::YELLOW);
-        self.set_wrap_mode(WrapMode::None);
-        self.draw_text(50, 185, 0, "Yellow");
 
         Ok(())
     }
