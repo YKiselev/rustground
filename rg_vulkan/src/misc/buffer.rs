@@ -1,6 +1,6 @@
-use ash::{Device, vk};
+use ash::vk;
 
-use crate::{error::VkError, context::VkContext};
+use crate::{error::VkError, misc::context::VkContext};
 
 pub struct VkBuffer {
     pub buffer: vk::Buffer,
@@ -93,7 +93,7 @@ impl VkBuffer {
         Ok(Self { buffer, memory })
     }
 
-    pub fn destroy(&self, device: &Device) {
+    pub fn destroy(&self, device: &ash::Device) {
         unsafe {
             device.destroy_buffer(self.buffer, None);
             device.free_memory(self.memory, None);

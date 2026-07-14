@@ -3,7 +3,7 @@ use ash::{
     vk::{self},
 };
 
-use crate::{error::VkError, context::MAX_FRAMES_IN_FLIGHT};
+use crate::{error::VkError, misc::context::MAX_FRAMES_IN_FLIGHT};
 
 #[derive(Debug, Default)]
 pub(crate) struct FrameObjects {

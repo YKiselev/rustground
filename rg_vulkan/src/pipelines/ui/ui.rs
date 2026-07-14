@@ -2,33 +2,30 @@ use ash::Device;
 use ash::vk;
 use glam::Mat4;
 use log::error;
-use log::warn;
 use rg_common::App;
 use rg_common::load_bytes;
 use rg_common::load_deserializable;
 use rg_common::ui::canvas::Canvas;
-use rg_common::ui::canvas::FontId;
 use rg_common::ui::canvas::WrapMode;
 use rg_common::ui::color::Color;
 use serde::Deserialize;
 use serde::Serialize;
 use std::sync::Arc;
 
-use crate::buffer::VkBuffer;
-use crate::context::MAX_FRAMES_IN_FLIGHT;
-use crate::dyn_buffer::VkDynamicBuffer;
-use crate::font::VkFontAtlas;
-use crate::loaders::FontAtlasLoaderContext;
-use crate::loaders::load_font_atlas;
+use crate::misc::buffer::VkBuffer;
+use crate::misc::context::MAX_FRAMES_IN_FLIGHT;
+use crate::misc::dyn_buffer::VkDynamicBuffer;
+use crate::misc::font::VkFontAtlas;
+use crate::misc::loaders::FontAtlasLoaderContext;
+use crate::misc::loaders::load_font_atlas;
+use crate::misc::vertex::GlyphInstance;
+use crate::misc::vertex::vertex_input_descriptions;
 use crate::pipelines::shader::ShaderStages;
 use crate::pipelines::ui::text::CanvasContext;
-use crate::pipelines::ui::text::ToGlyphInstance;
 use crate::renderer::create_default_viewport_and_scissor;
-use crate::vertex::GlyphInstance;
-use crate::vertex::vertex_input_descriptions;
 use crate::{
-    context::VkContext,
     error::{VkError, to_generic},
+    misc::context::VkContext,
 };
 
 ///
@@ -355,7 +352,7 @@ impl UiPipeline {
 
         let _ = self.update_uniform_buffer(instance, frame_index)?;
 
-        self.set_color(Color::new(255,255,0, 128));
+        self.set_color(Color::new(255, 255, 0, 128));
         self.draw_rect(5, 5, 800, 700);
 
         self.set_color(Color::RED);

@@ -4,13 +4,7 @@ use rg_common::ui::{
     color::Color,
 };
 
-use crate::{
-    pipelines::ui::{
-        text::{TextLayout, ToGlyphInstance},
-        ui::UiPipeline,
-    },
-    vertex::GlyphInstance,
-};
+use crate::pipelines::ui::{text::{TextLayout, ToGlyphInstance}, ui::UiPipeline};
 
 const FULL_BLOCK: char = unsafe { char::from_u32_unchecked(0x2588) };
 

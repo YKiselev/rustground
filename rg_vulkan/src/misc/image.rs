@@ -1,6 +1,6 @@
 use ash::{Device, vk};
 
-use crate::{error::VkError, memory::VkMemoryProperties};
+use crate::{error::VkError, misc::memory::VkMemoryProperties};
 
 #[derive(Default)]
 pub struct VkImage {

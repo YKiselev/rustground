@@ -21,48 +21,6 @@ pub(crate) trait Vertex {
 }
 
 ///
-/// Pos2Color4Vertex
-///
-#[repr(C)]
-#[derive(Copy, Clone, Debug)]
-pub struct Pos2Color4Vertex {
-    pub pos: Vec2,
-    pub color: Vec4,
-}
-
-impl Pos2Color4Vertex {
-    pub const fn new(pos: Vec2, color: Vec4) -> Self {
-        Self { pos, color }
-    }
-}
-
-impl Vertex for Pos2Color4Vertex {
-    fn input_binding_description(binding: u32) -> vk::VertexInputBindingDescription {
-        vk::VertexInputBindingDescription::default()
-            .binding(binding)
-            .stride(Self::size_in_bytes() as u32)
-            .input_rate(vk::VertexInputRate::VERTEX)
-    }
-
-    fn input_attribute_descriptions(
-        binding: u32,
-        location: u32,
-    ) -> Vec<vk::VertexInputAttributeDescription> {
-        let pos = vk::VertexInputAttributeDescription::default()
-            .binding(binding)
-            .location(location)
-            .format(vk::Format::R32G32_SFLOAT)
-            .offset(std::mem::offset_of!(Pos2Color4Vertex, pos) as u32);
-        let color = vk::VertexInputAttributeDescription::default()
-            .binding(binding)
-            .location(location + 1)
-            .format(vk::Format::R32G32B32A32_SFLOAT)
-            .offset(std::mem::offset_of!(Pos2Color4Vertex, color) as u32);
-        vec![pos, color]
-    }
-}
-
-///
 /// Pos2Color4Tex2Vertex
 ///
 #[repr(C)]

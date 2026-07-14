@@ -1,4 +1,4 @@
-use std::{collections::HashMap, ops::RangeInclusive, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
 use ab_glyph::FontVec;
 use ash::vk;
@@ -6,7 +6,8 @@ use rg_common::{App, LoaderError, SeekAndRead, load_bytes};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    font::{FontAtlasBuilder, VkFont, VkFontAtlas, optimize_ranges, to_char_set}, context::VkContext,
+    misc::context::VkContext,
+    misc::font::{FontAtlasBuilder, VkFont, VkFontAtlas, optimize_ranges, to_char_set},
 };
 
 #[derive(Serialize, Deserialize)]
@@ -28,16 +29,21 @@ pub(crate) struct FontAtlasLoaderContext<'a> {
     instance: &'a VkContext,
     app: &'a Arc<App>,
     atlas_size: vk::Extent2D,
-    scale_factor: f64
+    scale_factor: f64,
 }
 
 impl<'a> FontAtlasLoaderContext<'a> {
-    pub fn new(instance: &'a VkContext, app: &'a Arc<App>, atlas_size: vk::Extent2D, scale_factor: f64) -> Self {
+    pub fn new(
+        instance: &'a VkContext,
+        app: &'a Arc<App>,
+        atlas_size: vk::Extent2D,
+        scale_factor: f64,
+    ) -> Self {
         Self {
             instance,
             app,
             atlas_size,
-            scale_factor
+            scale_factor,
         }
     }
 }

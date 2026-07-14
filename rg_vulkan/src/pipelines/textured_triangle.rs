@@ -5,21 +5,21 @@ use rg_common::App;
 use rg_common::load_bytes;
 use std::sync::Arc;
 
-use crate::buffer::VkBuffer;
-use crate::image::VkImage;
-use crate::context::MAX_FRAMES_IN_FLIGHT;
+use crate::misc::buffer::VkBuffer;
+use crate::misc::context::MAX_FRAMES_IN_FLIGHT;
+use crate::misc::image::VkImage;
+use crate::misc::vertex::Pos2Color4Tex2Vertex;
+use crate::misc::vertex::vertex_input_descriptions;
 use crate::renderer::create_default_viewport_and_scissor;
 use crate::types::Vec2;
 use crate::types::Vec3;
 use crate::types::Vec4;
-use crate::vertex::Pos2Color4Tex2Vertex;
-use crate::vertex::vertex_input_descriptions;
 use crate::{
     error::{VkError, to_generic},
-    context::VkContext,
+    misc::context::VkContext,
+    misc::uniform::UniformBufferObject,
     pipelines::shader::create_shader_module,
     types::Mat4,
-    uniform::UniformBufferObject,
 };
 
 #[rustfmt::skip]

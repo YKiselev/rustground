@@ -3,10 +3,10 @@ use guillotiere::euclid::{Size2D, UnknownUnit};
 use guillotiere::{AtlasAllocator, size2};
 use rg_common::LoaderError;
 use std::collections::HashMap;
-use std::ops::Index;
 use std::{cmp::max, ops::RangeInclusive};
 
-use crate::image::VkImage;
+
+use crate::misc::image::VkImage;
 use crate::types::Vec2;
 
 use ab_glyph::FontVec;
@@ -227,7 +227,7 @@ impl FontAtlasBuilder {
 
 #[cfg(test)]
 mod tests {
-    use crate::font::*;
+    use super::*;
 
     #[test]
     fn should_optimize() {

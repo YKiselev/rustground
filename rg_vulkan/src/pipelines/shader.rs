@@ -3,7 +3,7 @@ use std::collections::{HashMap, hash_map::Entry};
 use std::io::Cursor;
 
 use crate::error::to_generic;
-use crate::{context::VkContext, error::VkError};
+use crate::{error::VkError, misc::context::VkContext};
 
 ///
 /// Shader stages

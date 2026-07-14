@@ -14,9 +14,7 @@ use rg_common::App;
 use winit::window::Window;
 
 use crate::{
-    debug::DebugUtils,
-    device::{VALIDATION_ENABLED, VALIDATION_LAYER, get_physical_device_id},
-    error::VkError,
+    error::VkError, misc::{debug::DebugUtils, device::{VALIDATION_ENABLED, VALIDATION_LAYER, get_physical_device_id}},
 };
 
 const ENGINE_VERSION: u32 = vk::make_api_version(0, 0, 3, 0);

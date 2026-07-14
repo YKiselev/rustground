@@ -9,7 +9,7 @@ use rg_common::{App, wrap_var_bag};
 use winit::{event_loop::ActiveEventLoop, window::Window};
 
 use crate::{
-    config::Config, context::VkContext, create_instance::create_instance, debug::DebugUtils, error::{VkError, to_generic}, pipelines::{cube::CubePipeline, textured_triangle::TexturedTriangle, ui::ui::UiPipeline}, window::{MAX_VIDEO_MODE, create_window},
+    config::Config, error::{VkError, to_generic}, misc::{context::VkContext, create_instance::create_instance, debug::DebugUtils, window::{MAX_VIDEO_MODE, create_window}}, pipelines::{cube::CubePipeline, textured_triangle::TexturedTriangle, ui::ui::UiPipeline}
 };
 
 pub struct VulkanRenderer {
@@ -113,17 +113,22 @@ impl VulkanRenderer {
         if let Some(command_buffer) = self.command_buffer {
             let frame_index = self.context.swapchain.frames_in_flight.current_frame;
 
+            // draw world
+
+            // draw ui
+
             self.draw_frame(frame_index, command_buffer);
         }
     }
 
     pub fn end_frame(&mut self) -> bool {
-        if let Some(command_buffer) = self.command_buffer {
+        if let Some(command_buffer) = self.command_buffer.take() {
             match self.end_render_pass(command_buffer) {
                 Ok(_) => {}
                 Err(e) => warn!("Failed to end render pass: {:?}", e),
             }
         }
+
         if let Some(image_index) = self.image_index {
             match self.context.end_frame(image_index, &self.window) {
                 Ok(changed) => {
@@ -138,28 +143,33 @@ impl VulkanRenderer {
             }
             self.image_index = None;
         }
+
         if self.recreate_swapchain {
-            match self.config.write() {
-                Ok(mut cfg) => {
-                    let scale_factor = self.window.scale_factor();
-                    let new_size = self.window.inner_size().to_logical::<u32>(scale_factor);
-                    cfg.width = new_size.width;
-                    cfg.height = new_size.height;
-                }
-                Err(_) => warn!("Unable to update window size in config - lock is poisoned!"),
-            }
-            match self
-                .recreate_swapchain()
-                .inspect_err(|e| warn!("Failed to recreate swapchain: {:?}", e))
-            {
+            self.save_new_window_size();
+
+            match self.recreate_swapchain() {
                 Ok(_) => self.recreate_swapchain = false,
                 Err(e) => {
                     warn!("Failed to recreate swapchain: {:?}", e);
                 }
             }
         }
+
         self.window.request_redraw();
+
         true
+    }
+
+    fn save_new_window_size(&self) {
+        match self.config.write() {
+            Ok(mut cfg) => {
+                let scale_factor = self.window.scale_factor();
+                let new_size = self.window.inner_size().to_logical::<u32>(scale_factor);
+                cfg.width = new_size.width;
+                cfg.height = new_size.height;
+            }
+            Err(_) => warn!("Unable to update window size in config - lock is poisoned!"),
+        }
     }
 
     fn recreate_swapchain(&mut self) -> Result<(), VkError> {
@@ -188,9 +198,12 @@ impl VulkanRenderer {
         let _ = self
             .cube
             .update_uniform_buffer(&self.context, frame_index, time, ratio);
-        
-        if let Err(e) = self.cube.draw_to_buffer(&self.context, frame_index, command_buffer) {
-             warn!("Failed to draw cubes to command buffer: {:?}", e);
+
+        if let Err(e) = self
+            .cube
+            .draw_to_buffer(&self.context, frame_index, command_buffer)
+        {
+            warn!("Failed to draw cubes to command buffer: {:?}", e);
         }
 
         // UI

@@ -5,19 +5,19 @@ use rg_common::App;
 use rg_common::load_bytes;
 use std::sync::Arc;
 
-use crate::buffer::VkBuffer;
-use crate::context::MAX_FRAMES_IN_FLIGHT;
-use crate::dyn_buffer::VkDynamicBuffer;
-use crate::image::VkImage;
+use crate::misc::buffer::VkBuffer;
+use crate::misc::context::MAX_FRAMES_IN_FLIGHT;
+use crate::misc::dyn_buffer::VkDynamicBuffer;
+use crate::misc::image::VkImage;
+use crate::misc::vertex::Vertex;
 use crate::renderer::create_default_viewport_and_scissor;
 use crate::types::Vec3;
-use crate::vertex::Vertex;
 use crate::{
-    context::VkContext,
     error::{VkError, to_generic},
+    misc::context::VkContext,
+    misc::uniform::UniformBufferObject,
     pipelines::shader::create_shader_module,
     types::Mat4,
-    uniform::UniformBufferObject,
 };
 
 ///

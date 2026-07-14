@@ -2,7 +2,7 @@ use ash::{Instance, vk};
 
 use crate::{
     error::{VkError, to_suitability},
-    surface::VkSurface,
+    misc::surface::VkSurface,
 };
 
 #[derive(Copy, Clone, Debug)]

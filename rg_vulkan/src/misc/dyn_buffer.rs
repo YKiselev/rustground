@@ -2,7 +2,7 @@ use std::os::raw::c_void;
 
 use ash::{Device, vk};
 
-use crate::{error::VkError, context::VkContext};
+use crate::{error::VkError, misc::context::VkContext};
 
 pub struct VkDynamicBuffer {
     pub buffer: vk::Buffer,

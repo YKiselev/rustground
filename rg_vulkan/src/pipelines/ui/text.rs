@@ -2,9 +2,9 @@ use rg_common::ui::canvas::{FontId, WrapMode};
 use rg_common::ui::color::Color;
 
 use crate::error::VkError;
-use crate::font::{GlyphInfo, VkFont};
+use crate::misc::font::{GlyphInfo, VkFont};
 use crate::pipelines::ui::ui::DEFAULT_GLYPH_BUFFER_SIZE;
-use crate::vertex::GlyphInstance;
+use crate::misc::vertex::GlyphInstance;
 
 pub(crate) trait ToGlyphInstance {
     fn to_glyph_instance(&self, x: i32, y: i32) -> GlyphInstance;

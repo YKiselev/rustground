@@ -22,6 +22,7 @@ mod files;
 mod loader;
 mod plugin;
 pub mod ui;
+pub mod gfx;
 mod v_from;
 mod v_from_str;
 mod v_from_value;

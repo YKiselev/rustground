@@ -2,18 +2,14 @@ use std::{collections::HashSet, fmt, str::FromStr};
 
 use ash::{
     Device, Instance,
-    vk::{self, PhysicalDevice, PhysicalDeviceProperties, PhysicalDeviceType, Queue},
+    vk::{self},
 };
 use log::{debug, log_enabled};
 use std::ffi::CStr;
 use uuid::Uuid;
 
 use crate::{
-    error::{VkError, to_suitability},
-    context::DEVICE_EXTENSIONS,
-    queue_family::QueueFamilyIndices,
-    surface::VkSurface,
-    swapchain::swapchain::SwapchainSupport,
+    error::{VkError, to_suitability}, misc::{context::DEVICE_EXTENSIONS, queue_family::QueueFamilyIndices, surface::VkSurface}, swapchain::swapchain::SwapchainSupport,
 };
 
 pub(crate) const VALIDATION_ENABLED: bool = cfg!(debug_assertions);
@@ -64,13 +60,12 @@ pub(crate) fn pick_physical_device(
     instance: &Instance,
     surface: &VkSurface,
     device_id: &Option<DeviceId>,
-) -> Result<(DeviceId, PhysicalDevice, PhysicalDeviceProperties), VkError> {
+) -> Result<(DeviceId, vk::PhysicalDevice, vk::PhysicalDeviceProperties), VkError> {
     let mut physical_devices = enumerate_physical_devices(instance)?;
 
     // Sort so that discrete gpu's will be first
-    physical_devices.sort_by_key(|(_, props)| {
-        props.device_type != PhysicalDeviceType::DISCRETE_GPU
-    });
+    physical_devices
+        .sort_by_key(|(_, props)| props.device_type != vk::PhysicalDeviceType::DISCRETE_GPU);
 
     match device_id {
         Some(id) => {
@@ -91,7 +86,7 @@ pub(crate) fn pick_physical_device(
 
 fn enumerate_physical_devices(
     instance: &Instance,
-) -> Result<Vec<(PhysicalDevice, PhysicalDeviceProperties)>, VkError> {
+) -> Result<Vec<(vk::PhysicalDevice, vk::PhysicalDeviceProperties)>, VkError> {
     let result = unsafe {
         instance
             .enumerate_physical_devices()?
@@ -108,11 +103,11 @@ fn enumerate_physical_devices(
 fn find_physical_device<F>(
     instance: &Instance,
     surface: &VkSurface,
-    devices: &Vec<(PhysicalDevice, PhysicalDeviceProperties)>,
+    devices: &Vec<(vk::PhysicalDevice, vk::PhysicalDeviceProperties)>,
     predicate: F,
-) -> Option<(DeviceId, PhysicalDevice, PhysicalDeviceProperties)>
+) -> Option<(DeviceId, vk::PhysicalDevice, vk::PhysicalDeviceProperties)>
 where
-    F: Fn(PhysicalDevice, &PhysicalDeviceProperties) -> bool,
+    F: Fn(vk::PhysicalDevice, &vk::PhysicalDeviceProperties) -> bool,
 {
     for &(device, properties) in devices {
         if let Err(error) = check_physical_device(instance, surface, device) {
@@ -130,8 +125,8 @@ where
 
 pub(crate) fn get_physical_device_id(
     instance: &Instance,
-    device: PhysicalDevice,
-    properties: &PhysicalDeviceProperties,
+    device: vk::PhysicalDevice,
+    properties: &vk::PhysicalDeviceProperties,
 ) -> DeviceId {
     let mut id_properties = vk::PhysicalDeviceIDProperties::default();
     let mut properties2 = vk::PhysicalDeviceProperties2::default().push_next(&mut id_properties);
@@ -168,7 +163,7 @@ where
 pub(crate) fn check_physical_device(
     instance: &Instance,
     surface: &VkSurface,
-    physical_device: PhysicalDevice,
+    physical_device: vk::PhysicalDevice,
 ) -> Result<(), VkError> {
     QueueFamilyIndices::get(instance, surface, physical_device)?;
     check_physical_device_extensions(instance, physical_device)?;
@@ -181,7 +176,7 @@ pub(crate) fn check_physical_device(
 
 pub(crate) fn check_physical_device_extensions(
     instance: &Instance,
-    physical_device: PhysicalDevice,
+    physical_device: vk::PhysicalDevice,
 ) -> Result<(), VkError> {
     let extensions = unsafe { instance.enumerate_device_extension_properties(physical_device) }?
         .iter()
@@ -197,8 +192,8 @@ pub(crate) fn check_physical_device_extensions(
 pub(crate) fn create_logical_device(
     instance: &Instance,
     surface: &VkSurface,
-    physical_device: PhysicalDevice,
-) -> Result<(Device, Queue, Queue), VkError> {
+    physical_device: vk::PhysicalDevice,
+) -> Result<(Device, vk::Queue, vk::Queue), VkError> {
     let indices = QueueFamilyIndices::get(instance, surface, physical_device)?;
 
     let mut unique_indices = HashSet::new();

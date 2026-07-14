@@ -1,13 +1,13 @@
 use ash::{
     khr,
-    vk::{self, SurfaceFormatKHR},
+    vk::{self},
 };
-use log::info;
 use winit::window::Window;
 
 use crate::{
-    error::VkError, image::VkImage, image::create_image, queue_family::QueueFamilyIndices,
-    surface::VkSurface, swapchain::frames_in_flight::FramesInFlight,
+    error::VkError, misc::image::VkImage, misc::image::create_image,
+    misc::queue_family::QueueFamilyIndices, misc::surface::VkSurface,
+    swapchain::frames_in_flight::FramesInFlight,
 };
 
 ///
@@ -383,7 +383,7 @@ pub fn create_depth_image(
         vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
         memory_properties,
-        1
+        1,
     )?;
 
     let view_info = vk::ImageViewCreateInfo::default()

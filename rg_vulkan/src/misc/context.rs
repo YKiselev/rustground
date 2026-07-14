@@ -10,15 +10,13 @@ use rg_common::{App, Files};
 use winit::window::Window;
 
 use crate::config::Config;
-use crate::device::DeviceId;
-use crate::image::create_image;
-use crate::memory::VkMemoryProperties;
-use crate::surface::VkSurface;
+use crate::misc::device::{DeviceId, create_logical_device, pick_physical_device};
+use crate::misc::image::{VkImage, create_image};
+use crate::misc::memory::VkMemoryProperties;
+use crate::misc::queue_family::QueueFamilyIndices;
+use crate::misc::surface::VkSurface;
 use crate::{
-    device::{create_logical_device, pick_physical_device},
     error::VkError,
-    image::VkImage,
-    queue_family::QueueFamilyIndices,
     swapchain::swapchain::Swapchain,
 };
 
@@ -363,48 +361,6 @@ impl VkContext {
         }
         Ok(())
     }
-
-    // fn create_image(
-    //     &self,
-    //     width: u32,
-    //     height: u32,
-    //     format: vk::Format,
-    //     usage: vk::ImageUsageFlags,
-    //     properties: vk::MemoryPropertyFlags,
-    // ) -> Result<(vk::Image, vk::DeviceMemory), VkError> {
-    //     let info = vk::ImageCreateInfo::default()
-    //         .image_type(vk::ImageType::TYPE_2D)
-    //         .extent(vk::Extent3D {
-    //             width,
-    //             height,
-    //             depth: 1,
-    //         })
-    //         .mip_levels(1)
-    //         .array_layers(1)
-    //         .format(format)
-    //         .tiling(vk::ImageTiling::OPTIMAL)
-    //         .initial_layout(vk::ImageLayout::UNDEFINED)
-    //         .usage(usage)
-    //         .sharing_mode(vk::SharingMode::EXCLUSIVE)
-    //         .samples(vk::SampleCountFlags::TYPE_1);
-
-    //     let device = &self.device;
-    //     let image = unsafe { device.create_image(&info, None) }?;
-
-    //     // Memory
-
-    //     let requirements = unsafe { device.get_image_memory_requirements(image) };
-
-    //     let info = vk::MemoryAllocateInfo::default()
-    //         .allocation_size(requirements.size)
-    //         .memory_type_index(self.memory_properties.get_memory_type_index(properties, requirements)?);
-
-    //     let image_memory = unsafe { device.allocate_memory(&info, None) }?;
-
-    //     unsafe { device.bind_image_memory(image, image_memory, 0) }?;
-
-    //     Ok((image, image_memory))
-    // }
 
     fn transition_image_layout(
         &self,
