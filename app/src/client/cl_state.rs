@@ -61,7 +61,7 @@ impl ClientState {
     }
 
     fn run_frame(&mut self, event_loop: &ActiveEventLoop) {
-        let started = Instant::now();
+        let frame_start = Instant::now();
         self.ensure_renderer(event_loop);
         self.frame_stats.add_sample();
 
@@ -95,19 +95,23 @@ impl ClientState {
         if render_failed {
             self.renderer.take();
         }
-        self.cap_fps(started.elapsed());
+        self.cap_fps(frame_start);
     }
 
-    fn cap_fps(&self, frame_time: Duration) {
-        let min_frame_time = if self.max_fps > 0.0 {
-            Duration::from_millis((1000.0 / self.max_fps).round() as u64)
+    fn cap_fps(&self, frame_start: Instant) {
+        let target_frame_time = if self.max_fps > 0.0 {
+            Duration::from_micros((1000_000.0 / self.max_fps).round() as u64)
         } else {
             Duration::ZERO
         };
-        if !min_frame_time.is_zero() && frame_time < min_frame_time {
-            let delta = min_frame_time - frame_time;
-            if delta.as_millis() > 0 {
-                thread::sleep(delta);
+        if !target_frame_time.is_zero() {
+            while frame_start.elapsed() < target_frame_time {
+                let time_left = target_frame_time.saturating_sub(frame_start.elapsed());
+                if time_left > Duration::from_micros(2_000_000) {
+                    std::thread::sleep(time_left - Duration::from_micros(1_500));
+                } else {
+                    std::hint::spin_loop();
+                }
             }
         }
     }

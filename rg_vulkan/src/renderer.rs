@@ -307,11 +307,11 @@ impl Drop for VulkanRenderer {
 /// World renderer
 ///
 impl WorldRenderer for VulkanRenderer {
-    type Context = Self;
+    type Context<'a> = VulkandWorldRendererContext<'a>;
 
     fn draw_world<H>(&mut self, mut handler: H)
     where
-        H: FnMut(&mut Self::Context),
+        H: FnMut(&mut Self::Context<'_>),
     {
         if let Some(command_buffer) = self.command_buffer {
             let frame_index = self.context.swapchain.frames_in_flight.current_frame;
@@ -326,7 +326,8 @@ impl WorldRenderer for VulkanRenderer {
                 warn!("Failed to update cube uniforms: {}", e.to_string());
             }
 
-            (handler)(self);
+            let mut context = VulkandWorldRendererContext::new(self);
+            (handler)(&mut context);
 
             if let Err(e) = self
                 .cube
@@ -341,9 +342,19 @@ impl WorldRenderer for VulkanRenderer {
 ///
 /// World renderer context
 ///
-impl WorldRendererContext for VulkanRenderer {
+pub struct VulkandWorldRendererContext<'a> {
+    owner: &'a mut VulkanRenderer
+}
+
+impl<'a> VulkandWorldRendererContext<'a> {
+    fn new(owner: &'a mut VulkanRenderer) -> Self {
+        Self { owner }
+    }
+}
+
+impl<'a> WorldRendererContext for VulkandWorldRendererContext<'a> {
     fn draw_hyper_cube(&mut self, cube: &HyperCube) {
-        self.cube.draw_hyper_cube(cube);
+        self.owner.cube.draw_hyper_cube(cube);
     }
 }
 

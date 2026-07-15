@@ -1,11 +1,11 @@
 use crate::world::HyperCube;
 
 pub trait WorldRenderer {
-    type Context: WorldRendererContext;
+    type Context<'a>: WorldRendererContext;
 
     fn draw_world<H>(&mut self, handler: H)
     where
-        H: FnMut(&mut Self::Context);
+        H: FnMut(&mut Self::Context<'_>);
 }
 
 pub trait WorldRendererContext {
