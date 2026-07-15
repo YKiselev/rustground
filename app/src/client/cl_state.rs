@@ -75,7 +75,12 @@ impl ClientState {
         self.net.update(&self.app);
         if let Some(renderer) = self.renderer.as_mut() {
             renderer.draw_world(|ctx| {
-                ctx.draw_hyper_cube(&self.hyper_cube);
+                let hc = &mut self.hyper_cube;
+                hc.origin = [0.0, 0.0, 0.0];
+                ctx.draw_hyper_cube(hc);
+
+                hc.origin = [20.0, 0.0, -2.0];
+                ctx.draw_hyper_cube(hc);
             });
             renderer.render();
         }
