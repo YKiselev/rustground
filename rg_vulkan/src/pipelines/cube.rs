@@ -543,9 +543,14 @@ impl HyperCube {
         }
         let mut material = Vec::with_capacity(4096);
         let mut rng = rand::thread_rng();
+        let min_probability = 0.3;
+        let max_probability = 0.95;
+        let mut probability = max_probability;
+        let probability_step = (max_probability - min_probability) / 4096.0;
         for _ in 0..4096 {
-            let mat = if rng.gen_bool(0.3) { 1 } else { 0 };
+            let mat = if rng.gen_bool(probability) { 1 } else { 0 };
             material.push(mat);
+            probability -= probability_step;
         }
         Self { indices, material }
     }
