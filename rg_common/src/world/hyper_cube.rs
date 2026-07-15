@@ -1,6 +1,6 @@
 use rand::Rng;
 
-const HYPER_CUBE_INDICES: [[u16; 3]; 4096] = new_index_array();
+const HYPER_CUBE_INDICES: [[u8; 3]; 4096] = new_index_array();
 
 pub struct HyperCube {
     pub origin: [f32; 3],
@@ -26,7 +26,7 @@ impl HyperCube {
         }
     }
 
-    pub fn indices() -> &'static [[u16; 3]; 4096] {
+    pub fn indices() -> &'static [[u8; 3]; 4096] {
         &HYPER_CUBE_INDICES
     }
 }
@@ -34,8 +34,8 @@ impl HyperCube {
 ///
 /// Hyper cube indices generator
 ///
-const fn new_index_array() -> [[u16; 3]; 4096] {
-    let mut indices = [[0u16; 3]; 4096];
+const fn new_index_array() -> [[u8; 3]; 4096] {
+    let mut indices = [[0u8; 3]; 4096];
     let mut idx = 0;
     let mut i = 0;
     let mut j = 0;

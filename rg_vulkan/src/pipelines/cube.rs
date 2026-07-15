@@ -1,6 +1,8 @@
 use ash::Device;
 use ash::vk;
+use core::slice;
 use log::error;
+use log::warn;
 use rand::Rng;
 use rg_common::App;
 use rg_common::load_bytes;
@@ -74,6 +76,9 @@ impl Vertex for Pos4Norm4Uv2Vertex {
     }
 }
 
+///
+/// 
+/// 
 #[rustfmt::skip]
 static VERTICES: [Pos4Norm4Uv2Vertex; 24] = [
     // --- Передняя грань (нормаль Z+) ---
@@ -113,6 +118,9 @@ static VERTICES: [Pos4Norm4Uv2Vertex; 24] = [
     Pos4Norm4Uv2Vertex::new(-0.5, -0.5,  0.5, 0.0, -1.0,  0.0,0.0, 1.0),
 ];
 
+///
+/// 
+/// 
 #[rustfmt::skip]
 const INDICES: [u16; 36] = [
     0,  1,  2,     2,  3,  0,  // Передняя
@@ -123,7 +131,11 @@ const INDICES: [u16; 36] = [
     20, 21, 22,    22, 23, 20, // Нижняя
 ];
 
+///
+/// Constants
+///
 const MAX_CUBES_PER_FRAME: usize = 100_000;
+const MAX_HYPER_CUBES_PER_FRAME: usize = MAX_CUBES_PER_FRAME / 4096;
 
 ///
 /// Cube instance vertex
@@ -131,13 +143,13 @@ const MAX_CUBES_PER_FRAME: usize = 100_000;
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 struct CubeInstance {
-    pub offset: [u16; 4], // Offset in hyper-cube CS
+    pub offset: [u8; 4], // Index in hyper-cube CS and material
 }
 
 impl CubeInstance {
-    pub fn new(x: u16, y: u16, z: u16) -> Self {
+    pub fn new(x: u8, y: u8, z: u8, material: u8) -> Self {
         Self {
-            offset: [x, y, z, 0],
+            offset: [x, y, z, material],
         }
     }
 }
@@ -157,12 +169,55 @@ impl Vertex for CubeInstance {
         let offset = vk::VertexInputAttributeDescription::default()
             .binding(binding)
             .location(location)
-            .format(vk::Format::R16G16B16A16_UINT)
+            .format(vk::Format::R8G8B8A8_UINT)
             .offset(std::mem::offset_of!(Self, offset) as u32);
         vec![offset]
     }
 }
 
+///
+/// Hyper cube instance
+///
+struct HyperCubeInstance {
+    position: [f32; 3],
+    first_cube: usize,
+    cube_count: usize,
+}
+
+impl HyperCubeInstance {
+    pub fn new(x: f32, y: f32, z: f32, first_cube: usize, cube_count: usize) -> Self {
+        Self {
+            position: [x, y, z],
+            first_cube,
+            cube_count,
+        }
+    }
+}
+
+///
+///
+///
+///
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct PushConstants {
+    position: [f32; 3],
+}
+
+impl PushConstants {
+    fn as_bytes(&self) -> &[u8] {
+        let ptr = self as *const Self as *const u8;
+        unsafe { slice::from_raw_parts(ptr, Self::size_in_bytes()) }
+    }
+
+    fn size_in_bytes() -> usize {
+        std::mem::size_of::<PushConstants>()
+    }
+}
+
+///
+/// Frame objects
+///
 struct FrameObjects {
     vertex_buffer: VkBuffer,
     index_buffer: VkBuffer,
@@ -205,6 +260,7 @@ pub struct CubePipeline {
     frame_objects: [FrameObjects; MAX_FRAMES_IN_FLIGHT],
     texture: VkImage,
     cubes: Vec<CubeInstance>,
+    hyper_cubes: Vec<HyperCubeInstance>,
 }
 
 impl CubePipeline {
@@ -275,7 +331,14 @@ impl CubePipeline {
 
         let descriptor_set_layout = create_descriptor_set_layout(&instance.device)?;
         let layouts = &[descriptor_set_layout];
-        let layout_info = vk::PipelineLayoutCreateInfo::default().set_layouts(layouts);
+        let push_constant_range = vk::PushConstantRange::default()
+            .stage_flags(vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT)
+            .offset(0)
+            .size(std::mem::size_of::<PushConstants>() as u32);
+        let push_constant_ranges = [push_constant_range];
+        let layout_info = vk::PipelineLayoutCreateInfo::default()
+            .set_layouts(layouts)
+            .push_constant_ranges(&push_constant_ranges);
         let layout = unsafe { instance.device.create_pipeline_layout(&layout_info, None) }?;
         let dynamic_states = [
             ash::vk::DynamicState::VIEWPORT,
@@ -355,6 +418,7 @@ impl CubePipeline {
             frame_objects,
             texture,
             cubes: Vec::with_capacity(MAX_CUBES_PER_FRAME),
+            hyper_cubes: Vec::with_capacity(MAX_HYPER_CUBES_PER_FRAME),
         };
         result.update_descriptor_sets(instance)?;
 
@@ -446,13 +510,34 @@ impl CubePipeline {
     }
 
     pub fn draw_hyper_cube(&mut self, cube: &HyperCube) {
+        if self.cubes.len() >= MAX_CUBES_PER_FRAME {
+            warn!("Max cubes per frame reached: {}", self.cubes.len());
+            return;
+        }
+        if self.hyper_cubes.len() >= MAX_HYPER_CUBES_PER_FRAME {
+            warn!(
+                "Max hyper cubes per frame reached: {}",
+                self.hyper_cubes.len()
+            );
+            return;
+        }
         let indices = HyperCube::indices();
+        let first_cube = self.cubes.len();
         cube.material.iter().enumerate().for_each(|(i, &material)| {
             if material > 0 {
                 let idx = indices[i];
-                self.cubes.push(CubeInstance::new(idx[0], idx[1], idx[2]));
+                self.cubes
+                    .push(CubeInstance::new(idx[0], idx[1], idx[2], material));
             }
         });
+        let count = self.cubes.len() - first_cube;
+        self.hyper_cubes.push(HyperCubeInstance::new(
+            cube.origin[0],
+            cube.origin[1],
+            cube.origin[2],
+            first_cube,
+            count,
+        ));
     }
 
     pub fn draw_to_buffer(
@@ -463,7 +548,7 @@ impl CubePipeline {
     ) -> Result<(), VkError> {
         let device = &instance.device;
         let frame_obj = &self.frame_objects[frame_index];
-        
+
         let cubes = &mut self.cubes;
         frame_obj
             .instance_buffer
@@ -499,16 +584,30 @@ impl CubePipeline {
                 &dyn_offsets,
             );
 
-            device.cmd_draw_indexed(
-                command_buffer,
-                INDICES.len() as u32,
-                cubes.len() as u32,
-                0,
-                0,
-                0,
-            );
+            for hc in self.hyper_cubes.iter() {
+                let push = PushConstants {
+                    position: hc.position,
+                };
+                device.cmd_push_constants(
+                    command_buffer,
+                    self.layout,
+                    vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
+                    0,
+                    push.as_bytes(),
+                );
+
+                device.cmd_draw_indexed(
+                    command_buffer,
+                    INDICES.len() as u32,
+                    hc.cube_count as u32,
+                    0,
+                    0,
+                    hc.first_cube as u32,
+                );
+            }
         }
         cubes.clear();
+        self.hyper_cubes.clear();
         Ok(())
     }
 
