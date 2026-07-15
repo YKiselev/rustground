@@ -13,3 +13,4 @@ rg_macros = { path = "../rg_macros" }
 argh = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 thiserror = { workspace = true }
+rand = { workspace = true }

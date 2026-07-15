@@ -5,7 +5,11 @@ use std::{
 };
 
 use log::{debug, error, info};
-use rg_common::{App, Plugin, gfx::world_renderer::WorldRenderer};
+use rg_common::{
+    App, Plugin,
+    gfx::world_renderer::{WorldRenderer, WorldRendererContext},
+    world::HyperCube,
+};
 use rg_vulkan::renderer::VulkanRenderer;
 use winit::{
     event::{Event, MouseScrollDelta, WindowEvent},
@@ -28,6 +32,7 @@ pub(super) struct ClientState {
     max_fps: f32,
     frame_stats: FrameStats,
     modifiers: ModifiersState,
+    hyper_cube: HyperCube,
 }
 
 impl ClientState {
@@ -45,6 +50,7 @@ impl ClientState {
             max_fps: 200.0,
             frame_stats: FrameStats::default(),
             modifiers: ModifiersState::default(),
+            hyper_cube: HyperCube::new(0.0, 0.0, 0.0),
         })
     }
 
@@ -68,8 +74,8 @@ impl ClientState {
         // Update
         self.net.update(&self.app);
         if let Some(renderer) = self.renderer.as_mut() {
-            renderer.draw_world(|ctx|{
-                // todo - draw world!
+            renderer.draw_world(|ctx| {
+                ctx.draw_hyper_cube(&self.hyper_cube);
             });
             renderer.render();
         }

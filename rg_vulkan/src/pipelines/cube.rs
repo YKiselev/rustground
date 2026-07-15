@@ -4,6 +4,7 @@ use log::error;
 use rand::Rng;
 use rg_common::App;
 use rg_common::load_bytes;
+use rg_common::world::HyperCube;
 use std::sync::Arc;
 
 use crate::misc::buffer::VkBuffer;
@@ -140,6 +141,7 @@ impl CubeInstance {
         }
     }
 }
+
 impl Vertex for CubeInstance {
     fn input_binding_description(binding: u32) -> vk::VertexInputBindingDescription {
         vk::VertexInputBindingDescription::default()
@@ -203,7 +205,6 @@ pub struct CubePipeline {
     frame_objects: [FrameObjects; MAX_FRAMES_IN_FLIGHT],
     texture: VkImage,
     cubes: Vec<CubeInstance>,
-    hyper_cube: HyperCube,
 }
 
 impl CubePipeline {
@@ -354,7 +355,6 @@ impl CubePipeline {
             frame_objects,
             texture,
             cubes: Vec::with_capacity(MAX_CUBES_PER_FRAME),
-            hyper_cube: HyperCube::new(),
         };
         result.update_descriptor_sets(instance)?;
 
@@ -445,6 +445,16 @@ impl CubePipeline {
         Ok(())
     }
 
+    pub fn draw_hyper_cube(&mut self, cube: &HyperCube) {
+        let indices = HyperCube::indices();
+        cube.material.iter().enumerate().for_each(|(i, &material)| {
+            if material > 0 {
+                let idx = indices[i];
+                self.cubes.push(CubeInstance::new(idx[0], idx[1], idx[2]));
+            }
+        });
+    }
+
     pub fn draw_to_buffer(
         &mut self,
         instance: &VkContext,
@@ -453,20 +463,8 @@ impl CubePipeline {
     ) -> Result<(), VkError> {
         let device = &instance.device;
         let frame_obj = &self.frame_objects[frame_index];
+        
         let cubes = &mut self.cubes;
-
-        cubes.clear();
-        self.hyper_cube
-            .material
-            .iter()
-            .enumerate()
-            .for_each(|(i, &material)| {
-                if material > 0 {
-                    let idx = self.hyper_cube.indices[i];
-                    cubes.push(CubeInstance::new(idx[0], idx[1], idx[2]));
-                }
-            });
-
         frame_obj
             .instance_buffer
             .copy_from(cubes.as_ptr(), cubes.len());
@@ -523,36 +521,6 @@ impl CubePipeline {
             device.destroy_pipeline(self.pipeline, None);
             device.destroy_pipeline_layout(self.layout, None);
         }
-    }
-}
-
-pub struct HyperCube {
-    pub indices: Vec<[u16; 3]>,
-    pub material: Vec<u8>,
-}
-
-impl HyperCube {
-    fn new() -> Self {
-        let mut indices = Vec::with_capacity(4096);
-        for k in 0..16 {
-            for j in 0..16 {
-                for i in 0..16 {
-                    indices.push([i, j, k]);
-                }
-            }
-        }
-        let mut material = Vec::with_capacity(4096);
-        let mut rng = rand::thread_rng();
-        let min_probability = 0.3;
-        let max_probability = 0.95;
-        let mut probability = max_probability;
-        let probability_step = (max_probability - min_probability) / 4096.0;
-        for _ in 0..4096 {
-            let mat = if rng.gen_bool(probability) { 1 } else { 0 };
-            material.push(mat);
-            probability -= probability_step;
-        }
-        Self { indices, material }
     }
 }
 

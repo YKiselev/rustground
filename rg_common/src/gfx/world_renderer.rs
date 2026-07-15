@@ -1,3 +1,5 @@
+use crate::world::HyperCube;
+
 pub trait WorldRenderer {
     type Context: WorldRendererContext;
 
@@ -7,5 +9,5 @@ pub trait WorldRenderer {
 }
 
 pub trait WorldRendererContext {
-    fn draw_hyper_cube(&mut self);
+    fn draw_hyper_cube(&mut self, cube: &HyperCube);
 }

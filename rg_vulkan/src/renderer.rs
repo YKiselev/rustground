@@ -5,7 +5,12 @@ use std::{
 
 use ash::vk;
 use log::{info, warn};
-use rg_common::{App, gfx::world_renderer::{WorldRenderer, WorldRendererContext}, wrap_var_bag};
+use rg_common::{
+    App,
+    gfx::world_renderer::{WorldRenderer, WorldRendererContext},
+    world::HyperCube,
+    wrap_var_bag,
+};
 use winit::{event_loop::ActiveEventLoop, window::Window};
 
 use crate::{
@@ -198,18 +203,6 @@ impl VulkanRenderer {
         let extent = self.context.swapchain.extent;
         let ratio = extent.width as f32 / extent.height as f32;
 
-        // Cube
-        let _ = self
-            .cube
-            .update_uniform_buffer(&self.context, frame_index, time, ratio);
-
-        if let Err(e) = self
-            .cube
-            .draw_to_buffer(&self.context, frame_index, command_buffer)
-        {
-            warn!("Failed to draw cubes to command buffer: {:?}", e);
-        }
-
         // UI
         if let Err(e) = self
             .ui
@@ -290,10 +283,9 @@ impl VulkanRenderer {
     }
 }
 
-
 ///
 /// Drop
-/// 
+///
 impl Drop for VulkanRenderer {
     fn drop(&mut self) {
         info!("Destroing renderer");
@@ -313,7 +305,7 @@ impl Drop for VulkanRenderer {
 
 ///
 /// World renderer
-/// 
+///
 impl WorldRenderer for VulkanRenderer {
     type Context = Self;
 
@@ -323,24 +315,41 @@ impl WorldRenderer for VulkanRenderer {
     {
         if let Some(command_buffer) = self.command_buffer {
             let frame_index = self.context.swapchain.frames_in_flight.current_frame;
+            let time = self.start.elapsed().as_secs_f32();
+            let extent = self.context.swapchain.extent;
+            let ratio = extent.width as f32 / extent.height as f32;
+
+            if let Err(e) = self
+                .cube
+                .update_uniform_buffer(&self.context, frame_index, time, ratio)
+            {
+                warn!("Failed to update cube uniforms: {}", e.to_string());
+            }
 
             (handler)(self);
+
+            if let Err(e) = self
+                .cube
+                .draw_to_buffer(&self.context, frame_index, command_buffer)
+            {
+                warn!("Failed to draw cube: {}", e.to_string());
+            }
         }
     }
 }
 
 ///
 /// World renderer context
-/// 
+///
 impl WorldRendererContext for VulkanRenderer {
-    fn draw_hyper_cube(&mut self) {
-        todo!()
+    fn draw_hyper_cube(&mut self, cube: &HyperCube) {
+        self.cube.draw_hyper_cube(cube);
     }
 }
 
 ///
 /// Helpers
-/// 
+///
 fn create_viewport(width: u32, height: u32) -> vk::Viewport {
     vk::Viewport::default()
         .x(0.0)

@@ -1862,6 +1862,7 @@ dependencies = [
  "dirs",
  "erased-serde",
  "log",
+ "rand",
  "rg_macros",
  "serde",
  "thiserror 2.0.18",
