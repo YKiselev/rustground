@@ -4,13 +4,16 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+rg_macros = { path = "../rg_macros" }
 log = { workspace = true }
 dirs = { workspace = true }
 toml = { workspace = true }
 serde = { workspace = true, features = ["derive", "rc"] }
 erased-serde = { workspace = true }
-rg_macros = { path = "../rg_macros" }
 argh = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 thiserror = { workspace = true }
 rand = { workspace = true }
+glam = { workspace = true }
+bitflags = { workspace = true }
+fixedbitset = { workspace = true }

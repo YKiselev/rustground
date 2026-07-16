@@ -4,6 +4,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use glam::Vec3;
 use log::{debug, error, info};
 use rg_common::{
     App, Plugin,
@@ -50,7 +51,7 @@ impl ClientState {
             max_fps: 200.0,
             frame_stats: FrameStats::default(),
             modifiers: ModifiersState::default(),
-            hyper_cube: HyperCube::new(0.0, 0.0, 0.0),
+            hyper_cube: HyperCube::solid(),
         })
     }
 
@@ -76,10 +77,18 @@ impl ClientState {
         if let Some(renderer) = self.renderer.as_mut() {
             renderer.draw_world(|ctx| {
                 let hc = &mut self.hyper_cube;
-                hc.origin = [0.0, 0.0, 0.0];
+                hc.origin = Vec3 {
+                    x: 0.0,
+                    y: 0.0,
+                    z: 0.0,
+                };
                 ctx.draw_hyper_cube(hc);
 
-                hc.origin = [20.0, 0.0, -2.0];
+                hc.origin = Vec3 {
+                    x: 20.0,
+                    y: 0.0,
+                    z: -2.0,
+                };
                 ctx.draw_hyper_cube(hc);
             });
             renderer.render();

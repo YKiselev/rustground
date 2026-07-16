@@ -143,13 +143,13 @@ const MAX_HYPER_CUBES_PER_FRAME: usize = MAX_CUBES_PER_FRAME / 4096;
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 struct CubeInstance {
-    pub offset: [u8; 4], // Index in hyper-cube CS and material
+    pub data: [u16; 2], // Index in hyper-cube and material
 }
 
 impl CubeInstance {
-    pub fn new(x: u8, y: u8, z: u8, material: u8) -> Self {
+    pub fn new(index: u16, material: u8) -> Self {
         Self {
-            offset: [x, y, z, material],
+            data: [index, material as u16],
         }
     }
 }
@@ -169,8 +169,8 @@ impl Vertex for CubeInstance {
         let offset = vk::VertexInputAttributeDescription::default()
             .binding(binding)
             .location(location)
-            .format(vk::Format::R8G8B8A8_UINT)
-            .offset(std::mem::offset_of!(Self, offset) as u32);
+            .format(vk::Format::R16G16_UINT)
+            .offset(std::mem::offset_of!(Self, data) as u32);
         vec![offset]
     }
 }
@@ -521,15 +521,21 @@ impl CubePipeline {
             );
             return;
         }
-        let indices = HyperCube::indices();
         let first_cube = self.cubes.len();
-        cube.material.iter().enumerate().for_each(|(i, &material)| {
+        cube.pvs.ones().for_each(|index| {
+            let material = cube.materials[index];
             if material > 0 {
-                let idx = indices[i];
-                self.cubes
-                    .push(CubeInstance::new(idx[0], idx[1], idx[2], material));
+                self.cubes.push(CubeInstance::new(index as u16, material));
             }
         });
+        // cube.materials
+        //     .iter()
+        //     .enumerate()
+        //     .for_each(|(i, &material)| {
+        //         if material > 0 {
+        //             self.cubes.push(CubeInstance::new(i as u16, material));
+        //         }
+        //     });
         let count = self.cubes.len() - first_cube;
         self.hyper_cubes.push(HyperCubeInstance::new(
             cube.origin[0],
