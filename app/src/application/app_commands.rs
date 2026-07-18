@@ -18,13 +18,6 @@ impl AppCommands {
             app_ref.exit_flag.store(true, Ordering::Relaxed);
             Ok(())
         })?;
-        // let app_ref = Arc::clone(&app);
-        // builder.add("exec", move |name: &str| {
-        //     if let Some(script) = app_ref.files.read_file(name) {
-
-        //     }
-        //     //app_ref.
-        // })?;
         Ok(Self(builder.build()))
     }
 }

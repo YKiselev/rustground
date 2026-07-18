@@ -1,19 +1,18 @@
 use std::borrow::Cow;
 use std::collections::VecDeque;
-use std::io::ErrorKind;
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use log::{debug, error, info, warn};
 use rg_common::{App, Plugin};
-use rg_net::write_connect;
 use rg_net::write_hello;
 use rg_net::write_ping;
 use rg_net::write_with_header;
-use rg_net::{MAX_DATAGRAM_SIZE, PacketKind, ProtocolError};
+use rg_net::{BufferPool, PooledBuffer, write_connect};
 use rg_net::{NET_BUF_SIZE, process_buf, read_accepted, read_rejected};
 use rg_net::{NetBufReader, NetBufWriter, NetReader, try_write};
+use rg_net::{PacketKind, ProtocolError};
 use rg_net::{read_pong, read_server_info};
 
 use crate::application::async_runtime::ClientChannel;
@@ -38,7 +37,8 @@ struct ServerProps {
 #[derive()]
 pub(super) struct ClientNetwork {
     channel: ClientChannel,
-    send_bufs: VecDeque<Vec<u8>>,
+    send_bufs: VecDeque<PooledBuffer>,
+    buffer_pool: BufferPool,
     server_props: ServerProps,
     state: ClientState,
     last_seen: Option<Instant>,
@@ -54,6 +54,7 @@ impl ClientNetwork {
         Ok(ClientNetwork {
             channel,
             send_bufs: VecDeque::new(),
+            buffer_pool: BufferPool::new(NET_BUF_SIZE),
             server_props: ServerProps::default(),
             state: ClientState::Disconnected,
             last_seen: None,
@@ -76,7 +77,7 @@ impl ClientNetwork {
                     Err(e) => error!("Failed to write send buffer: {}", e),
                 }
             }
-            self.send_bufs.push_back(Vec::new());
+            self.send_bufs.push_back(self.buffer_pool.aquire_buffer());
         }
         Ok(())
     }
@@ -160,7 +161,7 @@ impl ClientNetwork {
             match response {
                 client::Response::DatagramReceived { bytes, address } => {
                     self.last_seen = Some(Instant::now());
-                    let mut reader = NetBufReader::new(&bytes);
+                    let mut reader = NetBufReader::new(bytes.as_slice());
                     let _ = process_buf(&mut reader, |header, reader| {
                         debug!("Got server packet {:?} from {}", header, address);
 
@@ -178,8 +179,9 @@ impl ClientNetwork {
                         .is_ok()
                     })
                     .inspect_err(|e| error!("Failed to process: {:?}", e));
+
+                    self.buffer_pool.release_buffer(bytes);
                 }
-                client::Response::Ok => todo!(),
                 client::Response::Connected(addr) => {
                     info!("Client socket connected to {}", addr);
                     self.state = ClientState::AwaitingAcceptance;
@@ -190,7 +192,6 @@ impl ClientNetwork {
                     warn!("Async runtime reports error: {:?}", e);
                 }
             }
-            //loop {
         }
     }
 
@@ -203,13 +204,7 @@ impl ClientNetwork {
 }
 
 impl Plugin for ClientNetwork {
-    fn frame_start(&mut self, _app: &Arc<App>) {
-        // match self.socket.take_error() {
-        //     Ok(Some(error)) => error!("Socket error: {error:?}"),
-        //     Ok(_) => {}
-        //     Err(error) => error!("Unable to take error: {error:?}"),
-        // }
-    }
+    fn frame_start(&mut self, _app: &Arc<App>) {}
 
     fn update(&mut self, app: &Arc<App>) {
         self.receive_from_server(app);
@@ -219,15 +214,19 @@ impl Plugin for ClientNetwork {
                 match state {
                     ClientState::Disconnected => {
                         if let Some(addr) = app.vars.try_get_value("server::bound_to") {
-                            if let Ok(addr) = addr.parse::<SocketAddr>() {
-                                if let Err(e) =
-                                    self.channel.tx.send(client::Request::NetworkConnect(addr))
-                                {
-                                    warn!("Unable to send message to async runtime: {}", e);
+                            //if addr != "None" {
+                                if let Ok(addr) = addr.parse::<SocketAddr>() {
+                                    if let Err(e) =
+                                        self.channel.tx.send(client::Request::NetworkConnect(addr))
+                                    {
+                                        warn!("Unable to send message to async runtime: {}", e);
+                                    }
+                                } else {
+                                    warn!("Unable to parse socket address: {}", addr);
                                 }
-                            } else {
-                                warn!("Unable to parse socket address: {}", addr);
-                            }
+                            //} else {
+                                self.last_send = Some(Instant::now());
+                            //}
                         } else {
                             warn!("Server not bound yet?");
                         }
@@ -255,6 +254,7 @@ impl Plugin for ClientNetwork {
 
     fn frame_end(&mut self, _app: &Arc<App>) {
         let bufs = &mut self.send_bufs;
+        let mut sends = 0;
         while let Some(bytes) = bufs.pop_front() {
             if let Err(_) = self
                 .channel
@@ -263,6 +263,10 @@ impl Plugin for ClientNetwork {
             {
                 debug!("Send channel is closed!");
             }
+            sends += 1;
+        }
+        if sends > 0 {
+            self.last_send = Some(Instant::now());
         }
     }
 }

@@ -3,6 +3,7 @@ use std::net::SocketAddr;
 use std::time::Instant;
 
 use log::debug;
+use rg_net::PooledBuffer;
 
 use crate::server;
 
@@ -10,7 +11,7 @@ use crate::server;
 pub struct Client {
     name: String,
     last_seen: Instant,
-    send_buf: VecDeque<Vec<u8>>,
+    send_buf: VecDeque<PooledBuffer>,
 }
 
 impl Client {

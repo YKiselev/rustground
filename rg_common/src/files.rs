@@ -182,10 +182,6 @@ impl Files {
                 let _ = out_dir.pop();
             }
             out_dir.push("base/resources");
-            // let mut dst_dir = PathBuf::from(&out_dir);
-            // while dst_dir.file_name().unwrap() != "target" {
-            //     let _ = dst_dir.pop();
-            // }
             folders.push(out_dir);
         }
 

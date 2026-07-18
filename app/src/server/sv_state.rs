@@ -1,11 +1,16 @@
 use std::{
+    cell::RefCell,
     net::SocketAddr,
-    sync::{Arc, RwLock},
+    rc::Rc,
+    sync::{Arc, Mutex, RwLock},
 };
 
 use log::{debug, info, warn};
 use rg_common::App;
-use rg_net::{NetBufReader, PacketKind, process_buf, read_connect, read_hello, read_ping};
+use rg_net::{
+    BufferPool, NET_BUF_SIZE, NetBufReader, PacketKind, PooledBuffer, process_buf, read_connect,
+    read_hello, read_ping,
+};
 
 use crate::{
     application::async_runtime::ServerChannel,
@@ -27,6 +32,7 @@ pub(super) struct ServerState {
     guests: Guests,
     security: ServerSecurity,
     channel: ServerChannel,
+    buffer_pool: Arc<Mutex<BufferPool>>,
 }
 
 impl ServerState {
@@ -47,12 +53,15 @@ impl ServerState {
 
         drop(cfg);
 
+        let buffer_pool = Arc::new(Mutex::new(BufferPool::new(NET_BUF_SIZE)));
+
         Ok(ServerState {
             config: Arc::clone(config),
             clients: Clients::new(),
-            guests: Guests::new(),
+            guests: Guests::new(Arc::clone(&buffer_pool)),
             security,
             channel,
+            buffer_pool,
         })
     }
 
@@ -74,7 +83,10 @@ impl ServerState {
                     cfg.bound_to = Some(socket_addr.to_string());
                 }
                 server::Response::DatagramReceived { bytes, address } => {
-                    self.process_network_datagram(address, &bytes)
+                    self.process_network_datagram(address, &bytes);
+                    if let Ok(mut pool) = self.buffer_pool.lock() {
+                        pool.release_buffer(bytes);
+                    }
                 }
             }
         }
@@ -86,7 +98,7 @@ impl ServerState {
         Ok(())
     }
 
-    fn process_network_datagram(&mut self, address: SocketAddr, bytes: &Vec<u8>) {
+    fn process_network_datagram(&mut self, address: SocketAddr, bytes: &PooledBuffer) {
         let clients = &mut self.clients;
         let guests = &mut self.guests;
         let security = &self.security;

@@ -1,6 +1,6 @@
-use std::thread::{self};
+use std::thread::{self, JoinHandle};
 
-use log::debug;
+use log::{debug, warn};
 
 use crate::{
     client::{self, dispatch_client_request},
@@ -20,20 +20,21 @@ pub struct ServerChannel {
     pub rx: flume::Receiver<server::Response>,
 }
 
-pub fn init_client_server_tokio_runtime() -> Result<(ServerChannel, ClientChannel), AppError> {
+pub fn init_client_server_async_runtime()
+-> Result<(JoinHandle<()>, ServerChannel, ClientChannel), AppError> {
     let (server_tx, from_server_rx) = flume::unbounded::<server::Request>();
     let (to_server_tx, server_rx) = flume::unbounded::<server::Response>();
     let (client_tx, from_client_rx) = flume::unbounded::<client::Request>();
     let (to_client_tx, client_rx) = flume::unbounded::<client::Response>();
 
-    thread::spawn(move || {
+    let handle = thread::spawn(move || {
         let rt = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .build()
             .expect("Async runtime initialization failed!");
 
         // Server worker
-        rt.spawn(async move {
+        let server_handle = rt.spawn(async move {
             debug!("Starting server worker...");
             while let Ok(request) = from_server_rx.recv_async().await {
                 let tx = to_server_tx.clone();
@@ -46,7 +47,7 @@ pub fn init_client_server_tokio_runtime() -> Result<(ServerChannel, ClientChanne
         });
 
         // Client worker
-        rt.block_on(async move {
+        let client_handle = rt.spawn(async move {
             debug!("Starting client worker...");
             while let Ok(request) = from_client_rx.recv_async().await {
                 let tx = to_client_tx.clone();
@@ -58,9 +59,14 @@ pub fn init_client_server_tokio_runtime() -> Result<(ServerChannel, ClientChanne
             }
             debug!("Leaving client worker loop...");
         });
+
+        let _ = rt.block_on(async { 
+            tokio::join!(server_handle, client_handle) 
+        });
     });
 
     Ok((
+        handle,
         ServerChannel {
             tx: server_tx,
             rx: server_rx,

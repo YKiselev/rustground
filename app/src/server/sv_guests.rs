@@ -1,14 +1,14 @@
 use std::{
     collections::{HashMap, VecDeque},
     net::SocketAddr,
-    sync::mpsc::Sender,
+    sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 
-use log::{debug, error, warn};
+use log::{debug, warn};
 use rg_net::{
-    MAX_DATAGRAM_SIZE, NetBufWriter, PacketKind, Ping, ProtocolError, RejectionReason, try_write,
-    write_accepted, write_pong, write_rejected, write_server_info, write_with_header,
+    BufferPool, NetBufWriter, PacketKind, Ping, PooledBuffer, ProtocolError, RejectionReason,
+    try_write, write_accepted, write_pong, write_rejected, write_server_info, write_with_header,
 };
 
 use crate::server;
@@ -17,17 +17,21 @@ use super::sv_clients::ClientId;
 
 const OBSOLETE_AFTER: Duration = Duration::from_secs(2 * 60);
 
-#[derive(Debug)]
+type PoolAccess = dyn Fn() -> PooledBuffer;
+
+#[derive()]
 pub(super) struct Guest {
-    send_buf: VecDeque<Vec<u8>>,
+    send_buf: VecDeque<PooledBuffer>,
     received_at: Option<Instant>,
+    buffer_pool: Arc<Mutex<BufferPool>>,
 }
 
 impl Guest {
-    pub fn new() -> Self {
+    pub fn new(buffer_pool: Arc<Mutex<BufferPool>>) -> Self {
         Self {
             send_buf: VecDeque::new(),
             received_at: None,
+            buffer_pool,
         }
     }
 
@@ -97,27 +101,32 @@ impl Guest {
                     Err(e) => return Err(e),
                 }
             }
-            self.send_buf
-                .push_back(Vec::with_capacity(MAX_DATAGRAM_SIZE));
+            if let Ok(mut pool) = self.buffer_pool.lock() {
+                self.send_buf.push_back(pool.aquire_buffer());
+            }
         }
         Ok(())
     }
 }
 
-#[derive(Debug)]
+#[derive()]
 pub(super) struct Guests {
     guests: HashMap<ClientId, Guest>,
+    buffer_pool: Arc<Mutex<BufferPool>>,
 }
 
 impl Guests {
-    pub fn new() -> Self {
+    pub fn new(buffer_pool: Arc<Mutex<BufferPool>>) -> Self {
         Self {
             guests: HashMap::new(),
+            buffer_pool,
         }
     }
 
     pub fn get_or_create(&mut self, id: ClientId) -> &mut Guest {
-        self.guests.entry(id).or_insert_with(|| Guest::new())
+        self.guests
+            .entry(id)
+            .or_insert_with(|| Guest::new(Arc::clone(&self.buffer_pool)))
     }
 
     pub fn flush(&mut self, tx: &flume::Sender<server::Request>) {

@@ -29,7 +29,7 @@ fn start_server_thread(
             let mut time = Instant::now();
             let mut lag = 0u128;
             const MILLIS_PER_UPDATE: u128 = 10;
-            info!("Entering server loop...");
+            info!("Entering server main loop...");
             while !app.is_exit() {
                 let delta = time.elapsed();
                 time = Instant::now();
