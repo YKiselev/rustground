@@ -3,25 +3,37 @@ use std::sync::{Arc, RwLock, atomic::Ordering};
 use log::{info, warn};
 use rg_common::{App, save_config, wrap_var_bag};
 use winit::{
-    application::ApplicationHandler, event::{DeviceEvent, DeviceId, StartCause, WindowEvent}, event_loop::ActiveEventLoop, window::WindowId,
+    application::ApplicationHandler,
+    event::{DeviceEvent, DeviceId, StartCause, WindowEvent},
+    event_loop::ActiveEventLoop,
+    window::WindowId,
 };
 
 use crate::{
+    application::async_runtime::ClientChannel,
     client::{cl_config::ClientConfig, cl_state::ClientState},
     error::AppError,
 };
 
 pub struct ClientEvent();
 
-pub struct Client(Arc<RwLock<ClientConfig>>, Option<ClientState>);
+pub struct Client {
+    config: Arc<RwLock<ClientConfig>>,
+    channel: ClientChannel,
+    state: Option<ClientState>,
+}
 
 impl Client {
-    pub(crate) fn new(app: &Arc<App>) -> Result<Self, AppError> {
+    pub(crate) fn new(app: &Arc<App>, channel: ClientChannel) -> Result<Self, AppError> {
         info!("Starting client...");
         let cfg = wrap_var_bag(ClientConfig::new());
         app.vars.add("client", &cfg)?;
-        let state = ClientState::new(&app, &cfg)?;
-        Ok(Client(cfg, Some(state)))
+        let state = ClientState::new(&app, &cfg, channel.clone())?;
+        Ok(Client {
+            config: cfg,
+            channel,
+            state: Some(state),
+        })
     }
 }
 
@@ -31,7 +43,7 @@ impl ApplicationHandler<ClientEvent> for Client {
     }
 
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        if let Some(state) = self.1.as_mut() {
+        if let Some(state) = self.state.as_mut() {
             state.resumed(event_loop);
         }
     }
@@ -48,7 +60,7 @@ impl ApplicationHandler<ClientEvent> for Client {
     ) {
         let _ = (event_loop, device_id, event);
     }
-    
+
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         let _ = event_loop;
     }
@@ -60,7 +72,7 @@ impl ApplicationHandler<ClientEvent> for Client {
     fn exiting(&mut self, event_loop: &ActiveEventLoop) {
         let _ = event_loop;
     }
-    
+
     fn window_event(
         &mut self,
         event_loop: &ActiveEventLoop,
@@ -70,7 +82,7 @@ impl ApplicationHandler<ClientEvent> for Client {
         match event {
             WindowEvent::CloseRequested => {
                 info!("Window close requested");
-                if let Some(mut state) = self.1.take() {
+                if let Some(mut state) = self.state.take() {
                     match state.app.vars.to_toml() {
                         Ok(toml) => {
                             save_config("config.toml", &state.app.files, toml);
@@ -86,7 +98,7 @@ impl ApplicationHandler<ClientEvent> for Client {
             }
             _ => (),
         }
-        if let Some(state) = self.1.as_mut() {
+        if let Some(state) = self.state.as_mut() {
             state.window_event(event_loop, window_id, event);
         }
     }

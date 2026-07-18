@@ -6,9 +6,9 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use fxhash::FxHasher32;
 use itertools::Itertools;
 use once_cell::sync::{self, Lazy};
+use rustc_hash::FxHasher;
 
 use crate::{
     archetype::chunk::Chunk,
@@ -30,7 +30,7 @@ pub struct ArchetypeId(u32);
 
 impl ArchetypeId {
     pub fn new<'a>(components: impl Iterator<Item = &'a ComponentId>) -> Self {
-        let mut hasher = FxHasher32::default();
+        let mut hasher = FxHasher::default();
         for c in components {
             c.hash(&mut hasher);
         }
@@ -88,7 +88,7 @@ impl ArchetypeBuilder {
     }
 
     pub fn build(self) -> Archetype {
-        let mut hasher = FxHasher32::default();
+        let mut hasher = FxHasher::default();
         for id in self.0.keys().sorted() {
             id.hash(&mut hasher);
         }

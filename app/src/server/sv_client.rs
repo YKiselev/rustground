@@ -1,12 +1,10 @@
 use std::collections::VecDeque;
 use std::net::SocketAddr;
-use std::sync::mpsc::Sender;
 use std::time::Instant;
 
+use log::debug;
 
-use log::error;
-
-use super::sv_poll::Packet;
+use crate::server;
 
 #[derive(Debug)]
 pub struct Client {
@@ -28,15 +26,12 @@ impl Client {
         self.last_seen = Instant::now();
     }
 
-    pub fn flush(&mut self, addr: SocketAddr, tx: &Sender<Packet>) {
-        while let Some(buf) = self.send_buf.pop_front() {
-            match tx.send(Packet {
-                bytes: buf,
-                address: addr,
-            }) {
+    pub fn flush(&mut self, addr: SocketAddr, tx: &flume::Sender<server::Request>) {
+        while let Some(bytes) = self.send_buf.pop_front() {
+            match tx.send(server::Request::SendDatagram { addr, bytes }) {
                 Ok(_) => {}
                 Err(_) => {
-                    error!("Send channel is closed!");
+                    debug!("Send channel is closed!");
                     break;
                 }
             }

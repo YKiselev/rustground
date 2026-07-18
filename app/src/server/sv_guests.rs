@@ -5,12 +5,15 @@ use std::{
     time::{Duration, Instant},
 };
 
-use log::{error, warn};
+use log::{debug, error, warn};
 use rg_net::{
-    try_write, write_accepted, write_pong, write_rejected, write_server_info, write_with_header, NetBufWriter, PacketKind, Ping, ProtocolError, RejectionReason, MAX_DATAGRAM_SIZE
+    MAX_DATAGRAM_SIZE, NetBufWriter, PacketKind, Ping, ProtocolError, RejectionReason, try_write,
+    write_accepted, write_pong, write_rejected, write_server_info, write_with_header,
 };
 
-use super::{sv_clients::ClientId, sv_poll::Packet};
+use crate::server;
+
+use super::sv_clients::ClientId;
 
 const OBSOLETE_AFTER: Duration = Duration::from_secs(2 * 60);
 
@@ -60,17 +63,11 @@ impl Guest {
             .inspect_err(|e| warn!("Failed to write pong: {:?}", e));
     }
 
-    pub fn flush(&mut self, addr: SocketAddr, tx: &Sender<Packet>) {
-        while let Some(buf) = self.send_buf.pop_front() {
-            match tx.send(Packet {
-                bytes: buf,
-                address: addr,
-            }) {
-                Ok(_) => {}
-                Err(_) => {
-                    error!("Send channel is closed!");
-                    break;
-                }
+    pub fn flush(&mut self, addr: SocketAddr, tx: &flume::Sender<server::Request>) {
+        while let Some(bytes) = self.send_buf.pop_front() {
+            if let Err(_) = tx.send(server::Request::SendDatagram { addr, bytes }) {
+                debug!("Send channel is closed!");
+                break;
             }
         }
     }
@@ -123,7 +120,7 @@ impl Guests {
         self.guests.entry(id).or_insert_with(|| Guest::new())
     }
 
-    pub fn flush(&mut self, tx: &Sender<Packet>) {
+    pub fn flush(&mut self, tx: &flume::Sender<server::Request>) {
         for (client_id, guest) in self.guests.iter_mut() {
             guest.flush(client_id.0, tx);
         }

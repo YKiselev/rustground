@@ -2,6 +2,8 @@ use bitflags::bitflags;
 use glam::Vec3;
 use rand::Rng;
 
+use crate::world::material::{MaterialFlag, Materials};
+
 bitflags! {
     ///
     /// Bit flags for cube faces
@@ -37,16 +39,18 @@ const HYPER_CUBE_HALF_SIZE: f32 = 16.0 * (2.0 * CUBE_HALF_SIZE) / 2.0;
 
 pub struct HyperCube {
     pub origin: Vec3,
-    pub materials: Vec<u8>,
+    pub cubes: Vec<u8>,
+    pub materials: Materials,
     pub pvs: fixedbitset::FixedBitSet,
 }
 
 impl HyperCube {
-    pub fn from_materials(x: f32, y: f32, z: f32, materials: Vec<u8>) -> Self {
-        assert_eq!(4096, materials.len());
+    pub fn from_materials(x: f32, y: f32, z: f32, cubes: Vec<u8>, materials: Materials) -> Self {
+        assert_eq!(4096, cubes.len());
 
         Self {
             origin: Vec3 { x, y, z },
+            cubes,
             materials,
             pvs: fixedbitset::FixedBitSet::with_capacity(4096),
         }
@@ -54,12 +58,13 @@ impl HyperCube {
 
     pub fn new(x: f32, y: f32, z: f32) -> Self {
         let materials = generate_materials();
-        Self::from_materials(x, y, z, materials)
+        Self::from_materials(x, y, z, materials, Materials::default()) // debug
     }
 
     pub fn solid() -> Self {
         let materials: [u8; 4096] = std::array::from_fn(|_| 1u8);
-        let mut result = Self::from_materials(0.0, 0.0, 0.0, Vec::from(materials));
+        let mut result =
+            Self::from_materials(0.0, 0.0, 0.0, Vec::from(materials), Materials::default());
         result.init_pvs();
         result
     }
@@ -93,10 +98,8 @@ impl HyperCube {
             return true;
         }
         let index = i + (j << 4) + (k << 8);
-        if index < 0 || index > 4095 {
-            println!("Oops: {:?}={}", (i,j,k), index);
-        }
-        self.materials[index as usize] == 0
+        let materal = self.materials.get(self.cubes[index as usize]);
+        materal.map_or(true, |m| !m.flags.contains(MaterialFlag::OPAQUE))
     }
 
     ///

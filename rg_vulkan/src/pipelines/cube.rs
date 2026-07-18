@@ -523,24 +523,16 @@ impl CubePipeline {
         }
         let first_cube = self.cubes.len();
         cube.pvs.ones().for_each(|index| {
-            let material = cube.materials[index];
+            let material = cube.cubes[index];
             if material > 0 {
                 self.cubes.push(CubeInstance::new(index as u16, material));
             }
         });
-        // cube.materials
-        //     .iter()
-        //     .enumerate()
-        //     .for_each(|(i, &material)| {
-        //         if material > 0 {
-        //             self.cubes.push(CubeInstance::new(i as u16, material));
-        //         }
-        //     });
         let count = self.cubes.len() - first_cube;
         self.hyper_cubes.push(HyperCubeInstance::new(
-            cube.origin[0],
-            cube.origin[1],
-            cube.origin[2],
+            cube.origin.x,
+            cube.origin.y,
+            cube.origin.z,
             first_cube,
             count,
         ));

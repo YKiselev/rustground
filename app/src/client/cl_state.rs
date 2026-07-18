@@ -20,8 +20,7 @@ use winit::{
 };
 
 use crate::{
-    client::{cl_config::ClientConfig, cl_fps::FrameStats, cl_net::ClientNetwork},
-    error::AppError,
+    application::async_runtime::ClientChannel, client::{cl_config::ClientConfig, cl_fps::FrameStats, cl_net::ClientNetwork}, error::AppError,
 };
 
 pub(super) struct ClientState {
@@ -40,8 +39,9 @@ impl ClientState {
     pub(super) fn new(
         app: &Arc<App>,
         config: &Arc<RwLock<ClientConfig>>,
+        channel: ClientChannel
     ) -> Result<Self, AppError> {
-        let net = ClientNetwork::new(app)?;
+        let net = ClientNetwork::new(app, channel)?;
         Ok(Self {
             app: Arc::clone(&app),
             config: Arc::clone(&config),

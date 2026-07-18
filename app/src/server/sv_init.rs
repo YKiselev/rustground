@@ -1,3 +1,4 @@
+use crate::application::async_runtime::ServerChannel;
 use crate::error::AppError;
 use crate::server::Server;
 use log::{error, info, warn};
@@ -9,8 +10,9 @@ use std::time::{Duration, Instant};
 
 pub(crate) fn init(
     app: &Arc<App>,
+    channel: ServerChannel,
 ) -> Result<(Arc<Mutex<Server>>, JoinHandle<()>), AppError> {
-    let server = Server::new(app)?;
+    let server = Server::new(app, channel)?;
     let server = Arc::new(Mutex::new(server));
     server.lock()?.init(app)?;
     let handle = start_server_thread(Arc::clone(app), Arc::clone(&server))?;
@@ -22,7 +24,7 @@ fn start_server_thread(
     server: Arc<Mutex<Server>>,
 ) -> Result<JoinHandle<()>, AppError> {
     let handle = thread::Builder::new()
-        .name("server-thread".to_string())
+        .name("server-main".to_string())
         .spawn(move || {
             let mut time = Instant::now();
             let mut lag = 0u128;
@@ -46,8 +48,10 @@ fn start_server_thread(
                     }
                 }
                 let sleep = MILLIS_PER_UPDATE.saturating_sub(lag);
-                if sleep > 0 {
-                    thread::sleep(Duration::from_millis(sleep as _));
+                if sleep >= 2 {
+                    thread::sleep(Duration::from_millis(sleep.saturating_sub(1) as _));
+                } else {
+                    std::hint::spin_loop();
                 }
             }
             info!("Server loop ended.");

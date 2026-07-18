@@ -30,7 +30,11 @@ pub enum AppError {
     #[error(transparent)]
     VarRegistryError(#[from] VarRegistryError),
     #[error(transparent)]
-    LogError(#[from] ConfigErrors)
+    LogError(#[from] ConfigErrors),
+    #[error("Async runtime error: {0}")]
+    AsyncError(String),
+    #[error("Channel error: {0}")]
+    ChannelError(String)
 }
 
 impl<T> From<PoisonError<T>> for AppError {

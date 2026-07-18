@@ -6,9 +6,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use log::{debug, error, info, warn};
-use mio::net::UdpSocket;
 use rg_common::{App, Plugin};
-use rg_net::{read_pong, read_server_info};
 use rg_net::write_connect;
 use rg_net::write_hello;
 use rg_net::write_ping;
@@ -16,7 +14,10 @@ use rg_net::write_with_header;
 use rg_net::{MAX_DATAGRAM_SIZE, PacketKind, ProtocolError};
 use rg_net::{NET_BUF_SIZE, process_buf, read_accepted, read_rejected};
 use rg_net::{NetBufReader, NetBufWriter, NetReader, try_write};
+use rg_net::{read_pong, read_server_info};
 
+use crate::application::async_runtime::ClientChannel;
+use crate::client;
 use crate::client::cl_pub_key::PublicKey;
 use crate::error::AppError;
 
@@ -34,9 +35,9 @@ struct ServerProps {
     password: Option<String>,
 }
 
-#[derive(Debug)]
+#[derive()]
 pub(super) struct ClientNetwork {
-    socket: UdpSocket,
+    channel: ClientChannel,
     send_bufs: VecDeque<Vec<u8>>,
     server_props: ServerProps,
     state: ClientState,
@@ -48,12 +49,10 @@ impl ClientNetwork {
     const MAX_LAST_SEEN: Duration = Duration::from_secs(3);
     const CONN_RETRY_INTERVAL: Duration = Duration::from_secs(3);
 
-    pub(crate) fn new(_app: &Arc<App>) -> Result<Self, AppError> {
+    pub(crate) fn new(_app: &Arc<App>, channel: ClientChannel) -> Result<Self, AppError> {
         info!("Creating client network...");
-        let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0).into())
-            .expect("Unable to create client socket!");
         Ok(ClientNetwork {
-            socket,
+            channel,
             send_bufs: VecDeque::new(),
             server_props: ServerProps::default(),
             state: ClientState::Disconnected,
@@ -148,19 +147,22 @@ impl ClientNetwork {
     {
         let pong = read_pong(reader)?;
         let roundtrip_time = Instant::now().elapsed().as_secs_f64() - pong.time;
-        info!("Server ping: {:.1} millis.", (roundtrip_time / 2_000.0f64).abs());
+        info!(
+            "Server ping: {:.1} millis.",
+            (roundtrip_time / 2_000.0f64).abs()
+        );
         Ok(())
     }
 
-    fn receive_from_server(&mut self) {
-        let mut buf = Vec::with_capacity(MAX_DATAGRAM_SIZE);
-        loop {
-            match receive_data(&self.socket, buf.as_mut()) {
-                Ok(Some((_, addr))) => {
+    fn receive_from_server(&mut self, app: &Arc<App>) {
+        let rx = self.channel.rx.clone();
+        for response in rx.try_iter() {
+            match response {
+                client::Response::DatagramReceived { bytes, address } => {
                     self.last_seen = Some(Instant::now());
-                    let mut reader = NetBufReader::new(buf.as_slice());
+                    let mut reader = NetBufReader::new(&bytes);
                     let _ = process_buf(&mut reader, |header, reader| {
-                        debug!("Got server packet {:?} from {}", header, addr);
+                        debug!("Got server packet {:?} from {}", header, address);
 
                         match header.kind {
                             PacketKind::ServerInfo => self.on_server_info(reader),
@@ -177,15 +179,18 @@ impl ClientNetwork {
                     })
                     .inspect_err(|e| error!("Failed to process: {:?}", e));
                 }
-
-                Ok(None) => {
-                    break;
+                client::Response::Ok => todo!(),
+                client::Response::Connected(addr) => {
+                    info!("Client socket connected to {}", addr);
+                    self.state = ClientState::AwaitingAcceptance;
+                    self.server_props.addr = Some(addr);
+                    self.server_props.password = app.vars.try_get_value("server::password");
                 }
-                Err(e) => {
-                    error!("Failed to receive from server: {e:?}");
-                    break;
+                client::Response::Error(e) => {
+                    warn!("Async runtime reports error: {:?}", e);
                 }
             }
+            //loop {
         }
     }
 
@@ -199,15 +204,15 @@ impl ClientNetwork {
 
 impl Plugin for ClientNetwork {
     fn frame_start(&mut self, _app: &Arc<App>) {
-        match self.socket.take_error() {
-            Ok(Some(error)) => error!("Socket error: {error:?}"),
-            Ok(_) => {}
-            Err(error) => error!("Unable to take error: {error:?}"),
-        }
+        // match self.socket.take_error() {
+        //     Ok(Some(error)) => error!("Socket error: {error:?}"),
+        //     Ok(_) => {}
+        //     Err(error) => error!("Unable to take error: {error:?}"),
+        // }
     }
 
     fn update(&mut self, app: &Arc<App>) {
-        self.receive_from_server();
+        self.receive_from_server(app);
         if self.is_time_to_resend() {
             loop {
                 let state = self.state;
@@ -215,17 +220,10 @@ impl Plugin for ClientNetwork {
                     ClientState::Disconnected => {
                         if let Some(addr) = app.vars.try_get_value("server::bound_to") {
                             if let Ok(addr) = addr.parse::<SocketAddr>() {
-                                match self.socket.connect(addr) {
-                                    Ok(_) => {
-                                        info!("Client socket connected to {}", addr);
-                                        self.state = ClientState::AwaitingAcceptance;
-                                        self.server_props.addr = Some(addr);
-                                        self.server_props.password =
-                                            app.vars.try_get_value("server::password");
-                                    }
-                                    Err(e) => {
-                                        error!("Unable to connect socket: {}", e);
-                                    }
+                                if let Err(e) =
+                                    self.channel.tx.send(client::Request::NetworkConnect(addr))
+                                {
+                                    warn!("Unable to send message to async runtime: {}", e);
                                 }
                             } else {
                                 warn!("Unable to parse socket address: {}", addr);
@@ -257,48 +255,14 @@ impl Plugin for ClientNetwork {
 
     fn frame_end(&mut self, _app: &Arc<App>) {
         let bufs = &mut self.send_bufs;
-        let socket = &self.socket;
-        while let Some(b) = bufs.pop_front() {
-            match socket.send(b.as_slice()) {
-                Ok(amount) => {
-                    if amount < b.len() {
-                        warn!("Partial write!");
-                    }
-                    self.last_send = Some(Instant::now());
-                }
-                Err(e) => {
-                    bufs.push_front(b);
-                    if e.kind() != ErrorKind::WouldBlock {
-                        error!("Unable to send data: {:?}", e);
-                    }
-                    debug!("Ending frame with {} unsent buffers", bufs.len());
-                    break;
-                }
+        while let Some(bytes) = bufs.pop_front() {
+            if let Err(_) = self
+                .channel
+                .tx
+                .send(client::Request::SendDatagram { bytes })
+            {
+                debug!("Send channel is closed!");
             }
-        }
-    }
-}
-
-pub(crate) fn receive_data(
-    socket: &UdpSocket,
-    buf: &mut Vec<u8>,
-) -> Result<Option<(usize, SocketAddr)>, AppError> {
-    buf.resize(NET_BUF_SIZE, 0);
-    match socket.recv_from(buf.as_mut_slice()) {
-        Ok((amount, addr)) => {
-            if amount > 0 {
-                buf.truncate(amount);
-                Ok(Some((amount, addr)))
-            } else {
-                Ok(None)
-            }
-        }
-        Err(e) => {
-            return if e.kind() == ErrorKind::WouldBlock {
-                Ok(None) // no data yet
-            } else {
-                Err(AppError::IoError(e.kind()))
-            };
         }
     }
 }

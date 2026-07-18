@@ -1,8 +1,11 @@
-use std::{collections::{hash_map::Entry, HashMap}, net::SocketAddr, sync::mpsc::Sender};
+use std::{
+    collections::{HashMap, hash_map::Entry},
+    net::SocketAddr,
+};
 
+use crate::server;
 
-
-use super::{sv_client::Client, sv_poll::Packet};
+use super::sv_client::Client;
 
 #[derive(Debug, Eq, PartialEq, Hash, Clone, Copy)]
 pub(crate) struct ClientId(pub SocketAddr);
@@ -29,7 +32,7 @@ impl Clients {
         self.clients.get(client_id).is_some()
     }
 
-    pub fn flush(&mut self, tx: &Sender<Packet>) {
+    pub fn flush(&mut self, tx: &flume::Sender<server::Request>) {
         for (client_id, client) in self.clients.iter_mut() {
             client.flush(client_id.0, tx);
         }
