@@ -33,35 +33,36 @@ pub fn init_client_server_async_runtime()
             .build()
             .expect("Async runtime initialization failed!");
 
-        // Server worker
-        let server_handle = rt.spawn(async move {
-            debug!("Starting server worker...");
-            while let Ok(request) = from_server_rx.recv_async().await {
-                let tx = to_server_tx.clone();
-                let send_rx = from_server_rx.clone();
-                tokio::spawn(async move {
-                    let _ = dispatch_server_request(request, tx, send_rx.clone()).await;
-                });
-            }
-            debug!("Leaving server worker loop...");
-        });
+        let _ = rt.block_on(async {
+            // Server worker
+            let server_handle = rt.spawn(async move {
+                debug!("Starting server worker...");
+                while let Ok(request) = from_server_rx.recv_async().await {
+                    let tx = to_server_tx.clone();
+                    let send_rx = from_server_rx.clone();
+                    tokio::spawn(async move {
+                        let _ = dispatch_server_request(request, tx, send_rx.clone()).await;
+                    });
+                }
+                debug!("Leaving server worker loop...");
+            });
 
-        // Client worker
-        let client_handle = rt.spawn(async move {
-            debug!("Starting client worker...");
-            while let Ok(request) = from_client_rx.recv_async().await {
-                let tx = to_client_tx.clone();
-                let send_rx = from_client_rx.clone();
+            // Client worker
+            let client_handle = rt.spawn(async move {
+                debug!("Starting client worker...");
+                while let Ok(request) = from_client_rx.recv_async().await {
+                    let tx = to_client_tx.clone();
+                    let send_rx = from_client_rx.clone();
 
-                tokio::spawn(async move {
-                    let _ = dispatch_client_request(request, tx, send_rx).await;
-                });
-            }
-            debug!("Leaving client worker loop...");
-        });
+                    tokio::spawn(async move {
+                        let _ = dispatch_client_request(request, tx, send_rx).await;
+                    });
+                }
+                debug!("Leaving client worker loop...");
+            });
 
-        let _ = rt.block_on(async { 
-            tokio::join!(server_handle, client_handle) 
+            let _ = server_handle.await;
+            let _ = client_handle.await;
         });
     });
 
