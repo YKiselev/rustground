@@ -24,12 +24,17 @@ pub enum Response {
     Error(AppError),
 }
 
-#[derive(Default)]
 struct AsyncState {
     buffer_pool: Mutex<BufferPool>,
 }
 
 impl AsyncState {
+    fn new() -> Self {
+        Self {
+            buffer_pool: Mutex::new(BufferPool::new(NET_BUF_SIZE, "client-async"))
+        }
+    }
+
     fn aquire_buffer(&self) -> Option<PooledBuffer> {
         if let Ok(mut pool) = self.buffer_pool.lock() {
             return Some(pool.aquire_buffer());
@@ -61,7 +66,7 @@ async fn init_udp_socket_loops(
 ) {
     match tokio::net::UdpSocket::bind("0.0.0.0:0").await {
         Ok(socket) => {
-            let state = Arc::new(AsyncState::default());
+            let state = Arc::new(AsyncState::new());
             let socket = Arc::new(socket);
             match socket.connect(addr).await {
                 Ok(_) => {

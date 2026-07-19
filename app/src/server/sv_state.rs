@@ -53,7 +53,7 @@ impl ServerState {
 
         drop(cfg);
 
-        let buffer_pool = Arc::new(Mutex::new(BufferPool::new(NET_BUF_SIZE)));
+        let buffer_pool = Arc::new(Mutex::new(BufferPool::new(NET_BUF_SIZE, "server")));
 
         Ok(ServerState {
             config: Arc::clone(config),

@@ -31,13 +31,19 @@ pub enum Response {
     },
 }
 
-#[derive(Default)]
 struct AsyncState {
     exit_flag: AtomicBool,
     buffer_pool: Mutex<BufferPool>,
 }
 
 impl AsyncState {
+    fn new() -> Self {
+        Self {
+            exit_flag: AtomicBool::new(false),
+            buffer_pool: Mutex::new(BufferPool::new(NET_BUF_SIZE, "server-async")),
+        }
+    }
+
     fn should_exit(&self) -> bool {
         self.exit_flag.load(Ordering::Relaxed)
     }
@@ -62,7 +68,7 @@ pub async fn dispatch_server_request(
     tx: flume::Sender<Response>,
     sender_rx: flume::Receiver<Request>,
 ) {
-    let state = Arc::new(AsyncState::default());
+    let state = Arc::new(AsyncState::new());
     match request {
         Request::StartNetworkLoop(addr) => {
             state.exit_flag.store(false, Ordering::Release);

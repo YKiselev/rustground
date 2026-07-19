@@ -54,7 +54,7 @@ impl ClientNetwork {
         Ok(ClientNetwork {
             channel,
             send_bufs: VecDeque::new(),
-            buffer_pool: BufferPool::new(NET_BUF_SIZE),
+            buffer_pool: BufferPool::new(NET_BUF_SIZE, "client"),
             server_props: ServerProps::default(),
             state: ClientState::Disconnected,
             last_seen: None,
