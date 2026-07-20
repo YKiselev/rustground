@@ -1,10 +1,11 @@
 use std::fmt::Write;
 
+use bytes::BytesMut;
 use log::{error, info};
 use num_enum::TryFromPrimitive;
 
 use crate::{
-    Header, MIN_HEADER_SIZE, PooledBuffer, protocol::{NET_BUF_SIZE, ProtocolError, check_bounds}, read_header,
+    Header, MIN_HEADER_SIZE, protocol::{NET_BUF_SIZE, ProtocolError, check_bounds}, read_header,
 };
 
 ///
@@ -343,13 +344,13 @@ pub fn read_u64(buf: &[u8], offset: usize) -> Result<u64, ProtocolError> {
 /// Tries to append data to provided [buf].
 /// In case of overflow rolls back to initial vector length and returns [Ok(false)]
 ///
-pub fn try_write<H>(buf: &mut PooledBuffer, mut handler: H) -> Result<bool, ProtocolError>
+pub fn try_write<H>(mut buf: &mut BytesMut, mut handler: H) -> Result<bool, ProtocolError>
 where
     H: FnMut(&mut NetBufWriter) -> Result<(), ProtocolError>,
 {
     let mark = buf.len();
     buf.resize(NET_BUF_SIZE, 0);
-    let mut writer = NetBufWriter::new(buf.as_mut_slice());
+    let mut writer = NetBufWriter::new(&mut buf);
     writer.set_pos(mark).expect("Unable to set mark!");
     let r = handler(&mut writer);
     let size = writer.pos();

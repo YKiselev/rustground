@@ -1,15 +1,13 @@
 use std::{
-    cell::RefCell,
     net::SocketAddr,
-    rc::Rc,
     sync::{Arc, Mutex, RwLock},
 };
 
+use bytes::Bytes;
 use log::{debug, info, warn};
 use rg_common::App;
 use rg_net::{
-    BufferPool, NET_BUF_SIZE, NetBufReader, PacketKind, PooledBuffer, process_buf, read_connect,
-    read_hello, read_ping,
+    NET_BUF_SIZE, NetBufReader, PacketKind, process_buf, read_connect, read_hello, read_ping,
 };
 
 use crate::{
@@ -32,7 +30,6 @@ pub(super) struct ServerState {
     guests: Guests,
     security: ServerSecurity,
     channel: ServerChannel,
-    buffer_pool: Arc<Mutex<BufferPool>>,
 }
 
 impl ServerState {
@@ -49,19 +46,16 @@ impl ServerState {
             .send(server::Request::StartNetworkLoop(addr))
             .map_err(|e| AppError::ChannelError(e.to_string()))?;
 
-        let security = ServerSecurity::new(cfg.key_bits, &cfg.password)?;
+        let security = ServerSecurity::new(cfg.key_bits, cfg.password.to_owned())?;
 
         drop(cfg);
-
-        let buffer_pool = Arc::new(Mutex::new(BufferPool::new(NET_BUF_SIZE, "server")));
 
         Ok(ServerState {
             config: Arc::clone(config),
             clients: Clients::new(),
-            guests: Guests::new(Arc::clone(&buffer_pool)),
+            guests: Guests::new(),
             security,
-            channel,
-            buffer_pool,
+            channel
         })
     }
 
@@ -83,10 +77,7 @@ impl ServerState {
                     cfg.bound_to = Some(socket_addr.to_string());
                 }
                 server::Response::DatagramReceived { bytes, address } => {
-                    self.process_network_datagram(address, &bytes);
-                    if let Ok(mut pool) = self.buffer_pool.lock() {
-                        pool.release_buffer(bytes);
-                    }
+                    self.process_network_datagram(address, bytes);
                 }
             }
         }
@@ -98,13 +89,13 @@ impl ServerState {
         Ok(())
     }
 
-    fn process_network_datagram(&mut self, address: SocketAddr, bytes: &PooledBuffer) {
+    fn process_network_datagram(&mut self, address: SocketAddr, bytes: Bytes) {
         let clients = &mut self.clients;
         let guests = &mut self.guests;
         let security = &self.security;
 
         let client_id = ClientId::new(address);
-        let mut reader = NetBufReader::new(bytes.as_slice());
+        let mut reader = NetBufReader::new(&bytes);
         let _ = process_buf(&mut reader, |header, reader| {
             debug!("Got {:?} from client {}", header, address);
             match header.kind {

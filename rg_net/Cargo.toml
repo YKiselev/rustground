@@ -8,3 +8,4 @@ rg_macros = { path = "../rg_macros" }
 num_enum = { workspace = true }
 log = { workspace = true }
 thiserror = { workspace = true }
+bytes = { workspace = true }

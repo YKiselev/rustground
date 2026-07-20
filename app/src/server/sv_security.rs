@@ -8,11 +8,11 @@ pub(super) struct ServerSecurity {
 }
 
 impl ServerSecurity {
-    pub(super) fn new(key_bits: usize, pwd: &Option<String>) -> Result<Self, AppError> {
+    pub(super) fn new(key_bits: usize, password: Option<String>) -> Result<Self, AppError> {
         let keys = KeyPair::new(key_bits)?;
         Ok(Self {
             keys,
-            password: pwd.to_owned(),
+            password
         })
     }
 

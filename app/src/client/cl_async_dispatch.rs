@@ -1,53 +1,28 @@
-use std::{
-    net::SocketAddr,
-    sync::{Arc, Mutex},
-};
+use std::{net::SocketAddr, sync::Arc};
 
+use bytes::{Bytes, BytesMut};
 use log::{debug, error, warn};
-use rg_net::{BufferPool, NET_BUF_SIZE, PooledBuffer};
+use rg_net::NET_BUF_SIZE;
 
 use crate::error::AppError;
 
 #[derive(Debug)]
 pub enum Request {
     NetworkConnect(SocketAddr),
-    SendDatagram { bytes: PooledBuffer },
+    SendDatagram { bytes: Bytes },
 }
 
 #[derive(Debug)]
 pub enum Response {
     Connected(SocketAddr),
-    DatagramReceived {
-        bytes: PooledBuffer,
-        address: SocketAddr,
-    },
+    DatagramReceived { bytes: Bytes, address: SocketAddr },
     Error(AppError),
-}
-
-struct AsyncState {
-    buffer_pool: Mutex<BufferPool>,
-}
-
-impl AsyncState {
-    fn new() -> Self {
-        Self {
-            buffer_pool: Mutex::new(BufferPool::new(NET_BUF_SIZE, "client-async"))
-        }
-    }
-
-    fn aquire_buffer(&self) -> Option<PooledBuffer> {
-        if let Ok(mut pool) = self.buffer_pool.lock() {
-            return Some(pool.aquire_buffer());
-        }
-
-        None
-    }
 }
 
 pub async fn dispatch_client_request(
     request: Request,
     tx: flume::Sender<Response>,
-    sender_rx: flume::Receiver<Request>
+    sender_rx: flume::Receiver<Request>,
 ) {
     match request {
         Request::NetworkConnect(addr) => {
@@ -55,7 +30,7 @@ pub async fn dispatch_client_request(
                 init_udp_socket_loops(addr, tx, sender_rx).await;
             });
         }
-        _ => {},
+        _ => {}
     }
 }
 
@@ -66,7 +41,6 @@ async fn init_udp_socket_loops(
 ) {
     match tokio::net::UdpSocket::bind("0.0.0.0:0").await {
         Ok(socket) => {
-            let state = Arc::new(AsyncState::new());
             let socket = Arc::new(socket);
             match socket.connect(addr).await {
                 Ok(_) => {
@@ -81,14 +55,12 @@ async fn init_udp_socket_loops(
             }
 
             let socket_clone = Arc::clone(&socket);
-            let state_clone = Arc::clone(&state);
             let receive_loop = tokio::spawn(async move {
-                run_socket_receive_loop(socket_clone, tx, state_clone).await;
+                run_socket_receive_loop(socket_clone, tx).await;
             });
             let socket_clone = Arc::clone(&socket);
-            let state_clone = Arc::clone(&state);
             let send_loop = tokio::spawn(async move {
-                run_socket_send_loop(socket_clone, sender_rx, state_clone).await;
+                run_socket_send_loop(socket_clone, sender_rx).await;
             });
 
             let _ = tokio::join!(receive_loop, send_loop);
@@ -105,31 +77,25 @@ async fn init_udp_socket_loops(
     };
 }
 
-async fn run_socket_receive_loop(
-    socket: Arc<tokio::net::UdpSocket>,
-    tx: flume::Sender<Response>,
-    state: Arc<AsyncState>,
-) {
+async fn run_socket_receive_loop(socket: Arc<tokio::net::UdpSocket>, tx: flume::Sender<Response>) {
+    let mut bytes = BytesMut::with_capacity(8 * NET_BUF_SIZE);
     loop {
-        let bytes = state.aquire_buffer();
-        if bytes.is_none() {
-            warn!("Unable to aquire network buffer from pool!");
-            break;
-        }
-        let mut bytes = bytes.unwrap();
         bytes.resize(NET_BUF_SIZE, 0);
-        match socket.recv_from(bytes.as_mut_slice()).await {
+        match socket.recv_from(&mut bytes).await {
             Ok((size, client_addr)) => {
-                bytes.truncate(size);
-                if let Err(_) = tx
-                    .send_async(Response::DatagramReceived {
-                        bytes,
-                        address: client_addr,
-                    })
-                    .await
-                {
-                    debug!("tx channel is closed!");
-                    break; // channel is closed, leave loop
+                if size > 0 {
+                    debug!("Received {} bytes from server", size);
+                    let buf = bytes.split_to(size).freeze();
+                    if let Err(_) = tx
+                        .send_async(Response::DatagramReceived {
+                            bytes: buf,
+                            address: client_addr,
+                        })
+                        .await
+                    {
+                        debug!("tx channel is closed!");
+                        break; // channel is closed, leave loop
+                    }
                 }
             }
             Err(e) => {
@@ -140,19 +106,13 @@ async fn run_socket_receive_loop(
     debug!("Leaving client receive loop...");
 }
 
-async fn run_socket_send_loop(
-    socket: Arc<tokio::net::UdpSocket>,
-    rx: flume::Receiver<Request>,
-    state: Arc<AsyncState>,
-) {
+async fn run_socket_send_loop(socket: Arc<tokio::net::UdpSocket>, rx: flume::Receiver<Request>) {
     while let Ok(request) = rx.recv_async().await {
         match request {
             Request::SendDatagram { bytes } => {
-                if let Err(e) = socket.send(bytes.as_slice()).await {
+                debug!("Sending {} bytes to server", bytes.len());
+                if let Err(e) = socket.send(&bytes).await {
                     warn!("Failed to send {} byte(s): {:?}", bytes.len(), e);
-                }
-                if let Ok(mut pool) = state.buffer_pool.lock() {
-                    pool.release_buffer(bytes);
                 }
             }
             _ => {}

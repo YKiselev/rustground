@@ -6,8 +6,9 @@ use std::{
     },
 };
 
+use bytes::{Bytes, BytesMut};
 use log::{debug, error, info, warn};
-use rg_net::{BufferPool, NET_BUF_SIZE, PooledBuffer};
+use rg_net::NET_BUF_SIZE;
 
 use crate::error::AppError;
 
@@ -15,51 +16,29 @@ use crate::error::AppError;
 pub enum Request {
     StartNetworkLoop(SocketAddr),
     StopNetworkLoop,
-    SendDatagram {
-        addr: SocketAddr,
-        bytes: PooledBuffer,
-    },
+    SendDatagram { addr: SocketAddr, bytes: Bytes },
 }
 
 #[derive()]
 pub enum Response {
     Error(AppError),
     NetworkLoopStarted(SocketAddr),
-    DatagramReceived {
-        bytes: PooledBuffer,
-        address: SocketAddr,
-    },
+    DatagramReceived { bytes: Bytes, address: SocketAddr },
 }
 
 struct AsyncState {
     exit_flag: AtomicBool,
-    buffer_pool: Mutex<BufferPool>,
 }
 
 impl AsyncState {
     fn new() -> Self {
         Self {
             exit_flag: AtomicBool::new(false),
-            buffer_pool: Mutex::new(BufferPool::new(NET_BUF_SIZE, "server-async")),
         }
     }
 
     fn should_exit(&self) -> bool {
         self.exit_flag.load(Ordering::Relaxed)
-    }
-
-    fn aquire_buffer(&self) -> Option<PooledBuffer> {
-        if let Ok(mut pool) = self.buffer_pool.lock() {
-            Some(pool.aquire_buffer())
-        } else {
-            None
-        }
-    }
-
-    fn release_buffer(&self, buf: PooledBuffer) {
-        if let Ok(mut pool) = self.buffer_pool.lock() {
-            pool.release_buffer(buf);
-        }
     }
 }
 
@@ -138,26 +117,24 @@ async fn run_socket_receive_loop(
     state: Arc<AsyncState>,
 ) {
     debug!("Entering server receive loop...");
+    let mut bytes = BytesMut::with_capacity(8 * NET_BUF_SIZE);
     loop {
-        let bytes = state.aquire_buffer();
-        if bytes.is_none() {
-            warn!("Unable to get network buffer from pool!");
-            break;
-        }
-        let mut bytes = bytes.unwrap();
         bytes.resize(NET_BUF_SIZE, 0);
-        match socket.recv_from(bytes.as_mut_slice()).await {
+        match socket.recv_from(&mut bytes).await {
             Ok((size, client_addr)) => {
-                bytes.truncate(size);
-                if let Err(_) = tx
-                    .send_async(Response::DatagramReceived {
-                        bytes,
-                        address: client_addr,
-                    })
-                    .await
-                {
-                    debug!("tx channel closed");
-                    break; // channel is closed, leave loop
+                if size > 0 {
+                    debug!("Received {} bytes from client", size);
+                    let buf = bytes.split_to(size).freeze();
+                    if let Err(_) = tx
+                        .send_async(Response::DatagramReceived {
+                            bytes: buf,
+                            address: client_addr,
+                        })
+                        .await
+                    {
+                        debug!("tx channel closed");
+                        break; // channel is closed, leave loop
+                    }
                 }
             }
             Err(e) => {
@@ -183,7 +160,8 @@ async fn run_socket_send_loop(
     {
         match request {
             Request::SendDatagram { addr, bytes } => {
-                if let Err(e) = socket.send_to(bytes.as_slice(), addr).await {
+                debug!("Sending {} bytes to client", bytes.len());
+                if let Err(e) = socket.send_to(&bytes, addr).await {
                     warn!(
                         "Failed to send {} byte(s) to {}: {:?}",
                         bytes.len(),
@@ -191,7 +169,6 @@ async fn run_socket_send_loop(
                         e
                     );
                 }
-                state.release_buffer(bytes);
             }
             _ => {}
         }

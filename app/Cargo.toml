@@ -17,15 +17,15 @@ rand = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 toml = { workspace = true }
 argh = { workspace = true }
-#mio = { workspace = true, features = ["os-poll", "net"] }
 paste = { workspace = true }
 winit = { workspace = true }
 thiserror = { workspace = true }
 glam = { workspace = true }
 indexmap = { workspace = true }
 rustc-hash = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread", "net", "macros"] } 
+tokio = { workspace = true, features = ["rt-multi-thread", "net", "macros"] }
 flume = { workspace = true }
+bytes = { workspace = true }
 
 [build-dependencies]
 shaderc = "0.10.1"

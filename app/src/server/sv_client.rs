@@ -2,16 +2,20 @@ use std::collections::VecDeque;
 use std::net::SocketAddr;
 use std::time::Instant;
 
+use bytes::BytesMut;
 use log::debug;
-use rg_net::PooledBuffer;
+use rg_net::MAX_DATAGRAM_SIZE;
 
 use crate::server;
+
+const BUF_ALLOCATOR_SIZE: usize = 8 * MAX_DATAGRAM_SIZE;
 
 #[derive(Debug)]
 pub struct Client {
     name: String,
     last_seen: Instant,
-    send_buf: VecDeque<PooledBuffer>,
+    send_buf: VecDeque<BytesMut>,
+    buf_allocator: BytesMut
 }
 
 impl Client {
@@ -20,6 +24,7 @@ impl Client {
             name: name.to_string(),
             last_seen: Instant::now(),
             send_buf: VecDeque::new(),
+            buf_allocator: BytesMut::with_capacity(BUF_ALLOCATOR_SIZE)
         }
     }
 
@@ -29,7 +34,7 @@ impl Client {
 
     pub fn flush(&mut self, addr: SocketAddr, tx: &flume::Sender<server::Request>) {
         while let Some(bytes) = self.send_buf.pop_front() {
-            match tx.send(server::Request::SendDatagram { addr, bytes }) {
+            match tx.send(server::Request::SendDatagram { addr, bytes: bytes.freeze() }) {
                 Ok(_) => {}
                 Err(_) => {
                     debug!("Send channel is closed!");

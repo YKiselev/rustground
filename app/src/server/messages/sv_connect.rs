@@ -18,6 +18,7 @@ pub(crate) fn on_connect(
 ) -> Result<(), AppError> {
     let decoded = security.decode(connect.password)?;
     let guest = guests.get_or_create(*client_id);
+    info!("Got password from client {:?}: {}!", client_id, String::from_utf8_lossy(&decoded));
     if !security.is_password_ok(&decoded) {
         info!("Wrong password from client {:?}!", client_id);
         guest.send_rejected(RejectionReason::Unauthorized);

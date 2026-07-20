@@ -1,7 +1,7 @@
 use crate::application::async_runtime::ServerChannel;
 use crate::error::AppError;
 use crate::server::Server;
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use rg_common::App;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -28,8 +28,11 @@ fn start_server_thread(
         .spawn(move || {
             let mut time = Instant::now();
             let mut lag = 0u128;
+            
             const MILLIS_PER_UPDATE: u128 = 10;
+
             info!("Entering server main loop...");
+
             while !app.is_exit() {
                 let delta = time.elapsed();
                 time = Instant::now();
@@ -47,12 +50,9 @@ fn start_server_thread(
                         }
                     }
                 }
+                
                 let sleep = MILLIS_PER_UPDATE.saturating_sub(lag);
-                if sleep >= 2 {
-                    thread::sleep(Duration::from_millis(sleep.saturating_sub(1) as _));
-                } else {
-                    std::hint::spin_loop();
-                }
+                thread::sleep(Duration::from_millis(sleep as _));
             }
             info!("Server loop ended.");
         })?;

@@ -4,15 +4,16 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use bytes::BytesMut;
 use log::{debug, error, info, warn};
 use rg_common::{App, Plugin};
 use rg_net::write_hello;
 use rg_net::write_ping;
 use rg_net::write_with_header;
-use rg_net::{BufferPool, PooledBuffer, write_connect};
-use rg_net::{NET_BUF_SIZE, process_buf, read_accepted, read_rejected};
+use rg_net::{MAX_DATAGRAM_SIZE, write_connect};
 use rg_net::{NetBufReader, NetBufWriter, NetReader, try_write};
 use rg_net::{PacketKind, ProtocolError};
+use rg_net::{process_buf, read_accepted, read_rejected};
 use rg_net::{read_pong, read_server_info};
 
 use crate::application::async_runtime::ClientChannel;
@@ -20,9 +21,12 @@ use crate::client;
 use crate::client::cl_pub_key::PublicKey;
 use crate::error::AppError;
 
+const BUF_ALLOCATOR_SIZE: usize = 8 * MAX_DATAGRAM_SIZE;
+
 #[derive(Eq, PartialEq, Clone, Copy, Debug)]
 enum ClientState {
     Disconnected,
+    Connecting,
     AwaitingAcceptance,
     Accepted,
 }
@@ -37,8 +41,8 @@ struct ServerProps {
 #[derive()]
 pub(super) struct ClientNetwork {
     channel: ClientChannel,
-    send_bufs: VecDeque<PooledBuffer>,
-    buffer_pool: BufferPool,
+    buf_allocator: BytesMut,
+    send_bufs: VecDeque<BytesMut>,
     server_props: ServerProps,
     state: ClientState,
     last_seen: Option<Instant>,
@@ -53,8 +57,8 @@ impl ClientNetwork {
         info!("Creating client network...");
         Ok(ClientNetwork {
             channel,
+            buf_allocator: BytesMut::with_capacity(BUF_ALLOCATOR_SIZE),
             send_bufs: VecDeque::new(),
-            buffer_pool: BufferPool::new(NET_BUF_SIZE, "client"),
             server_props: ServerProps::default(),
             state: ClientState::Disconnected,
             last_seen: None,
@@ -77,7 +81,14 @@ impl ClientNetwork {
                     Err(e) => error!("Failed to write send buffer: {}", e),
                 }
             }
-            self.send_bufs.push_back(self.buffer_pool.aquire_buffer());
+
+            if !self.buf_allocator.try_reclaim(MAX_DATAGRAM_SIZE) {
+                warn!("Unable to reclaim {} bytes", MAX_DATAGRAM_SIZE);
+            }
+
+            let rest = self.buf_allocator.split_off(MAX_DATAGRAM_SIZE);
+            let new_buf = std::mem::replace(&mut self.buf_allocator, rest);
+            self.send_bufs.push_back(new_buf);
         }
         Ok(())
     }
@@ -161,7 +172,7 @@ impl ClientNetwork {
             match response {
                 client::Response::DatagramReceived { bytes, address } => {
                     self.last_seen = Some(Instant::now());
-                    let mut reader = NetBufReader::new(bytes.as_slice());
+                    let mut reader = NetBufReader::new(&bytes);
                     let _ = process_buf(&mut reader, |header, reader| {
                         debug!("Got server packet {:?} from {}", header, address);
 
@@ -179,8 +190,6 @@ impl ClientNetwork {
                         .is_ok()
                     })
                     .inspect_err(|e| error!("Failed to process: {:?}", e));
-
-                    self.buffer_pool.release_buffer(bytes);
                 }
                 client::Response::Connected(addr) => {
                     info!("Client socket connected to {}", addr);
@@ -212,21 +221,20 @@ impl Plugin for ClientNetwork {
             loop {
                 let state = self.state;
                 match state {
-                    ClientState::Disconnected => {
+                    ClientState::Disconnected => {}
+                    ClientState::Connecting => {
                         if let Some(addr) = app.vars.try_get_value("server::bound_to") {
-                            //if addr != "None" {
-                                if let Ok(addr) = addr.parse::<SocketAddr>() {
-                                    if let Err(e) =
-                                        self.channel.tx.send(client::Request::NetworkConnect(addr))
-                                    {
-                                        warn!("Unable to send message to async runtime: {}", e);
-                                    }
-                                } else {
-                                    warn!("Unable to parse socket address: {}", addr);
+                            if let Ok(addr) = addr.parse::<SocketAddr>() {
+                                if let Err(e) =
+                                    self.channel.tx.send(client::Request::NetworkConnect(addr))
+                                {
+                                    warn!("Unable to send message to async runtime: {}", e);
                                 }
-                            //} else {
-                                self.last_send = Some(Instant::now());
-                            //}
+                            } else {
+                                warn!("Unable to parse socket address: {}", addr);
+                            }
+
+                            self.last_send = Some(Instant::now());
                         } else {
                             warn!("Server not bound yet?");
                         }
@@ -256,11 +264,9 @@ impl Plugin for ClientNetwork {
         let bufs = &mut self.send_bufs;
         let mut sends = 0;
         while let Some(bytes) = bufs.pop_front() {
-            if let Err(_) = self
-                .channel
-                .tx
-                .send(client::Request::SendDatagram { bytes })
-            {
+            if let Err(_) = self.channel.tx.send(client::Request::SendDatagram {
+                bytes: bytes.freeze(),
+            }) {
                 debug!("Send channel is closed!");
             }
             sends += 1;

@@ -1,14 +1,14 @@
 use std::{
     collections::{HashMap, VecDeque},
     net::SocketAddr,
-    sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 
+use bytes::BytesMut;
 use log::{debug, warn};
 use rg_net::{
-    BufferPool, NetBufWriter, PacketKind, Ping, PooledBuffer, ProtocolError, RejectionReason,
-    try_write, write_accepted, write_pong, write_rejected, write_server_info, write_with_header,
+    MAX_DATAGRAM_SIZE, NetBufWriter, PacketKind, Ping, ProtocolError, RejectionReason, try_write,
+    write_accepted, write_pong, write_rejected, write_server_info, write_with_header,
 };
 
 use crate::server;
@@ -16,22 +16,21 @@ use crate::server;
 use super::sv_clients::ClientId;
 
 const OBSOLETE_AFTER: Duration = Duration::from_secs(2 * 60);
-
-type PoolAccess = dyn Fn() -> PooledBuffer;
+const BUF_ALLOCATOR_SIZE: usize = 8 * MAX_DATAGRAM_SIZE;
 
 #[derive()]
 pub(super) struct Guest {
-    send_buf: VecDeque<PooledBuffer>,
+    send_buf: VecDeque<BytesMut>,
     received_at: Option<Instant>,
-    buffer_pool: Arc<Mutex<BufferPool>>,
+    buf_allocator: BytesMut,
 }
 
 impl Guest {
-    pub fn new(buffer_pool: Arc<Mutex<BufferPool>>) -> Self {
+    pub fn new() -> Self {
         Self {
             send_buf: VecDeque::new(),
             received_at: None,
-            buffer_pool,
+            buf_allocator: BytesMut::with_capacity(BUF_ALLOCATOR_SIZE),
         }
     }
 
@@ -46,7 +45,7 @@ impl Guest {
     pub fn send_rejected(&mut self, reason: RejectionReason) {
         let _ = self
             .write_to_send_buf(|w| {
-                write_with_header(w, PacketKind::Accepted, |w| write_rejected(w, reason))
+                write_with_header(w, PacketKind::Rejected, |w| write_rejected(w, reason))
             })
             .inspect_err(|e| warn!("Failed to write server info: {:?}", e));
     }
@@ -69,7 +68,10 @@ impl Guest {
 
     pub fn flush(&mut self, addr: SocketAddr, tx: &flume::Sender<server::Request>) {
         while let Some(bytes) = self.send_buf.pop_front() {
-            if let Err(_) = tx.send(server::Request::SendDatagram { addr, bytes }) {
+            if let Err(_) = tx.send(server::Request::SendDatagram {
+                addr,
+                bytes: bytes.freeze(),
+            }) {
                 debug!("Send channel is closed!");
                 break;
             }
@@ -101,9 +103,14 @@ impl Guest {
                     Err(e) => return Err(e),
                 }
             }
-            if let Ok(mut pool) = self.buffer_pool.lock() {
-                self.send_buf.push_back(pool.aquire_buffer());
+
+            if !self.buf_allocator.try_reclaim(MAX_DATAGRAM_SIZE) {
+                warn!("Unable to reclaim {} bytes", MAX_DATAGRAM_SIZE);
             }
+
+            let rest = self.buf_allocator.split_off(MAX_DATAGRAM_SIZE);
+            let new_buf = std::mem::replace(&mut self.buf_allocator, rest);
+            self.send_buf.push_back(new_buf);
         }
         Ok(())
     }
@@ -112,21 +119,17 @@ impl Guest {
 #[derive()]
 pub(super) struct Guests {
     guests: HashMap<ClientId, Guest>,
-    buffer_pool: Arc<Mutex<BufferPool>>,
 }
 
 impl Guests {
-    pub fn new(buffer_pool: Arc<Mutex<BufferPool>>) -> Self {
+    pub fn new() -> Self {
         Self {
             guests: HashMap::new(),
-            buffer_pool,
         }
     }
 
     pub fn get_or_create(&mut self, id: ClientId) -> &mut Guest {
-        self.guests
-            .entry(id)
-            .or_insert_with(|| Guest::new(Arc::clone(&self.buffer_pool)))
+        self.guests.entry(id).or_insert_with(|| Guest::new())
     }
 
     pub fn flush(&mut self, tx: &flume::Sender<server::Request>) {
