@@ -23,7 +23,7 @@ pub fn run_client_server(args: Arguments) -> Result<(), AppError> {
 
     let (async_handle, server_channel, client_channel) = init_client_server_async_runtime()?;
 
-    let (server, sv_handle) = server::init(&app, server_channel)?;
+    let sv_handle = server::init(&app, server_channel)?;
     let event_loop = EventLoop::<ClientEvent>::with_user_event().build()?;
     //let proxy = event_loop.create_proxy();
     //proxy.send_event(ClientEvent::new());
@@ -34,14 +34,12 @@ pub fn run_client_server(args: Arguments) -> Result<(), AppError> {
     info!("Entering main loop...");
     event_loop.run_app(&mut client)?;
 
-    server.lock()?.shutdown();
     debug!("Joining server thread...");
     let _ = sv_handle
         .join()
         .inspect_err(|e| warn!("Failed to join server thread: {:?}", e));
 
     std::mem::drop(client);
-    std::mem::drop(server);
 
     let _ = async_handle
         .join()

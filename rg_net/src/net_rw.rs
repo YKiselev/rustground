@@ -5,7 +5,9 @@ use log::{error, info};
 use num_enum::TryFromPrimitive;
 
 use crate::{
-    Header, MIN_HEADER_SIZE, protocol::{NET_BUF_SIZE, ProtocolError, check_bounds}, read_header,
+    HEADER_SIZE, Header,
+    protocol::{NET_BUF_SIZE, ProtocolError, check_bounds},
+    read_header,
 };
 
 ///
@@ -114,7 +116,7 @@ pub trait NetReader<'a>: WithPosition {
         E: TryFromPrimitive<Primitive = u8>,
     {
         let v = self.read_u8()?;
-        E::try_from_primitive(v).map_err(|e| ProtocolError::BadEnumTag { value: v as isize })
+        E::try_from_primitive(v).map_err(|_| ProtocolError::BadEnumTag { value: v as isize })
     }
 }
 
@@ -210,6 +212,35 @@ impl<'a> NetBufReader<'a> {
 
     pub fn buf(&self) -> &[u8] {
         &self.buf
+    }
+
+    pub fn split_at(&mut self, at: usize) -> Option<NetBufReader<'a>> {
+        let (buf, rest) = self.buf.split_at_checked(at)?;
+
+        self.buf = rest;
+        self.offset = 0;
+
+        Some(NetBufReader { buf, offset: 0 })
+    }
+
+    pub fn read_next_packet(&mut self) -> Option<(Header, NetBufReader<'a>)> {
+        if self.available() < HEADER_SIZE {
+            return None;
+        }
+        match read_header(self) {
+            Ok(header) => {
+                let amount = header.size as usize;
+                // Skip header bytes
+                let _ = self.split_at(self.pos())?;
+                // Split to packet data and the rest
+                let packet = self.split_at(amount)?;
+                Some((header, packet))
+            }
+            Err(e) => {
+                error!("Failed to read packet: {:?}", e);
+                None
+            }
+        }
     }
 }
 
@@ -370,72 +401,6 @@ where
     }
 }
 
-pub fn process_buf<'a, H, R>(reader: &mut R, mut handler: H) -> Result<(), ProtocolError>
-where
-    R: NetReader<'a>,
-    H: FnMut(&Header, &mut R) -> bool,
-{
-    let init_pos = reader.pos();
-    while reader.available() >= MIN_HEADER_SIZE {
-        match read_header(reader) {
-            Ok(header) => {
-                let amount = header.size as usize;
-                let mark = reader.pos();
-                if !handler(&header, reader) {
-                    if let Err(e) = reader.set_pos(mark + amount) {
-                        error!("Failed to skip packet: {e:?}");
-                    }
-                }
-            }
-            Err(e) => {
-                error!("Failed to read packet: {e:?}");
-                reader.set_pos(init_pos)?;
-                dump_packets(reader)?;
-                break;
-            }
-        }
-    }
-    Ok(())
-}
-
-fn dump_packets<'a, R>(reader: &mut R) -> Result<(), ProtocolError>
-where
-    R: NetReader<'a>,
-{
-    let mut buf = String::default();
-    let w = &mut buf;
-    write!(w, "Dumping buffer:\n")?;
-    while reader.available() >= MIN_HEADER_SIZE {
-        let packet_start = reader.pos();
-        match read_header(reader) {
-            Ok(header) => {
-                write!(w, "\t{:?}\n", header)?;
-                let amount = header.size as usize;
-                if amount > 0 {
-                    let mark = reader.pos();
-                    write!(w, "Payload: ")?;
-                    reader.dump(w, amount.min(16))?;
-                    if let Err(e) = reader.set_pos(mark + amount) {
-                        write!(w, "Failed to skip packet: {e:?}\n")?;
-                    }
-                }
-            }
-            Err(_) => {
-                if let Ok(_) = reader.set_pos(packet_start) {
-                    write!(w, "Packet: ")?;
-                    reader.dump(w, reader.available().min(16))?;
-                } else {
-                    write!(w, "Unable to set reader pos!\n")?;
-                }
-                break;
-            }
-        }
-    }
-    write!(w, "===\n")?;
-    info!("{}", buf);
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use crate::net_rw::{NetBufReader, NetBufWriter, NetReader, NetWriter, WithPosition};
@@ -476,7 +441,9 @@ mod tests {
 
             assert_eq!(
                 writer.buf(),
-                &[251, 216, 240, 255, 255, 255, 253, 255, 255, 255, 255, 255, 245, 81, 160, 0]
+                &[
+                    251, 216, 240, 255, 255, 255, 253, 255, 255, 255, 255, 255, 245, 81, 160, 0
+                ]
             );
         }
         let mut reader = NetBufReader::new(v);
@@ -495,7 +462,9 @@ mod tests {
             writer.write_f64(0.00000456f64).unwrap();
             assert_eq!(
                 writer.buf(),
-                &[64, 73, 14, 86, 62, 211, 32, 67, 65, 115, 60, 228, 0, 0, 0, 0]
+                &[
+                    64, 73, 14, 86, 62, 211, 32, 67, 65, 115, 60, 228, 0, 0, 0, 0
+                ]
             );
         }
         let mut reader = NetBufReader::new(v);
@@ -512,7 +481,9 @@ mod tests {
             writer.write_str("Test string").unwrap();
             assert_eq!(
                 writer.buf(),
-                &[0, 5, 1, 0, 1, 0, 1, 0, 11, 84, 101, 115, 116, 32, 115, 116, 114, 105, 110, 103]
+                &[
+                    0, 5, 1, 0, 1, 0, 1, 0, 11, 84, 101, 115, 116, 32, 115, 116, 114, 105, 110, 103
+                ]
             );
         }
         let mut reader = NetBufReader::new(v);

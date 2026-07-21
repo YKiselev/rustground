@@ -5,7 +5,7 @@ use thiserror::Error;
 
 pub const MAX_DATAGRAM_SIZE: usize = 65507;
 pub const NET_BUF_SIZE: usize = 65536;
-pub const MIN_HEADER_SIZE: usize = 3;
+pub const HEADER_SIZE: usize = 3; // Note: wire representation of header doesn't have any padding!
 pub const PROTOCOL_VERSION: Version = Version(1, 0);
 
 #[derive(Debug, Error, PartialEq)]
@@ -59,7 +59,7 @@ pub enum PacketKind {
 pub struct Version(pub u8, pub u8);
 
 ///
-///
+/// Deserialized packet header
 ///
 #[derive(Debug, PartialEq)]
 pub struct Header {
@@ -68,9 +68,9 @@ pub struct Header {
 }
 
 ///
-/// Hello packet
+/// Hello packet.
 ///
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub struct Hello {
     pub version: Version,
 }
@@ -78,14 +78,14 @@ pub struct Hello {
 ///
 /// ServerInfo packet. Sent by server in response to Hello packet from client
 ///
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub struct ServerInfo<'a> {
     pub version: Version,
     pub key: &'a [u8],
 }
 
 ///
-/// Connect packet. Sent by client
+/// Connect packet. Sent by client in response to ServerInfo
 ///
 #[derive(Debug, PartialEq)]
 pub struct Connect<'a> {
@@ -93,9 +93,15 @@ pub struct Connect<'a> {
     pub password: &'a [u8],
 }
 
+///
+/// Sent by server if client is accepted
+/// 
 #[derive(Debug, PartialEq)]
 pub struct Accepted {}
 
+///
+/// Sent by server if client is rejected
+/// 
 #[derive(Debug, PartialEq)]
 pub struct Rejected {
     pub reason: RejectionReason,
@@ -106,6 +112,7 @@ pub struct Rejected {
 pub enum RejectionReason {
     Unauthorized,
     UnsupportedVersion,
+    ServerFull
 }
 
 ///

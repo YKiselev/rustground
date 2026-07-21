@@ -1,10 +1,10 @@
 use std::borrow::Cow;
 use std::collections::VecDeque;
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
-use bytes::BytesMut;
+use bytes::{Bytes, BytesMut};
 use log::{debug, error, info, warn};
 use rg_common::{App, Plugin};
 use rg_net::write_hello;
@@ -13,7 +13,7 @@ use rg_net::write_with_header;
 use rg_net::{MAX_DATAGRAM_SIZE, write_connect};
 use rg_net::{NetBufReader, NetBufWriter, NetReader, try_write};
 use rg_net::{PacketKind, ProtocolError};
-use rg_net::{process_buf, read_accepted, read_rejected};
+use rg_net::{read_accepted, read_rejected};
 use rg_net::{read_pong, read_server_info};
 
 use crate::application::async_runtime::ClientChannel;
@@ -60,7 +60,7 @@ impl ClientNetwork {
             buf_allocator: BytesMut::with_capacity(BUF_ALLOCATOR_SIZE),
             send_bufs: VecDeque::new(),
             server_props: ServerProps::default(),
-            state: ClientState::Disconnected,
+            state: ClientState::Connecting,
             last_seen: None,
             last_send: None,
         })
@@ -115,7 +115,9 @@ impl ClientNetwork {
     }
 
     fn send_ping(&mut self) -> Result<(), AppError> {
-        Ok(self.write_to_send_buf(|w| write_with_header(w, PacketKind::Ping, |w| write_ping(w)))?)
+        Ok(self.write_to_send_buf(|w| {
+            write_with_header(w, PacketKind::Ping, |w| write_ping(w, get_ping_seconds()))
+        })?)
     }
 
     fn on_server_info<'a, R>(&mut self, reader: &mut R) -> Result<(), AppError>
@@ -158,49 +160,55 @@ impl ClientNetwork {
         R: NetReader<'a>,
     {
         let pong = read_pong(reader)?;
-        let roundtrip_time = Instant::now().elapsed().as_secs_f64() - pong.time;
-        info!(
-            "Server ping: {:.1} millis.",
-            (roundtrip_time / 2_000.0f64).abs()
-        );
+        let now = get_ping_seconds();
+        let roundtrip_time = 1000.0 * 0.5 * (now - pong.time);
+        info!("Server ping: {:.1} millis.", roundtrip_time.abs());
         Ok(())
     }
 
-    fn receive_from_server(&mut self, app: &Arc<App>) {
+    fn read_from_channel(&mut self, app: &Arc<App>) {
         let rx = self.channel.rx.clone();
         for response in rx.try_iter() {
             match response {
                 client::Response::DatagramReceived { bytes, address } => {
-                    self.last_seen = Some(Instant::now());
-                    let mut reader = NetBufReader::new(&bytes);
-                    let _ = process_buf(&mut reader, |header, reader| {
-                        debug!("Got server packet {:?} from {}", header, address);
-
-                        match header.kind {
-                            PacketKind::ServerInfo => self.on_server_info(reader),
-                            PacketKind::Accepted => self.on_accepted(reader),
-                            PacketKind::Rejected => self.on_rejected(reader),
-                            //PacketKind::Ping => reader.skip(header.size),
-                            PacketKind::Pong => self.on_pong(reader),
-                            other => Err(AppError::ProtocolError(ProtocolError::UnexpectedPacket(
-                                other,
-                            ))),
-                        }
-                        .inspect_err(|e| error!("Failed to process: {:?}", e))
-                        .is_ok()
-                    })
-                    .inspect_err(|e| error!("Failed to process: {:?}", e));
+                    self.process_datagram(address, bytes);
                 }
                 client::Response::Connected(addr) => {
                     info!("Client socket connected to {}", addr);
                     self.state = ClientState::AwaitingAcceptance;
                     self.server_props.addr = Some(addr);
+                    // debug
                     self.server_props.password = app.vars.try_get_value("server::password");
                 }
                 client::Response::Error(e) => {
                     warn!("Async runtime reports error: {:?}", e);
                 }
             }
+        }
+    }
+
+    fn process_datagram(&mut self, address: SocketAddr, bytes: Bytes) {
+        self.last_seen = Some(Instant::now());
+
+        let mut reader = NetBufReader::new(&bytes);
+
+        debug!("Got {} bytes from async runtime", bytes.len());
+
+        while let Some((header, mut payload)) = reader.read_next_packet() {
+            debug!("Got server packet {:?} from {}", header, address);
+
+            let _ = match header.kind {
+                PacketKind::ServerInfo => self.on_server_info(&mut payload),
+                PacketKind::Accepted => self.on_accepted(&mut payload),
+                PacketKind::Rejected => self.on_rejected(&mut payload),
+                //PacketKind::Ping => reader.skip(header.size),
+                PacketKind::Pong => self.on_pong(&mut payload),
+                other => {
+                    warn!("Unexpected packet: {:?}", other);
+                    Ok(())
+                }
+            }
+            .inspect_err(|e| error!("Failed to process: {:?}", e));
         }
     }
 
@@ -216,7 +224,7 @@ impl Plugin for ClientNetwork {
     fn frame_start(&mut self, _app: &Arc<App>) {}
 
     fn update(&mut self, app: &Arc<App>) {
-        self.receive_from_server(app);
+        self.read_from_channel(app);
         if self.is_time_to_resend() {
             loop {
                 let state = self.state;
@@ -275,4 +283,10 @@ impl Plugin for ClientNetwork {
             self.last_send = Some(Instant::now());
         }
     }
+}
+
+fn get_ping_seconds() -> f64 {
+    static TIME: OnceLock<Instant> = OnceLock::new();
+    let time = TIME.get_or_init(|| Instant::now());
+    time.elapsed().as_secs_f64()
 }

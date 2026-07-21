@@ -1,13 +1,10 @@
-use std::time::Instant;
-
 use crate::{NetReader, NetWriter, Ping, ProtocolError};
 
-
-pub fn write_ping<W>(writer: &mut W) -> Result<(), ProtocolError>
+pub fn write_ping<W>(writer: &mut W, time: f64) -> Result<(), ProtocolError>
 where
     W: NetWriter,
 {
-    writer.write_f64(Instant::now().elapsed().as_secs_f64())
+    writer.write_f64(time)
 }
 
 pub fn read_ping<'a, R>(reader: &mut R) -> Result<Ping, ProtocolError>

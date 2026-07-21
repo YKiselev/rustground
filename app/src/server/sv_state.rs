@@ -1,21 +1,18 @@
 use std::{
     net::SocketAddr,
-    sync::{Arc, Mutex, RwLock},
+    sync::{Arc, RwLock},
 };
 
 use bytes::Bytes;
 use log::{debug, info, warn};
 use rg_common::App;
-use rg_net::{
-    NET_BUF_SIZE, NetBufReader, PacketKind, process_buf, read_connect, read_hello, read_ping,
-};
+use rg_net::{NetBufReader, PacketKind, read_connect, read_hello, read_ping};
 
 use crate::{
     application::async_runtime::ServerChannel,
     error::AppError,
     server::{
         self,
-        messages::{sv_connect::on_connect, sv_hello::on_hello, sv_ping::on_ping},
         server::ServerConfig,
         sv_clients::{ClientId, Clients},
         sv_guests::Guests,
@@ -55,7 +52,7 @@ impl ServerState {
             clients: Clients::new(),
             guests: Guests::new(),
             security,
-            channel
+            channel,
         })
     }
 
@@ -82,9 +79,8 @@ impl ServerState {
             }
         }
 
-        self.guests.flush(&self.channel.tx);
-
         self.clients.flush(&self.channel.tx);
+        self.guests.flush(&self.channel.tx);
 
         Ok(())
     }
@@ -96,41 +92,51 @@ impl ServerState {
 
         let client_id = ClientId::new(address);
         let mut reader = NetBufReader::new(&bytes);
-        let _ = process_buf(&mut reader, |header, reader| {
+
+        while let Some((header, mut payload)) = reader.read_next_packet() {
             debug!("Got {:?} from client {}", header, address);
+
             match header.kind {
                 PacketKind::Hello => {
-                    if clients.exists(&client_id) {
-                        false
-                    } else if let Ok(ref hello) = read_hello(reader) {
-                        on_hello(&client_id, hello, guests, security.keys.public_key_bytes());
-                        true
-                    } else {
-                        false
+                    if !clients.exists(&client_id) {
+                        match read_hello(&mut payload) {
+                            Ok(ref hello) => {
+                                guests.on_hello(&client_id, hello, security.keys.public_key_bytes())
+                            }
+                            Err(e) => {
+                                warn!("Failed to parse: {:?}", e)
+                            }
+                        }
                     }
                 }
 
-                PacketKind::Connect => {
-                    if let Ok(ref connect) = read_connect(reader) {
-                        let _ = on_connect(&client_id, connect, guests, clients, security)
-                            .inspect_err(|e| warn!("Unable to connect client: {:?}", e));
-                        true
-                    } else {
-                        false
+                PacketKind::Connect => match read_connect(&mut payload) {
+                    Ok(ref connect) => match guests.on_connect(&client_id, connect, security) {
+                        Ok(id) => {
+                            if id.is_some() {
+                                clients.add(client_id, connect.name);
+                            }
+                        }
+                        Err(e) => {
+                            warn!("Unable to connect client: {:?}", e);
+                        }
+                    },
+                    Err(e) => {
+                        warn!("Failed to parse: {}", e);
                     }
-                }
+                },
 
-                PacketKind::Ping => {
-                    if let Ok(ref ping) = read_ping(reader) {
-                        let _ = on_ping(&client_id, ping, guests);
-                        true
-                    } else {
-                        false
+                PacketKind::Ping => match read_ping(&mut payload) {
+                    Ok(ref ping) => {
+                        guests.on_ping(&client_id, ping);
                     }
-                }
+                    Err(e) => {
+                        warn!("Failed to parse: {:?}", e);
+                    }
+                },
 
-                _ => false,
+                _ => {}
             }
-        });
+        }
     }
 }

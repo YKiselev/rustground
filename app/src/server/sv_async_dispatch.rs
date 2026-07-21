@@ -92,10 +92,9 @@ async fn init_udp_socket_loops(
             let receive_loop = tokio::spawn(async move {
                 run_socket_receive_loop(socket_clone, tx, state_clone).await;
             });
-            let socket_clone = Arc::clone(&socket);
             let state_clone = state.clone();
             let send_loop = tokio::spawn(async move {
-                run_socket_send_loop(socket_clone, sender_rx, state_clone).await;
+                run_socket_send_loop(socket, sender_rx, state_clone).await;
             });
 
             let _ = tokio::join!(receive_loop, send_loop);
@@ -155,8 +154,8 @@ async fn run_socket_send_loop(
     state: Arc<AsyncState>,
 ) {
     debug!("Entering server send loop...");
-    while let Ok(request) = rx.recv_async().await
-        && !state.should_exit()
+    while !state.should_exit()
+        && let Ok(request) = rx.recv_async().await
     {
         match request {
             Request::SendDatagram { addr, bytes } => {

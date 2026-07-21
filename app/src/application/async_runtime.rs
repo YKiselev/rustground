@@ -1,4 +1,4 @@
-use std::thread::{self, JoinHandle};
+use std::{sync::atomic::{AtomicUsize, Ordering}, thread::{self, JoinHandle}};
 
 use log::{debug, warn};
 
@@ -22,14 +22,19 @@ pub struct ServerChannel {
 
 pub fn init_client_server_async_runtime()
 -> Result<(JoinHandle<()>, ServerChannel, ClientChannel), AppError> {
-    let (server_tx, from_server_rx) = flume::unbounded::<server::Request>();
-    let (to_server_tx, server_rx) = flume::unbounded::<server::Response>();
-    let (client_tx, from_client_rx) = flume::unbounded::<client::Request>();
-    let (to_client_tx, client_rx) = flume::unbounded::<client::Response>();
+    let (server_tx, from_server_rx) = flume::bounded::<server::Request>(100);
+    let (to_server_tx, server_rx) = flume::bounded::<server::Response>(100);
+    let (client_tx, from_client_rx) = flume::bounded::<client::Request>(100);
+    let (to_client_tx, client_rx) = flume::bounded::<client::Response>(100);
 
     let handle = thread::spawn(move || {
         let rt = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
+            .thread_name_fn(|| {
+                static ID: AtomicUsize = AtomicUsize::new(1);
+                let id = ID.fetch_add(1, Ordering::SeqCst);
+                format!("async-{}", id)
+            })
             .build()
             .expect("Async runtime initialization failed!");
 

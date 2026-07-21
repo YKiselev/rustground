@@ -24,7 +24,7 @@ impl ServerSecurity {
         if let Some(p) = self.password.as_ref() {
             p.as_bytes().eq(pwd)
         } else {
-            pwd.is_empty()
+            true
         }
     }
 }

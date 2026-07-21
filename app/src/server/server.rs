@@ -63,9 +63,10 @@ impl Server {
     }
 
     pub(crate) fn update(&mut self) -> Result<(), AppError> {
-        self.state
-            .as_mut()
-            .map(|state| state.update())
-            .unwrap_or(Ok(()))
+        if let Some(state) = self.state.as_mut() {
+            state.update()
+        } else {
+            Ok(())
+        }
     }
 }

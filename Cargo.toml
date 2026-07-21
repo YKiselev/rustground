@@ -10,6 +10,10 @@ members = [
     "rg_vulkan",
 ]
 
+[profile.dev]
+opt-level = 0                # Explicitly disables all high-level optimizations
+split-debuginfo = "unpacked" # Can improve debugger behavior on macOS/Windows
+
 [workspace.dependencies]
 log = "0.4.33"
 log4rs = "1.4.0"
