@@ -7,9 +7,7 @@ use std::{
 use glam::Vec3;
 use log::{debug, error, info};
 use rg_common::{
-    App, Plugin,
-    gfx::world_renderer::{WorldRenderer, WorldRendererContext},
-    world::HyperCube,
+    App, Plugin, gfx::world_renderer::{WorldRenderer, WorldRendererContext}, ui::{canvas::{Canvas, WrapMode}, color::Color}, world::HyperCube,
 };
 use rg_vulkan::renderer::VulkanRenderer;
 use winit::{
@@ -20,7 +18,9 @@ use winit::{
 };
 
 use crate::{
-    application::async_runtime::ClientChannel, client::{cl_config::ClientConfig, cl_fps::FrameStats, cl_net::ClientNetwork}, error::AppError,
+    application::async_runtime::ClientChannel,
+    client::{cl_config::ClientConfig, cl_fps::FrameStats, cl_net::ClientNetwork},
+    error::AppError,
 };
 
 pub(super) struct ClientState {
@@ -39,7 +39,7 @@ impl ClientState {
     pub(super) fn new(
         app: &Arc<App>,
         config: &Arc<RwLock<ClientConfig>>,
-        channel: ClientChannel
+        channel: ClientChannel,
     ) -> Result<Self, AppError> {
         let net = ClientNetwork::new(app, channel)?;
         Ok(Self {
@@ -74,7 +74,24 @@ impl ClientState {
 
         // Update
         self.net.update(&self.app);
+        self.update_renderer();
+
+        // End frame
+        self.net.frame_end(&self.app);
+        let mut render_failed = false;
         if let Some(renderer) = self.renderer.as_mut() {
+            render_failed = !renderer.end_frame();
+        }
+
+        if render_failed {
+            self.renderer.take();
+        }
+        self.cap_fps(frame_start);
+    }
+
+    fn update_renderer(&mut self) {
+        if let Some(renderer) = self.renderer.as_mut() {
+            // Draw world
             renderer.draw_world(|ctx| {
                 let hc = &mut self.hyper_cube;
                 hc.origin = Vec3 {
@@ -91,20 +108,19 @@ impl ClientState {
                 };
                 ctx.draw_hyper_cube(hc);
             });
-            renderer.render();
+            
+            // DRaw UI
+            renderer.draw_ui(|canvas| {
+                canvas.set_color(Color::RED);
+                canvas.set_wrap_mode(WrapMode::Word);
+                canvas.draw_text(
+                    50,
+                    20,
+                    400,
+                    "Hello, Vulkan user! What is your name? Do you like ballons?",
+                );
+            });
         }
-
-        // End frame
-        self.net.frame_end(&self.app);
-        let mut render_failed = false;
-        if let Some(renderer) = self.renderer.as_mut() {
-            render_failed = !renderer.end_frame();
-        }
-
-        if render_failed {
-            self.renderer.take();
-        }
-        self.cap_fps(frame_start);
     }
 
     fn cap_fps(&self, frame_start: Instant) {

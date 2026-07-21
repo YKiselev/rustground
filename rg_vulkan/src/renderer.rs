@@ -8,6 +8,7 @@ use log::{info, warn};
 use rg_common::{
     App,
     gfx::world_renderer::{WorldRenderer, WorldRendererContext},
+    ui::canvas::Canvas,
     world::HyperCube,
     wrap_var_bag,
 };
@@ -122,11 +123,27 @@ impl VulkanRenderer {
         }
     }
 
-    pub fn render(&mut self) {
+    pub fn draw_ui<H>(&mut self, mut handler: H)
+    where
+        for<'a> H: FnMut(&mut VulkanCanvas<'a>),
+    {
         if let Some(command_buffer) = self.command_buffer {
             let frame_index = self.context.swapchain.frames_in_flight.current_frame;
 
-            self.draw_frame(frame_index, command_buffer);
+            if let Err(e) = self
+                .ui
+                .begin_frame(&self.context, frame_index, command_buffer)
+            {
+                warn!("Failed to begin ui frame: {}", e);
+            }
+
+            let mut canvas = VulkanCanvas::new(self);
+            (handler)(&mut canvas);
+
+            match self.ui.end_frame(&self.context, command_buffer) {
+                Ok(_) => {}
+                Err(e) => warn!("Failed to draw ui to command buffer: {:?}", e),
+            }
         }
     }
 
@@ -198,23 +215,7 @@ impl VulkanRenderer {
         Ok(())
     }
 
-    fn draw_frame(&mut self, frame_index: usize, command_buffer: vk::CommandBuffer) {
-        let time = self.start.elapsed().as_secs_f32();
-        let extent = self.context.swapchain.extent;
-        let ratio = extent.width as f32 / extent.height as f32;
-
-        // UI
-        if let Err(e) = self
-            .ui
-            .begin_frame(&self.context, frame_index, command_buffer)
-        {
-            warn!("Failed to begin ui frame: {}", e);
-        }
-        match self.ui.end_frame(&self.context, command_buffer) {
-            Ok(_) => {}
-            Err(e) => warn!("Failed to draw ui to command buffer: {:?}", e),
-        }
-    }
+    fn draw_frame(&mut self, frame_index: usize, command_buffer: vk::CommandBuffer) {}
 
     fn begin_render_pass(&self, image_index: usize) -> Result<vk::CommandBuffer, VkError> {
         let info = vk::CommandBufferBeginInfo::default();
@@ -304,10 +305,70 @@ impl Drop for VulkanRenderer {
 }
 
 ///
+/// UI renderer
+///
+pub struct VulkanCanvas<'a> {
+    owner: &'a mut VulkanRenderer,
+}
+
+impl<'a> VulkanCanvas<'a> {
+    fn new(owner: &'a mut VulkanRenderer) -> Self {
+        Self { owner }
+    }
+}
+
+impl<'a> Canvas for VulkanCanvas<'a> {
+    fn set_font(&mut self, id: rg_common::ui::canvas::FontId) {
+        self.owner.ui.set_font(id);
+    }
+
+    fn set_line_spacing(&mut self, spacing: usize) {
+        self.owner.ui.set_line_spacing(spacing);
+    }
+
+    fn set_color(&mut self, color: rg_common::ui::color::Color) {
+        self.owner.ui.set_color(color);
+    }
+
+    fn set_wrap_mode(&mut self, mode: rg_common::ui::canvas::WrapMode) {
+        self.owner.ui.set_wrap_mode(mode);
+    }
+
+    fn draw_text<S>(&mut self, x: i32, y: i32, width: u32, text: S)
+    where
+        S: AsRef<str>,
+    {
+        self.owner.ui.draw_text(x, y, width, text);
+    }
+
+    fn measure_text<S>(&self, width: u32, text: S) -> u32
+    where
+        S: AsRef<str>,
+    {
+        self.owner.ui.measure_text(width, text)
+    }
+
+    fn draw_sprite(
+        &mut self,
+        x: i32,
+        y: i32,
+        width: u32,
+        height: u32,
+        sprite_id: rg_common::ui::canvas::SpriteId,
+    ) {
+        self.owner.ui.draw_sprite(x, y, width, height, sprite_id);
+    }
+
+    fn draw_rect(&mut self, x: i32, y: i32, width: u32, height: u32) {
+        self.owner.ui.draw_rect(x, y, width, height);
+    }
+}
+
+///
 /// World renderer
 ///
 impl WorldRenderer for VulkanRenderer {
-    type Context<'a> = VulkandWorldRendererContext<'a>;
+    type Context<'a> = VulkanWorldRendererContext<'a>;
 
     fn draw_world<H>(&mut self, mut handler: H)
     where
@@ -326,7 +387,7 @@ impl WorldRenderer for VulkanRenderer {
                 warn!("Failed to update cube uniforms: {}", e.to_string());
             }
 
-            let mut context = VulkandWorldRendererContext::new(self);
+            let mut context = VulkanWorldRendererContext::new(self);
             (handler)(&mut context);
 
             if let Err(e) = self
@@ -342,17 +403,17 @@ impl WorldRenderer for VulkanRenderer {
 ///
 /// World renderer context
 ///
-pub struct VulkandWorldRendererContext<'a> {
-    owner: &'a mut VulkanRenderer
+pub struct VulkanWorldRendererContext<'a> {
+    owner: &'a mut VulkanRenderer,
 }
 
-impl<'a> VulkandWorldRendererContext<'a> {
+impl<'a> VulkanWorldRendererContext<'a> {
     fn new(owner: &'a mut VulkanRenderer) -> Self {
         Self { owner }
     }
 }
 
-impl<'a> WorldRendererContext for VulkandWorldRendererContext<'a> {
+impl<'a> WorldRendererContext for VulkanWorldRendererContext<'a> {
     fn draw_hyper_cube(&mut self, cube: &HyperCube) {
         self.owner.cube.draw_hyper_cube(cube);
     }

@@ -352,15 +352,6 @@ impl UiPipeline {
 
         let _ = self.update_uniform_buffer(instance, frame_index)?;
 
-        self.set_color(Color::RED);
-        self.set_wrap_mode(WrapMode::Word);
-        self.draw_text(
-            50,
-            20,
-            100,
-            "Hello, Vulkan user! What is your name? Do you like ballons?",
-        );
-
         Ok(())
     }
 

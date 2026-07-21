@@ -1,5 +1,4 @@
 use std::borrow::Borrow;
-use std::ptr::null;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -11,7 +10,7 @@ use rg_common::{CommandRegistry, Files, VarRegistry};
 
 use crate::asset::{AssetError, Assets};
 use crate::config::read_config;
-use crate::{save_config, Loader, LoaderError};
+use crate::{Loader, LoaderError, save_config};
 
 pub struct App {
     pub name: String,
@@ -64,21 +63,27 @@ impl App {
         save_config(name, &self.files, value);
     }
 
-    pub fn load_asset<S, L, A, Ctx>(&self, name: S, loader: &L, ctx: Ctx) -> Result<Arc<A>, AssetError>
+    pub fn load_asset<S, L, A, Ctx>(
+        &self,
+        name: S,
+        loader: &L,
+        ctx: Ctx,
+    ) -> Result<Arc<A>, AssetError>
     where
         S: Into<Box<str>> + Borrow<str>,
         L: Loader<A, Ctx> + 'static,
         A: Send + Sync + 'static,
     {
-        self.assets.load(
-            name,
-            |n| self.files.buf_read(n).ok(),
-            loader,
-            ctx
-        )
+        self.assets
+            .load(name, |n| self.files.buf_read(n).ok(), loader, ctx)
     }
 
-    pub fn load_resource<S, L, A, Ctx>(&self, name: S, loader: &L, ctx: Ctx) -> Result<A, LoaderError>
+    pub fn load_resource<S, L, A, Ctx>(
+        &self,
+        name: S,
+        loader: &L,
+        ctx: Ctx,
+    ) -> Result<A, LoaderError>
     where
         S: AsRef<str>,
         L: Loader<A, Ctx> + 'static,
