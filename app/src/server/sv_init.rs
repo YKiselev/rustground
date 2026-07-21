@@ -30,15 +30,15 @@ fn start_server_thread(app: Arc<App>, mut server: Server) -> Result<JoinHandle<(
                 let delta = time.elapsed();
                 time = Instant::now();
                 lag += delta.as_millis();
-                //while lag >= MILLIS_PER_UPDATE {
+                while lag >= MILLIS_PER_UPDATE {
                     if let Err(e) = server.update() {
                         warn!("Server update failed: {:?}", e);
                     }
                     let _ = lag.saturating_sub(MILLIS_PER_UPDATE);
-                //}
+                }
 
                 let sleep = MILLIS_PER_UPDATE.saturating_sub(lag);
-                //thread::sleep(Duration::from_millis(sleep as _));
+                thread::sleep(Duration::from_millis(sleep as _));
             }
             info!("Server loop ended.");
             server.shutdown();
