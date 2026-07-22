@@ -24,6 +24,7 @@ glam = { workspace = true }
 indexmap = { workspace = true }
 rustc-hash = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "net", "macros"] }
+tokio-util = { workspace = true, features = ["full"] }
 flume = { workspace = true }
 bytes = { workspace = true }
 

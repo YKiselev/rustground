@@ -26,9 +26,7 @@ pub struct ServerChannel {
     pub rx: flume::Receiver<server::Response>,
 }
 
-pub fn init_client_server_async_runtime(
-    app: Arc<App>,
-) -> Result<(JoinHandle<()>, ServerChannel, ClientChannel), AppError> {
+pub fn init_client_server_async_runtime() -> Result<(JoinHandle<()>, ServerChannel, ClientChannel), AppError> {
     let (server_tx, from_server_rx) = flume::unbounded::<server::Request>();
     let (to_server_tx, server_rx) = flume::unbounded::<server::Response>();
     let (client_tx, from_client_rx) = flume::unbounded::<client::Request>();

@@ -4,12 +4,14 @@ use std::{
         Arc,
         atomic::{AtomicBool, Ordering},
     },
+    time::Duration,
 };
 
 use bytes::{Bytes, BytesMut};
 use log::{debug, error, info, warn};
 use rg_net::NET_BUF_SIZE;
 use tokio::{net::UdpSocket, task::JoinHandle};
+use tokio_util::sync::CancellationToken;
 
 use crate::error::AppError;
 
@@ -39,26 +41,27 @@ pub async fn run_server_worker(rx: flume::Receiver<Request>, tx: flume::Sender<R
 
     let mut socket = None;
     let mut handle = None;
-    let exit_flag = Arc::new(AtomicBool::new(false));
+    let mut token = CancellationToken::new();
 
     while let Ok(request) = rx.recv_async().await {
         let tx = tx.clone();
 
         match request {
             Request::StartNetworkLoop(addr) => {
-                exit_flag.store(false, Ordering::Release);
-                if let Some((s, h)) =
-                    init_udp_socket(addr, tx, Arc::clone(&exit_flag)).await
-                {
+                token = CancellationToken::new();
+
+                if let Some((s, h)) = init_udp_socket(addr, tx, token.clone()).await {
                     socket = Some(s);
                     handle = Some(h);
                 }
             }
             Request::StopNetworkLoop => {
-                exit_flag.store(true, Ordering::Release);
+                token.cancel();
+
                 if let Some(handle) = handle.take() {
                     let _ = handle.abort();
                 }
+                let _ = socket.take();
             }
             Request::SendDatagram { addr, bytes, index } => {
                 if let Some(s) = socket.as_ref() {
@@ -75,7 +78,7 @@ pub async fn run_server_worker(rx: flume::Receiver<Request>, tx: flume::Sender<R
 async fn init_udp_socket(
     addr: SocketAddr,
     tx: flume::Sender<Response>,
-    exit_flag: Arc<AtomicBool>,
+    token: CancellationToken,
 ) -> Option<(Arc<UdpSocket>, JoinHandle<()>)> {
     match tokio::net::UdpSocket::bind(addr).await {
         Ok(socket) => {
@@ -98,7 +101,7 @@ async fn init_udp_socket(
 
             let socket_clone = Arc::clone(&socket);
             let receive_loop = tokio::spawn(async move {
-                run_socket_receive_loop(socket_clone, tx, exit_flag).await;
+                run_socket_receive_loop(socket_clone, tx, token).await;
             });
             return Some((socket, receive_loop));
         }
@@ -117,38 +120,46 @@ async fn init_udp_socket(
 async fn run_socket_receive_loop(
     socket: Arc<tokio::net::UdpSocket>,
     tx: flume::Sender<Response>,
-    exit_flag: Arc<AtomicBool>,
+    token: CancellationToken,
 ) {
     debug!("Entering server receive loop...");
     let mut bytes = BytesMut::with_capacity(8 * NET_BUF_SIZE);
+    
     loop {
         bytes.resize(NET_BUF_SIZE, 0);
-        match socket.recv_from(&mut bytes).await {
-            Ok((size, client_addr)) => {
-                if size > 0 {
-                    debug!("Received {} bytes from client", size);
-                    let buf = bytes.split_to(size).freeze();
-                    if let Err(_) = tx
-                        .send_async(Response::DatagramReceived {
-                            bytes: buf,
-                            address: client_addr,
-                        })
-                        .await
-                    {
-                        debug!("tx channel closed");
-                        break; // channel is closed, leave loop
+        
+        tokio::select! {
+            result = socket.recv_from(&mut bytes) => {
+                match result {
+                    Ok((size, client_addr)) => {
+                        if size > 0 {
+                            debug!("Received {} bytes from client", size);
+                            let buf = bytes.split_to(size).freeze();
+                            if let Err(_) = tx
+                                .send_async(Response::DatagramReceived {
+                                    bytes: buf,
+                                    address: client_addr,
+                                })
+                                .await
+                            {
+                                debug!("Tx channel closed");
+                                break; // channel is closed, leave loop
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        debug!("Socket error: {}", e);
                     }
                 }
+            },
+
+            _ = token.cancelled() => {
+                debug!("Token cancelled!");
+                break;
             }
-            Err(e) => {
-                debug!("Socket error: {}", e);
-            }
-        }
-        if exit_flag.load(Ordering::Relaxed) {
-            debug!("Exit flag is set");
-            break;
         }
     }
+
     debug!("Leaving server receive loop...");
 }
 
