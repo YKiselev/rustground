@@ -7,6 +7,6 @@ mod cl_state;
 mod cl_world;
 mod client;
 
-pub(crate) use cl_async_dispatch::{Request, Response, dispatch_client_request};
+pub(crate) use cl_async_dispatch::{Request, Response, run_client_worker};
 pub(crate) use client::Client;
 pub(crate) use client::ClientEvent;

@@ -19,22 +19,23 @@ pub enum Response {
     Error(AppError),
 }
 
-pub async fn dispatch_client_request(
-    request: Request,
-    tx: flume::Sender<Response>,
-    sender_rx: flume::Receiver<Request>,
-) {
-    match request {
-        Request::NetworkConnect(addr) => {
-            tokio::spawn(async move {
-                init_udp_socket_loops(addr, tx, sender_rx).await;
-            });
+pub async fn run_client_worker(rx: flume::Receiver<Request>, tx: flume::Sender<Response>) {
+    debug!("Starting client worker...");
+    while let Ok(request) = rx.recv_async().await {
+        let tx = tx.clone();
+        let rx_clone = rx.clone();
+
+        match request {
+            Request::NetworkConnect(addr) => {
+                let _ = init_udp_socket(addr, tx, rx_clone).await;
+            }
+            _ => {}
         }
-        _ => {}
     }
+    debug!("Leaving client worker loop...");
 }
 
-async fn init_udp_socket_loops(
+async fn init_udp_socket(
     addr: SocketAddr,
     tx: flume::Sender<Response>,
     sender_rx: flume::Receiver<Request>,
@@ -63,7 +64,8 @@ async fn init_udp_socket_loops(
                 run_socket_send_loop(socket_clone, sender_rx).await;
             });
 
-            let _ = tokio::join!(receive_loop, send_loop);
+            let _ = send_loop.await;
+            let _ = receive_loop.abort();
         }
         Err(e) => {
             if let Err(e) = tx

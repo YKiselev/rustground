@@ -1,10 +1,17 @@
-use std::{sync::{Arc, atomic::{AtomicUsize, Ordering}}, thread::{self, JoinHandle}};
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+    thread::{self, JoinHandle},
+};
 
-use log::{debug, warn};
 use rg_common::App;
 
 use crate::{
-    client::{self, dispatch_client_request}, error::AppError, server::{self, run_server_worker},
+    client::{self, run_client_worker},
+    error::AppError,
+    server::{self, run_server_worker},
 };
 
 #[derive(Clone)]
@@ -19,8 +26,9 @@ pub struct ServerChannel {
     pub rx: flume::Receiver<server::Response>,
 }
 
-pub fn init_client_server_async_runtime(app: Arc<App>)
--> Result<(JoinHandle<()>, ServerChannel, ClientChannel), AppError> {
+pub fn init_client_server_async_runtime(
+    app: Arc<App>,
+) -> Result<(JoinHandle<()>, ServerChannel, ClientChannel), AppError> {
     let (server_tx, from_server_rx) = flume::unbounded::<server::Request>();
     let (to_server_tx, server_rx) = flume::unbounded::<server::Response>();
     let (client_tx, from_client_rx) = flume::unbounded::<client::Request>();
@@ -38,23 +46,12 @@ pub fn init_client_server_async_runtime(app: Arc<App>)
             .expect("Async runtime initialization failed!");
 
         let _ = rt.block_on(async {
-            // Server worker
             let server_handle = rt.spawn(async move {
                 let _ = run_server_worker(from_server_rx, to_server_tx).await;
             });
 
-            // Client worker
             let client_handle = rt.spawn(async move {
-                debug!("Starting client worker...");
-                while let Ok(request) = from_client_rx.recv_async().await {
-                    let tx = to_client_tx.clone();
-                    let send_rx = from_client_rx.clone();
-
-                    tokio::spawn(async move {
-                        let _ = dispatch_client_request(request, tx, send_rx).await;
-                    });
-                }
-                debug!("Leaving client worker loop...");
+                let _ = run_client_worker(from_client_rx, to_client_tx).await;
             });
 
             let _ = server_handle.await;

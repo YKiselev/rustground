@@ -43,7 +43,6 @@ pub async fn run_server_worker(rx: flume::Receiver<Request>, tx: flume::Sender<R
 
     while let Ok(request) = rx.recv_async().await {
         let tx = tx.clone();
-        //let rx_clone = rx.clone();
 
         match request {
             Request::StartNetworkLoop(addr) => {
