@@ -10,7 +10,7 @@ rg_macros = { path = "../rg_macros" }
 rg_net = { path = "../rg_net" }
 rg_vulkan = { path = "../rg_vulkan" }
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
+tracing-subscriber = { workspace = true, features = ["env-filter", "fmt", "time", "chrono"] }
 tracing-appender = { workspace = true }
 anyhow = { workspace = true }
 rsa = { workspace = true, features = ["serde"] }

@@ -12,9 +12,7 @@ use tracing_subscriber::layer::Context;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, fmt};
-
-const CONSOLE_PATTERN: &str = "{d(%H:%M:%S%.3f)} {h({l})} [{T}] {M} - {m}{n}";
-const PATTERN: &str = "{d(%Y-%m-%d %H:%M:%S%.3f)} {l} [{T}] {M} - {m}{n}";
+use tracing_subscriber::fmt::time::ChronoLocal;
 
 ///
 /// App log layer
@@ -121,13 +119,16 @@ pub(crate) fn init(args: &Arguments) -> Result<WorkerGuard, AppError> {
     //     )?;
 
     let (non_blocking_stdout, guard) = tracing_appender::non_blocking(std::io::stdout());
+
+    let time_format = ChronoLocal::new("%H:%M:%S%.3f".to_string());
     let format_layer = fmt::layer()
+        .with_timer(time_format)
         .with_ansi(true)
         .with_level(true)
         .with_target(true)
         .with_thread_ids(false)
         .with_thread_names(true)
-        .with_file(true)
+        .with_file(false)
         .with_line_number(false)
         .with_writer(non_blocking_stdout);
 
