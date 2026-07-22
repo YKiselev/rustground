@@ -34,7 +34,7 @@ fn start_server_thread(app: Arc<App>, mut server: Server) -> Result<JoinHandle<(
                     if let Err(e) = server.update() {
                         warn!("Server update failed: {:?}", e);
                     }
-                    let _ = lag.saturating_sub(MILLIS_PER_UPDATE);
+                    lag = lag.saturating_sub(MILLIS_PER_UPDATE);
                 }
 
                 let sleep = MILLIS_PER_UPDATE.saturating_sub(lag);
@@ -42,6 +42,7 @@ fn start_server_thread(app: Arc<App>, mut server: Server) -> Result<JoinHandle<(
             }
             info!("Server loop ended.");
             server.shutdown();
+            std::mem::drop(server);
         })?;
     Ok(handle)
 }

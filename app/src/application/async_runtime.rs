@@ -1,6 +1,7 @@
-use std::{sync::atomic::{AtomicUsize, Ordering}, thread::{self, JoinHandle}};
+use std::{sync::{Arc, atomic::{AtomicUsize, Ordering}}, thread::{self, JoinHandle}};
 
 use log::{debug, warn};
+use rg_common::App;
 
 use crate::{
     client::{self, dispatch_client_request},
@@ -20,7 +21,7 @@ pub struct ServerChannel {
     pub rx: flume::Receiver<server::Response>,
 }
 
-pub fn init_client_server_async_runtime()
+pub fn init_client_server_async_runtime(app: Arc<App>)
 -> Result<(JoinHandle<()>, ServerChannel, ClientChannel), AppError> {
     let (server_tx, from_server_rx) = flume::bounded::<server::Request>(100);
     let (to_server_tx, server_rx) = flume::bounded::<server::Response>(100);
@@ -45,8 +46,9 @@ pub fn init_client_server_async_runtime()
                 while let Ok(request) = from_server_rx.recv_async().await {
                     let tx = to_server_tx.clone();
                     let send_rx = from_server_rx.clone();
+                    
                     tokio::spawn(async move {
-                        let _ = dispatch_server_request(request, tx, send_rx.clone()).await;
+                        let _ = dispatch_server_request(request, tx, send_rx).await;
                     });
                 }
                 debug!("Leaving server worker loop...");

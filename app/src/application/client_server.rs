@@ -21,7 +21,8 @@ pub fn run_client_server(args: Arguments) -> Result<(), AppError> {
     let app = Arc::clone(&host.app);
     app.load_config("config.toml");
 
-    let (async_handle, server_channel, client_channel) = init_client_server_async_runtime()?;
+    let (async_handle, server_channel, client_channel) =
+        init_client_server_async_runtime(Arc::clone(&app))?;
 
     let sv_handle = server::init(&app, server_channel)?;
     let event_loop = EventLoop::<ClientEvent>::with_user_event().build()?;
