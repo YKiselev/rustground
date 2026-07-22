@@ -5,7 +5,7 @@ use std::sync::{Arc, RwLock};
 use ash::khr::{self, swapchain};
 use ash::vk;
 use ash::vk::PhysicalDevice;
-use log::info;
+use tracing::info;
 use rg_common::{App, Files};
 use winit::window::Window;
 

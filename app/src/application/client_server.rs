@@ -1,4 +1,4 @@
-use log::{debug, info, warn};
+use tracing::{debug, info, warn};
 use rg_common::Arguments;
 use std::sync::Arc;
 use winit::event_loop::{ControlFlow, EventLoop};
@@ -13,7 +13,7 @@ use crate::{
 
 pub fn run_client_server(args: Arguments) -> Result<(), AppError> {
     #[allow(unused_variables)]
-    let (handle, log_buf) = app_logger::init(&args)?;
+    let _guard = app_logger::init(&args)?;
 
     info!("========= Starting =========");
 

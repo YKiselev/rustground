@@ -1,13 +1,10 @@
 use ash::Device;
 use ash::vk;
 use glam::Mat4;
-use log::error;
+use tracing::error;
 use rg_common::App;
 use rg_common::load_bytes;
 use rg_common::load_deserializable;
-use rg_common::ui::canvas::Canvas;
-use rg_common::ui::canvas::WrapMode;
-use rg_common::ui::color::Color;
 use serde::Deserialize;
 use serde::Serialize;
 use std::sync::Arc;

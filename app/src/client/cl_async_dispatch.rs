@@ -1,7 +1,7 @@
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use bytes::{Bytes, BytesMut};
-use log::{debug, error, warn};
+use tracing::{debug, error, warn};
 use rg_net::NET_BUF_SIZE;
 use tokio_util::sync::CancellationToken;
 

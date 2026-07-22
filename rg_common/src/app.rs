@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use log::{info, warn};
+use tracing::{info, warn};
 
 use rg_common::arguments::Arguments;
 use rg_common::{CommandRegistry, Files, VarRegistry};

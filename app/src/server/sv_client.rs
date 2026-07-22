@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
 use bytes::BytesMut;
-use log::debug;
+use tracing::debug;
 use rg_net::MAX_DATAGRAM_SIZE;
 
 use crate::server;

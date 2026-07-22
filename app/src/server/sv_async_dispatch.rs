@@ -1,14 +1,7 @@
-use std::{
-    net::SocketAddr,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
-    time::Duration,
-};
+use std::{net::SocketAddr, sync::Arc};
 
 use bytes::{Bytes, BytesMut};
-use log::{debug, error, info, warn};
+use tracing::{debug, error, info, warn};
 use rg_net::NET_BUF_SIZE;
 use tokio::{net::UdpSocket, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
@@ -124,10 +117,10 @@ async fn run_socket_receive_loop(
 ) {
     debug!("Entering server receive loop...");
     let mut bytes = BytesMut::with_capacity(8 * NET_BUF_SIZE);
-    
+
     loop {
         bytes.resize(NET_BUF_SIZE, 0);
-        
+
         tokio::select! {
             result = socket.recv_from(&mut bytes) => {
                 match result {

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::sync::RwLock;
 
-use log::warn;
+use tracing::warn;
 use rg_common::App;
 use rg_common::wrap_var_bag;
 use rg_macros::VarBag;

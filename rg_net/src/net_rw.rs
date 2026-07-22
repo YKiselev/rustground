@@ -1,7 +1,7 @@
 use std::fmt::Write;
 
 use bytes::BytesMut;
-use log::{error, info};
+use tracing::{error, info};
 use num_enum::TryFromPrimitive;
 
 use crate::{

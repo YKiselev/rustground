@@ -1,7 +1,7 @@
 use std::sync::{Arc, RwLock, atomic::Ordering};
 
-use log::{info, warn};
 use rg_common::{App, save_config, wrap_var_bag};
+use tracing::{info, warn};
 use winit::{
     application::ApplicationHandler,
     event::{DeviceEvent, DeviceId, StartCause, WindowEvent},

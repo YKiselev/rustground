@@ -3,7 +3,7 @@ use std::{
 };
 
 use bytes::BytesMut;
-use log::{debug, info, warn};
+use tracing::{debug, info, warn};
 use rg_net::{
     Connect, Hello, MAX_DATAGRAM_SIZE, NetBufWriter, PROTOCOL_VERSION, PacketKind, Ping,
     ProtocolError, RejectionReason, try_write, write_accepted, write_pong, write_rejected,

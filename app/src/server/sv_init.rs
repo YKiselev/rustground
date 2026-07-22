@@ -1,7 +1,7 @@
 use crate::application::async_runtime::ServerChannel;
 use crate::error::AppError;
 use crate::server::Server;
-use log::{info, warn};
+use tracing::{info, warn};
 use rg_common::App;
 use std::sync::Arc;
 use std::thread;

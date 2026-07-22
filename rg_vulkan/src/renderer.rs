@@ -4,7 +4,7 @@ use std::{
 };
 
 use ash::vk;
-use log::{info, warn};
+use tracing::{info, warn};
 use rg_common::{
     App,
     gfx::world_renderer::{WorldRenderer, WorldRendererContext},

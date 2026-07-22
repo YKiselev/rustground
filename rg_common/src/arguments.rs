@@ -1,6 +1,5 @@
 
 use argh::{FromArgValue, FromArgs};
-use log::LevelFilter;
 
 #[derive(FromArgValue, Debug, PartialEq, PartialOrd)]
 pub enum VSyncMode {
@@ -42,8 +41,4 @@ pub struct Arguments {
     /// v-sync mode
     #[argh(option)]
     pub v_sync: Option<VSyncMode>,
-
-    /// log level filter
-    #[argh(option)]
-    pub log_level: Option<LevelFilter>
 }

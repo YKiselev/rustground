@@ -1,4 +1,4 @@
-use log::warn;
+use tracing::warn;
 use rg_common::ui::{
     canvas::{Canvas, FontId, WrapMode},
     color::Color,

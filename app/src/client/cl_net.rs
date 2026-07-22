@@ -5,7 +5,7 @@ use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 use bytes::{Bytes, BytesMut};
-use log::{debug, error, info, warn};
+use tracing::{debug, error, info, warn};
 use rg_common::{App, Plugin};
 use rg_net::write_hello;
 use rg_net::write_ping;

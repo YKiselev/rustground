@@ -4,7 +4,7 @@ use ash::{
     Device, Instance,
     vk::{self},
 };
-use log::{debug, log_enabled};
+use tracing::{Level, debug};
 use std::ffi::CStr;
 use uuid::Uuid;
 
@@ -111,7 +111,7 @@ where
 {
     for &(device, properties) in devices {
         if let Err(error) = check_physical_device(instance, surface, device) {
-            if log_enabled!(log::Level::Debug) {
+            if tracing::enabled!(Level::DEBUG) {
                 let device_name = unsafe { CStr::from_ptr(properties.device_name.as_ptr()) };
                 debug!("Skipping (`{:?}`): {}", device_name, error);
             }

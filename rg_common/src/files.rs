@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{PoisonError, RwLock};
 use std::{env, fs};
 
-use log::{debug, error, info, warn};
+use tracing::{debug, error, info, warn};
 use thiserror::Error;
 
 use crate::arguments::Arguments;

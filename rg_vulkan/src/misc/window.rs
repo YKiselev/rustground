@@ -1,6 +1,6 @@
 use std::sync::{Arc, RwLock};
 
-use log::info;
+use tracing::info;
 use rg_common::App;
 use winit::{
     dpi::{LogicalSize, PhysicalPosition},

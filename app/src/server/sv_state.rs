@@ -4,7 +4,7 @@ use std::{
 };
 
 use bytes::Bytes;
-use log::{debug, info, warn};
+use tracing::{debug, info, warn};
 use rg_common::App;
 use rg_net::{NetBufReader, PacketKind, read_connect, read_hello, read_ping};
 

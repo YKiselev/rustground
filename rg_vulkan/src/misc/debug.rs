@@ -2,7 +2,7 @@ use ash::ext::debug_utils;
 use ash::vk::{DebugUtilsMessengerEXT, Handle};
 use ash::{Entry, Instance, vk};
 use core::ffi::c_void;
-use log::{debug, error, trace, warn};
+use tracing::{debug, error, trace, warn};
 
 pub(crate) struct DebugUtils {
     loader: debug_utils::Instance,

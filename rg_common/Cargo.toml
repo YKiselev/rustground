@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 rg_macros = { path = "../rg_macros" }
 rg_ecs = { path = "../rg_ecs" }
-log = { workspace = true }
+tracing = { workspace = true }
 dirs = { workspace = true }
 toml = { workspace = true }
 serde = { workspace = true, features = ["derive", "rc"] }

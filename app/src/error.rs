@@ -1,7 +1,5 @@
 use std::{borrow::Cow, net::AddrParseError, sync::PoisonError};
 
-use log::SetLoggerError;
-use log4rs::config::runtime::ConfigErrors;
 use rg_common::{VarRegistryError, commands::CmdError};
 use rg_net::ProtocolError;
 use thiserror::Error;
@@ -29,8 +27,8 @@ pub enum AppError {
     EventLoopError(#[from] EventLoopError),
     #[error(transparent)]
     VarRegistryError(#[from] VarRegistryError),
-    #[error(transparent)]
-    LogError(#[from] ConfigErrors),
+    #[error("Log error: {0}")]
+    LogError(String),
     #[error("Async runtime error: {0}")]
     AsyncError(String),
     #[error("Channel error: {0}")]
@@ -52,11 +50,5 @@ impl From<std::io::Error> for AppError {
 impl From<AddrParseError> for AppError {
     fn from(_: AddrParseError) -> Self {
         Self::AddrParseError
-    }
-}
-
-impl From<SetLoggerError> for AppError {
-    fn from(value: SetLoggerError) -> Self {
-        Self::IllegalState(Cow::Owned(value.to_string()))
     }
 }

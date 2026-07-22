@@ -1,15 +1,20 @@
 use std::{
     sync::{Arc, RwLock},
-    thread,
     time::{Duration, Instant},
 };
 
 use glam::Vec3;
-use log::{debug, error, info};
 use rg_common::{
-    App, Plugin, gfx::world_renderer::{WorldRenderer, WorldRendererContext}, ui::{canvas::{Canvas, WrapMode}, color::Color}, world::HyperCube,
+    App, Plugin,
+    gfx::world_renderer::{WorldRenderer, WorldRendererContext},
+    ui::{
+        canvas::{Canvas, WrapMode},
+        color::Color,
+    },
+    world::HyperCube,
 };
 use rg_vulkan::renderer::VulkanRenderer;
+use tracing::{debug, error, info};
 use winit::{
     event::{Event, MouseScrollDelta, WindowEvent},
     event_loop::ActiveEventLoop,
@@ -108,7 +113,7 @@ impl ClientState {
                 };
                 ctx.draw_hyper_cube(hc);
             });
-            
+
             // DRaw UI
             renderer.draw_ui(|canvas| {
                 canvas.set_color(Color::RED);

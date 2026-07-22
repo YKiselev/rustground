@@ -8,7 +8,7 @@ use ash::{
     ext::debug_utils,
     vk::{self},
 };
-use log::{debug, info, log_enabled, warn};
+use tracing::{debug, info, warn};
 use raw_window_handle::HasDisplayHandle;
 use rg_common::App;
 use winit::window::Window;
@@ -45,7 +45,7 @@ pub(crate) fn create_instance(
         .map(|l| unsafe { CStr::from_ptr(l.layer_name.as_ptr()) }.to_owned())
         .collect::<HashSet<CString>>();
 
-    if log_enabled!(log::Level::Debug) {
+    if tracing::enabled!(tracing::Level::DEBUG) {
         debug!("Supported layers:");
         for layer in available_layers.iter() {
             debug!("\t{:?}", layer);
