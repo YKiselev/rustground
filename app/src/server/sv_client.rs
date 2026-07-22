@@ -1,5 +1,6 @@
 use std::collections::VecDeque;
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
 use bytes::BytesMut;
@@ -33,8 +34,11 @@ impl Client {
     }
 
     pub fn flush(&mut self, addr: SocketAddr, tx: &flume::Sender<server::Request>) {
+        static IDX: AtomicU64 = AtomicU64::new(1);
+        
         while let Some(bytes) = self.send_buf.pop_front() {
-            match tx.send(server::Request::SendDatagram { addr, bytes: bytes.freeze() }) {
+            let index = IDX.fetch_add(1, Ordering::Relaxed);
+            match tx.send(server::Request::SendDatagram { addr, bytes: bytes.freeze(), index }) {
                 Ok(_) => {}
                 Err(_) => {
                     debug!("Send channel is closed!");

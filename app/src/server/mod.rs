@@ -9,5 +9,5 @@ mod sv_security;
 mod sv_state;
 
 pub(crate) use server::Server;
-pub(crate) use sv_async_dispatch::{Request, Response, dispatch_server_request};
+pub(crate) use sv_async_dispatch::{Request, Response, run_server_worker};
 pub(crate) use sv_init::init;

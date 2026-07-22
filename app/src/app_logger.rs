@@ -92,14 +92,14 @@ pub(crate) fn init(args: &Arguments) -> Result<(Handle, AppLoggerBuffer), AppErr
     let level = args.log_level.unwrap_or(LevelFilter::Info);
     let config = Config::builder()
         .appender(Appender::builder().build("stdout", Box::new(stdout)))
-        .appender(Appender::builder().build("file", Box::new(file)))
-        .appender(Appender::builder().build("app", Box::new(logger)))
+        //.appender(Appender::builder().build("file", Box::new(file)))
+        //.appender(Appender::builder().build("app", Box::new(logger)))
         .logger(Logger::builder().build("app", level))
         .build(
             Root::builder()
                 .appender("stdout")
-                .appender("app")
-                .appender("file")
+                //.appender("app")
+                //.appender("file")
                 .build(level),
         )?;
 

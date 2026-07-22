@@ -1,7 +1,5 @@
 use std::{
-    collections::{HashMap, VecDeque},
-    net::SocketAddr,
-    time::{Duration, Instant},
+    collections::{HashMap, VecDeque}, net::SocketAddr, sync::atomic::{AtomicU64, Ordering}, time::{Duration, Instant},
 };
 
 use bytes::BytesMut;
@@ -72,12 +70,16 @@ impl Guest {
     }
 
     pub fn flush(&mut self, addr: SocketAddr, tx: &flume::Sender<server::Request>) {
+        static IDX: AtomicU64 = AtomicU64::new(1);
+        
         while let Some(bytes) = self.send_buf.pop_front() {
             let len = bytes.len();
-            debug!("Sending {} bytes to channel", len);
+            let index = IDX.fetch_add(1, Ordering::Relaxed);
+            debug!("Sending {} bytes #{} to channel", len, index);
             if let Err(_) = tx.send(server::Request::SendDatagram {
                 addr,
                 bytes: bytes.freeze(),
+                index
             }) {
                 debug!("Send channel is closed!");
                 break;

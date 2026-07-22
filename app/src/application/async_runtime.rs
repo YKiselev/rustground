@@ -4,9 +4,7 @@ use log::{debug, warn};
 use rg_common::App;
 
 use crate::{
-    client::{self, dispatch_client_request},
-    error::AppError,
-    server::{self, dispatch_server_request},
+    client::{self, dispatch_client_request}, error::AppError, server::{self, run_server_worker},
 };
 
 #[derive(Clone)]
@@ -23,10 +21,10 @@ pub struct ServerChannel {
 
 pub fn init_client_server_async_runtime(app: Arc<App>)
 -> Result<(JoinHandle<()>, ServerChannel, ClientChannel), AppError> {
-    let (server_tx, from_server_rx) = flume::bounded::<server::Request>(100);
-    let (to_server_tx, server_rx) = flume::bounded::<server::Response>(100);
-    let (client_tx, from_client_rx) = flume::bounded::<client::Request>(100);
-    let (to_client_tx, client_rx) = flume::bounded::<client::Response>(100);
+    let (server_tx, from_server_rx) = flume::unbounded::<server::Request>();
+    let (to_server_tx, server_rx) = flume::unbounded::<server::Response>();
+    let (client_tx, from_client_rx) = flume::unbounded::<client::Request>();
+    let (to_client_tx, client_rx) = flume::unbounded::<client::Response>();
 
     let handle = thread::spawn(move || {
         let rt = tokio::runtime::Builder::new_multi_thread()
@@ -42,16 +40,7 @@ pub fn init_client_server_async_runtime(app: Arc<App>)
         let _ = rt.block_on(async {
             // Server worker
             let server_handle = rt.spawn(async move {
-                debug!("Starting server worker...");
-                while let Ok(request) = from_server_rx.recv_async().await {
-                    let tx = to_server_tx.clone();
-                    let send_rx = from_server_rx.clone();
-                    
-                    tokio::spawn(async move {
-                        let _ = dispatch_server_request(request, tx, send_rx).await;
-                    });
-                }
-                debug!("Leaving server worker loop...");
+                let _ = run_server_worker(from_server_rx, to_server_tx).await;
             });
 
             // Client worker
