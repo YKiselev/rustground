@@ -1,18 +1,19 @@
 use std::collections::VecDeque;
 use std::collections::vec_deque::Iter;
+use std::fs::File;
 use std::sync::mpsc::{self, Receiver, SyncSender};
 
 use crate::error::AppError;
 use rg_common::Arguments;
-use tracing::Level;
 use tracing::{Event, Subscriber};
+use tracing::{Level, warn};
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::Layer;
-use tracing_subscriber::layer::Context;
+use tracing_subscriber::fmt::time::ChronoLocal;
 use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::layer::{Context, Filter};
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, fmt};
-use tracing_subscriber::fmt::time::ChronoLocal;
 
 ///
 /// App log layer
@@ -96,7 +97,7 @@ impl AppLoggerBuffer {
 //     (logger, buf)
 // }
 
-pub(crate) fn init(args: &Arguments) -> Result<WorkerGuard, AppError> {
+pub(crate) fn init(args: &Arguments) -> Result<Vec<WorkerGuard>, AppError> {
     // let stdout = ConsoleAppender::builder()
     //     .encoder(Box::new(PatternEncoder::new(CONSOLE_PATTERN)))
     //     .build();
@@ -118,28 +119,54 @@ pub(crate) fn init(args: &Arguments) -> Result<WorkerGuard, AppError> {
     //             .build(level),
     //     )?;
 
-    let (non_blocking_stdout, guard) = tracing_appender::non_blocking(std::io::stdout());
+    let env_filter = EnvFilter::from_default_env();
 
+    let (non_blocking_stdout, stdout_guard) = tracing_appender::non_blocking(std::io::stdout());
     let time_format = ChronoLocal::new("%H:%M:%S%.3f".to_string());
-    let format_layer = fmt::layer()
+    let mut stdout_format_layer = fmt::layer()
         .with_timer(time_format)
         .with_ansi(true)
         .with_level(true)
-        .with_target(true)
+        .with_target(false)
         .with_thread_ids(false)
-        .with_thread_names(true)
+        .with_thread_names(false)
         .with_file(false)
         .with_line_number(false)
         .with_writer(non_blocking_stdout);
 
+    if false {
+        stdout_format_layer = stdout_format_layer
+            .with_target(false)
+            .with_thread_ids(false)
+            .with_thread_names(false);
+    }
+
+    if let Err(e) = File::options()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open("./logs/app.log")
+    {
+        warn!("Unable to clear log file: {:?}", e);
+    }
+
+    let file_appender = tracing_appender::rolling::never("./logs", "app.log");
+    let (non_blocking_file, file_guard) = tracing_appender::non_blocking(file_appender);
+    let time_format = ChronoLocal::new("%Y-%m-%d %H:%M:%S%.3f".to_string());
+    let file_format_layer = fmt::layer()
+        .with_timer(time_format)
+        .with_ansi(false)
+        .with_writer(non_blocking_file);
+
     let _app_layer = AppLogLayer::default();
 
     tracing_subscriber::registry()
-        .with(EnvFilter::from_default_env().add_directive(Level::DEBUG.into()))
-        .with(format_layer)
+        .with(env_filter)
+        .with(stdout_format_layer)
+        .with(file_format_layer)
         .init();
 
-    Ok(guard)
+    Ok(vec![stdout_guard, file_guard])
 }
 
 // pub(crate) fn build_dedicated_config() -> Result<Config, AppError> {

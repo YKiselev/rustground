@@ -12,13 +12,13 @@ use crate::{
 };
 
 pub fn run_client_server(args: Arguments) -> Result<(), AppError> {
-    #[allow(unused_variables)]
     let _guard = app_logger::init(&args)?;
 
     info!("========= Starting =========");
 
     let host = AppHost::new(args);
     let app = Arc::clone(&host.app);
+    
     app.load_config("config.toml");
 
     let (async_handle, server_channel, client_channel) =
