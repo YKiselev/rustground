@@ -6,8 +6,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{PoisonError, RwLock};
 use std::{env, fs};
 
-use tracing::{debug, error, info, warn};
 use thiserror::Error;
+use tracing::{debug, error, info, warn};
 
 use crate::arguments::Arguments;
 
@@ -117,10 +117,7 @@ impl FileRoot {
                 debug!("open({:?})", &buf);
                 Ok(SeekAndRead::Physical(file))
             }
-            Err(e) => {
-                //debug!("File not found: {:?}, {:?}", buf, e);
-                Err(FileError::IoError(e))
-            }
+            Err(e) => Err(FileError::IoError(e)),
         }
     }
 
@@ -144,8 +141,8 @@ impl Display for FileRoot {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "FileRoot(read_only={}, path={})",
-            self.readonly,
+            "FileRoot({}\"{}\")",
+            if self.readonly { "read-only, " } else { "" },
             self.path.display()
         )
     }

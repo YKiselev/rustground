@@ -8,19 +8,23 @@ use ash::{
     ext::debug_utils,
     vk::{self},
 };
-use tracing::{debug, info, warn};
 use raw_window_handle::HasDisplayHandle;
 use rg_common::App;
+use tracing::{debug, info, warn};
 use winit::window::Window;
 
 use crate::{
-    error::VkError, misc::{debug::DebugUtils, device::{VALIDATION_ENABLED, VALIDATION_LAYER, get_physical_device_id}},
+    error::VkError,
+    misc::{
+        debug::DebugUtils,
+        device::{VALIDATION_ENABLED, VALIDATION_LAYER, get_physical_device_id},
+    },
 };
 
 const ENGINE_VERSION: u32 = vk::make_api_version(0, 0, 3, 0);
 ///
 /// Vulkan API version used
-/// 
+///
 const API_VERSION: u32 = vk::API_VERSION_1_2;
 
 pub(crate) fn create_instance(
@@ -46,10 +50,13 @@ pub(crate) fn create_instance(
         .collect::<HashSet<CString>>();
 
     if tracing::enabled!(tracing::Level::DEBUG) {
-        debug!("Supported layers:");
+        let mut str = String::from("Supported layers:");
+
         for layer in available_layers.iter() {
-            debug!("\t{:?}", layer);
+            str.push_str(&format!("\n\t{}", layer.to_string_lossy()));
         }
+
+        debug!("{}", str);
     }
 
     let validation_available = available_layers.contains(VALIDATION_LAYER);
