@@ -3,7 +3,7 @@ use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io::{BufReader, Cursor, Error, ErrorKind, Read, Seek, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{PoisonError, RwLock};
+use std::sync::PoisonError;
 use std::{env, fs};
 
 use thiserror::Error;
@@ -152,7 +152,7 @@ const HOME_DIR: &str = ".rustground";
 
 #[derive(Debug)]
 pub struct Files {
-    roots: RwLock<Vec<FileRoot>>,
+    roots: Vec<FileRoot>,
 }
 
 impl Files {
@@ -196,19 +196,16 @@ impl Files {
             })
             .collect();
 
-        Files {
-            roots: RwLock::new(roots),
-        }
+        Files { roots }
     }
 
     pub fn read<S>(&self, path: S) -> Result<SeekAndRead, FileError>
     where
         S: AsRef<str>,
     {
-        let guard = self.roots.read()?;
         let path_str = path.as_ref();
         let mut last_err: Option<FileError> = None;
-        for root in guard.iter() {
+        for root in self.roots.iter() {
             match root.read(path_str) {
                 Ok(f) => return Ok(f),
                 Err(e) => last_err = Some(e),
@@ -228,10 +225,9 @@ impl Files {
     where
         S: AsRef<str>,
     {
-        let guard = self.roots.read()?;
         let path_str = path.as_ref();
         let mut last_err: Option<FileError> = None;
-        for root in guard.iter() {
+        for root in self.roots.iter() {
             match root.write(path_str) {
                 Ok(f) => return Ok(f),
                 Err(e) => last_err = Some(e),

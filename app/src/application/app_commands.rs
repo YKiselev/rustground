@@ -1,9 +1,6 @@
 use std::sync::{Arc, atomic::Ordering};
 
-use rg_common::{
-    App,
-    commands::{CommandBuilder, CommandOwner},
-};
+use rg_common::{App, commands::CommandOwner};
 
 use crate::error::AppError;
 
@@ -12,7 +9,7 @@ pub(crate) struct AppCommands(CommandOwner);
 
 impl AppCommands {
     pub fn new(app: Arc<App>) -> Result<Self, AppError> {
-        let mut builder = CommandBuilder::new(&app.commands);
+        let mut builder = app.command_builder();
         let app_ref = Arc::clone(&app);
         builder.add("quit", move || {
             app_ref.exit_flag.store(true, Ordering::Relaxed);

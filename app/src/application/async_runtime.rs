@@ -26,7 +26,8 @@ pub struct ServerChannel {
     pub rx: flume::Receiver<server::Response>,
 }
 
-pub fn init_client_server_async_runtime() -> Result<(JoinHandle<()>, ServerChannel, ClientChannel), AppError> {
+pub fn init_client_server_async_runtime()
+-> Result<(JoinHandle<()>, ServerChannel, ClientChannel), AppError> {
     let (server_tx, from_server_rx) = flume::unbounded::<server::Request>();
     let (to_server_tx, server_rx) = flume::unbounded::<server::Response>();
     let (client_tx, from_client_rx) = flume::unbounded::<client::Request>();
@@ -44,13 +45,8 @@ pub fn init_client_server_async_runtime() -> Result<(JoinHandle<()>, ServerChann
             .expect("Async runtime initialization failed!");
 
         let _ = rt.block_on(async {
-            let server_handle = rt.spawn(async move {
-                let _ = run_server_worker(from_server_rx, to_server_tx).await;
-            });
-
-            let client_handle = rt.spawn(async move {
-                let _ = run_client_worker(from_client_rx, to_client_tx).await;
-            });
+            let server_handle = rt.spawn(run_server_worker(from_server_rx, to_server_tx));
+            let client_handle = rt.spawn(run_client_worker(from_client_rx, to_client_tx));
 
             let _ = server_handle.await;
             let _ = client_handle.await;

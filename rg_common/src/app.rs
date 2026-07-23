@@ -9,6 +9,7 @@ use rg_common::arguments::Arguments;
 use rg_common::{CommandRegistry, Files, VarRegistry};
 
 use crate::asset::{AssetError, Assets};
+use crate::commands::CommandBuilder;
 use crate::config::read_config;
 use crate::{Loader, LoaderError, save_config};
 
@@ -36,6 +37,10 @@ impl App {
             commands: CommandRegistry::default(),
             assets: Assets::new(),
         }
+    }
+
+    pub fn command_builder<'a>(&'a self) -> CommandBuilder<'a> {
+        CommandBuilder::new(&self.commands)
     }
 
     pub fn is_exit(&self) -> bool {
