@@ -15,7 +15,6 @@ opt-level = 0                # Explicitly disables all high-level optimizations
 split-debuginfo = "unpacked" # Can improve debugger behavior on macOS/Windows
 
 [workspace.dependencies]
-anyhow = "1.0.104"
 rand = "0.10.2"
 serde = "1.0.229"
 toml = "1.1.3"

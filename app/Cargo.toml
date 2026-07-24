@@ -18,7 +18,6 @@ tracing-subscriber = { workspace = true, features = [
     "local-time",
 ] }
 tracing-appender = { workspace = true }
-anyhow = { workspace = true }
 x25519-dalek = { version = "3.0.0", features = ["getrandom"] }
 hkdf = "0.13.0"
 sha2 = "0.11.0"
