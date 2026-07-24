@@ -106,7 +106,7 @@ macro_rules! impl_as_visitor {
                 $t: Arg
             ),*
         {
-            paste::paste! {
+            pastey::paste! {
             fn as_visitor(mut self) -> impl Visitor {
                 let f = move |chunk: &Chunk| {
                     $(

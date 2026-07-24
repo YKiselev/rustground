@@ -10,15 +10,24 @@ rg_macros = { path = "../rg_macros" }
 rg_net = { path = "../rg_net" }
 rg_vulkan = { path = "../rg_vulkan" }
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true, features = ["env-filter", "fmt", "time", "chrono", "local-time"] }
+tracing-subscriber = { workspace = true, features = [
+    "env-filter",
+    "fmt",
+    "time",
+    "chrono",
+    "local-time",
+] }
 tracing-appender = { workspace = true }
 anyhow = { workspace = true }
-rsa = { workspace = true, features = ["serde"] }
-rand = { workspace = true }
+x25519-dalek = { version = "3.0.0", features = ["getrandom"] }
+hkdf = "0.13.0"
+sha2 = "0.11.0"
+chacha20poly1305 = { version = "0.11.0", features = ["bytes"] }
+rand = { workspace = true, features = ["std_rng"] }
 serde = { workspace = true, features = ["derive"] }
 toml = { workspace = true }
 argh = { workspace = true }
-paste = { workspace = true }
+pastey = { workspace = true }
 winit = { workspace = true }
 thiserror = { workspace = true }
 glam = { workspace = true }

@@ -1,6 +1,6 @@
-use tracing::{debug, info, warn};
 use rg_common::Arguments;
 use std::sync::Arc;
+use tracing::{debug, info, warn};
 use winit::event_loop::{ControlFlow, EventLoop};
 
 use crate::{
@@ -18,11 +18,10 @@ pub fn run_client_server(args: Arguments) -> Result<(), AppError> {
 
     let host = AppHost::new(args);
     let app = Arc::clone(&host.app);
-    
+
     app.load_config("config.toml");
 
-    let (async_handle, server_channel, client_channel) =
-        init_client_server_async_runtime()?;
+    let (async_handle, server_channel, client_channel) = init_client_server_async_runtime()?;
 
     let sv_handle = server::init(&app, server_channel)?;
     let event_loop = EventLoop::<ClientEvent>::with_user_event().build()?;

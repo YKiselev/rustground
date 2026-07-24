@@ -1,6 +1,6 @@
 use bitflags::bitflags;
 use glam::Vec3;
-use rand::Rng;
+use rand::{Rng, RngExt};
 
 use crate::world::material::{MaterialFlag, Materials};
 
@@ -139,13 +139,13 @@ fn from_xyz(x: i32, y: i32, z: i32) -> i32 {
 
 fn generate_materials() -> Vec<u8> {
     let mut materials = Vec::with_capacity(4096);
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let min_probability = 0.3;
     let max_probability = 0.95;
     let mut probability = max_probability;
     let probability_step = (max_probability - min_probability) / 4096.0;
     for _ in 0..4096 {
-        let mat = if rng.gen_bool(probability) { 1 } else { 0 };
+        let mat = if rng.random_bool(probability) { 1 } else { 0 };
         materials.push(mat);
         probability -= probability_step;
     }

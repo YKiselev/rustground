@@ -3,7 +3,7 @@ use std::{
     net::SocketAddr,
 };
 
-use crate::server;
+use crate::{cipher::Cipher, server};
 
 use super::sv_client::Client;
 
@@ -16,7 +16,6 @@ impl ClientId {
     }
 }
 
-#[derive(Debug)]
 pub(crate) struct Clients {
     clients: HashMap<ClientId, Client>,
 }
@@ -38,10 +37,10 @@ impl Clients {
         }
     }
 
-    pub fn add(&mut self, client_id: ClientId, name: &str) {
+    pub fn add(&mut self, client_id: ClientId, name: &str, cipher: Cipher) {
         match self.clients.entry(client_id) {
             Entry::Vacant(v) => {
-                let _client = v.insert(Client::new(name));
+                let _client = v.insert(Client::new(name, cipher));
             }
             Entry::Occupied(ref mut o) => {
                 o.get_mut().touch();

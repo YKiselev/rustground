@@ -1,29 +1,29 @@
-use std::borrow::Cow;
 use std::collections::VecDeque;
 use std::net::SocketAddr;
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 use bytes::{Bytes, BytesMut};
-use tracing::{debug, error, info, warn};
 use rg_common::{App, Plugin};
-use rg_net::write_hello;
-use rg_net::write_ping;
 use rg_net::write_with_header;
 use rg_net::{MAX_DATAGRAM_SIZE, write_connect};
 use rg_net::{NetBufReader, NetBufWriter, NetReader, try_write};
 use rg_net::{PacketKind, ProtocolError};
 use rg_net::{read_accepted, read_rejected};
 use rg_net::{read_pong, read_server_info};
+use rg_net::{write_ping};
+use rg_net::{write_client_info, write_hello};
+use tracing::{debug, error, info, warn};
+use x25519_dalek::{EphemeralSecret, PublicKey};
 
 use crate::application::async_runtime::ClientChannel;
+use crate::cipher::Cipher;
 use crate::client;
-use crate::client::cl_pub_key::PublicKey;
-use crate::error::AppError;
+use crate::error::{AppError, to_illegal_state};
 
 const BUF_ALLOCATOR_SIZE: usize = 8 * MAX_DATAGRAM_SIZE;
 
-#[derive(Eq, PartialEq, Clone, Copy, Debug)]
+#[derive(Eq, PartialEq, PartialOrd, Clone, Copy, Debug)]
 enum ClientState {
     Disconnected,
     Connecting,
@@ -47,6 +47,8 @@ pub(super) struct ClientNetwork {
     state: ClientState,
     last_seen: Option<Instant>,
     last_send: Option<Instant>,
+    secret: Option<EphemeralSecret>,
+    cipher: Option<Cipher>
 }
 
 impl ClientNetwork {
@@ -63,6 +65,8 @@ impl ClientNetwork {
             state: ClientState::Connecting,
             last_seen: None,
             last_send: None,
+            secret: None,
+            cipher: None
         })
     }
 
@@ -98,19 +102,50 @@ impl ClientNetwork {
             .write_to_send_buf(|w| write_with_header(w, PacketKind::Hello, |w| write_hello(w)))?)
     }
 
+    fn send_client_info(&mut self) -> Result<(), AppError> {
+        info!("Sending client info...");
+
+        if let Some(my_secret) = self.secret.as_ref() {
+            let my_public = PublicKey::from(my_secret);
+
+            self.write_to_send_buf(|w| {
+                write_with_header(w, PacketKind::ClientInfo, |w| {
+                    write_client_info(w, my_public.as_bytes())
+                })
+            })?;
+        } else {
+            self.write_to_send_buf(|w| {
+                write_with_header(w, PacketKind::ClientInfo, |w| {
+                    write_client_info(w, &[0u8; 0])
+                })
+            })?;
+        }
+
+        if let Some(secret) = self.secret.take() {
+            if let Some(public) = self.server_props.key.as_ref() {
+                let cipher = Cipher::new(secret, public)?;
+                self.cipher = Some(cipher);
+                info!("Cipher initialized");
+            } else {
+                self.cipher = None;
+                warn!("Missing server public key!");
+            }
+        }
+
+        Ok(())
+    }
+
     fn send_connect(&mut self) -> Result<(), AppError> {
         info!("Sending connect...");
-        if let Some(key) = self.server_props.key.as_ref() {
-            let encoded = key.encode_str("123456")?;
+        if let Some(cipher) = self.cipher.as_mut() {
+            let encoded = cipher.encode_str("123456")?;
             Ok(self.write_to_send_buf(|w| {
                 write_with_header(w, PacketKind::Connect, |w| {
-                    write_connect(w, "user1", encoded.as_slice())
+                    write_connect(w, "user1", &encoded)
                 })
             })?)
         } else {
-            Err(AppError::IllegalState(Cow::Borrowed(
-                "No server key to encode data!",
-            )))
+            Err(to_illegal_state("No cipher to encode data!"))
         }
     }
 
@@ -124,15 +159,33 @@ impl ClientNetwork {
     where
         R: NetReader<'a>,
     {
-        let info = read_server_info(reader)?;
-        let public_key = PublicKey::from_der(info.key)?;
-        self.server_props.key = Some(public_key);
-        info!("Got server key");
         if self.state == ClientState::AwaitingAcceptance {
-            self.send_connect()
-        } else {
-            Ok(())
+            info!("Got server info");
+            let info = read_server_info(reader)?;
+            let server_key: Result<[u8; 32], _> = info.key.try_into();
+
+            // If server don't use encryption
+            if server_key.is_err() {
+                debug!("There is no server key");
+
+                // Clear out our secret
+                self.secret.take();
+                self.server_props.key = None;
+            } else {
+                debug!("Got server key");
+
+                self.server_props.key = Some(PublicKey::from(server_key.unwrap()));
+
+                if self.secret.is_none() {
+                    let secret = EphemeralSecret::random();
+                    self.secret = Some(secret);
+                }
+            };
+
+            let _ = self.send_client_info()?;
+            let _ = self.send_connect()?;
         }
+        Ok(())
     }
 
     fn on_accepted<'a, R>(&mut self, reader: &mut R) -> Result<(), AppError>
@@ -248,7 +301,7 @@ impl Plugin for ClientNetwork {
                         }
                     }
                     ClientState::AwaitingAcceptance => {
-                        let _ = if !self.server_props.key.is_some() {
+                        let _ = if !self.cipher.is_some() {
                             self.send_hello()
                         } else {
                             self.send_connect()

@@ -1,18 +1,21 @@
 use std::{
-    collections::{HashMap, VecDeque}, net::SocketAddr, sync::atomic::{AtomicU64, Ordering}, time::{Duration, Instant},
+    collections::{HashMap, VecDeque},
+    net::SocketAddr,
+    sync::atomic::{AtomicU64, Ordering},
+    time::{Duration, Instant},
 };
 
-use bytes::BytesMut;
-use tracing::{debug, info, warn};
+use bytes::{Bytes, BytesMut};
 use rg_net::{
-    Connect, Hello, MAX_DATAGRAM_SIZE, NetBufWriter, PROTOCOL_VERSION, PacketKind, Ping,
-    ProtocolError, RejectionReason, try_write, write_accepted, write_pong, write_rejected,
+    ClientInfo, Connect, Hello, MAX_DATAGRAM_SIZE, NetBufWriter, PROTOCOL_VERSION, PacketKind,
+    Ping, ProtocolError, RejectionReason, try_write, write_accepted, write_pong, write_rejected,
     write_server_info, write_with_header,
 };
+use tracing::{debug, info, warn};
+use x25519_dalek::{EphemeralSecret, PublicKey};
 
 use crate::{
-    error::AppError,
-    server::{self, sv_security::ServerSecurity},
+    cipher::Cipher, error::{AppError, to_illegal_state}, server::{self, sv_security::ServerSecurity},
 };
 
 use super::sv_clients::ClientId;
@@ -25,6 +28,8 @@ pub(super) struct Guest {
     send_buf: VecDeque<BytesMut>,
     received_at: Option<Instant>,
     buf_allocator: BytesMut,
+    keys: Option<(EphemeralSecret, PublicKey)>,
+    cipher: Option<Cipher>,
 }
 
 impl Guest {
@@ -33,16 +38,28 @@ impl Guest {
             send_buf: VecDeque::new(),
             received_at: None,
             buf_allocator: BytesMut::with_capacity(BUF_ALLOCATOR_SIZE),
+            keys: None,
+            cipher: None,
         }
     }
 
-    pub fn send_server_info(&mut self, key: &[u8]) {
+    pub fn send_server_info(&mut self) {
+        if self.keys.is_none() {
+            debug!("Initializing secret");
+            self.init_keys();
+        }
+
         debug!("Writing server info...");
-        let _ = self
-            .write_to_send_buf(|w| {
-                write_with_header(w, PacketKind::ServerInfo, |w| write_server_info(w, key))
-            })
-            .inspect_err(|e| warn!("Failed to write server info: {:?}", e));
+
+        if let Some((_, key)) = self.keys {
+            let _ = self
+                .write_to_send_buf(|w| {
+                    write_with_header(w, PacketKind::ServerInfo, |w| {
+                        write_server_info(w, key.as_bytes())
+                    })
+                })
+                .inspect_err(|e| warn!("Failed to write server info: {:?}", e));
+        }
     }
 
     pub fn send_rejected(&mut self, reason: RejectionReason) {
@@ -71,7 +88,7 @@ impl Guest {
 
     pub fn flush(&mut self, addr: SocketAddr, tx: &flume::Sender<server::Request>) {
         static IDX: AtomicU64 = AtomicU64::new(1);
-        
+
         while let Some(bytes) = self.send_buf.pop_front() {
             let len = bytes.len();
             let index = IDX.fetch_add(1, Ordering::Relaxed);
@@ -79,7 +96,7 @@ impl Guest {
             if let Err(_) = tx.send(server::Request::SendDatagram {
                 addr,
                 bytes: bytes.freeze(),
-                index
+                index,
             }) {
                 debug!("Send channel is closed!");
                 break;
@@ -92,6 +109,48 @@ impl Guest {
         self.received_at
             .map(|v| v.elapsed() >= OBSOLETE_AFTER)
             .unwrap_or(false)
+    }
+
+    pub fn init_keys(&mut self) {
+        if self.keys.is_none() {
+            let secret = EphemeralSecret::random();
+            let public = PublicKey::from(&secret);
+            self.keys = Some((secret, public));
+        }
+    }
+
+    pub fn init_cipher(&mut self, client_public_key: PublicKey) {
+        if let Some((secret, _)) = self.keys.take() {
+            match Cipher::new(secret, &client_public_key) {
+                Ok(cipher) => self.cipher = Some(cipher),
+                Err(e) => warn!("Failed to create cipher: {:?}", e),
+            }
+        } else {
+            warn!("No secret to create cipher!");
+        }
+    }
+
+    pub fn try_connect(
+        &mut self,
+        client_id: &ClientId,
+        connect: &Connect,
+        security: &ServerSecurity,
+    ) -> Result<Option<Cipher>, AppError> {
+        if let Some(cipher) = self.cipher.as_mut() {
+            let bytes = Bytes::copy_from_slice(connect.password);
+            let decoded = cipher.decode(&bytes)?;
+
+            if !security.is_password_ok(&decoded) {
+                info!("Wrong password from client {:?}!", client_id);
+                self.send_rejected(RejectionReason::Unauthorized);
+                Ok(None)
+            } else {
+                self.send_accepted();
+                Ok(self.cipher.take())
+            }
+        } else {
+            Err(to_illegal_state("No cipher!"))
+        }
     }
 
     ///
@@ -149,13 +208,29 @@ impl Guests {
         self.cleanup();
     }
 
-    pub fn on_hello(&mut self, client_id: &ClientId, hello: &Hello, key: &[u8]) {
+    pub fn on_hello(&mut self, client_id: &ClientId, hello: &Hello) {
         let guest = self.get_or_create(*client_id);
         if hello.version.0 <= PROTOCOL_VERSION.0 && hello.version.1 <= PROTOCOL_VERSION.1 {
-            guest.send_server_info(key);
+            guest.send_server_info();
         } else {
             guest.send_rejected(RejectionReason::UnsupportedVersion);
         }
+    }
+
+    pub fn on_client_info(&mut self, client_id: &ClientId, info: &ClientInfo) {
+        let guest = self.get_or_create(*client_id);
+        if info.key.len() != 32 {
+            warn!(
+                "Client key length mismatch: expected {} got {}",
+                32,
+                info.key.len()
+            );
+            return;
+        }
+        let bytes: [u8; 32] = info.key.try_into().unwrap();
+        let client_public_key = PublicKey::from(bytes);
+
+        guest.init_cipher(client_public_key);
     }
 
     pub fn on_connect(
@@ -163,17 +238,9 @@ impl Guests {
         client_id: &ClientId,
         connect: &Connect,
         security: &ServerSecurity,
-    ) -> Result<Option<ClientId>, AppError> {
-        let decoded = security.decode(connect.password)?;
+    ) -> Result<Option<Cipher>, AppError> {
         let guest = self.get_or_create(*client_id);
-        if !security.is_password_ok(&decoded) {
-            info!("Wrong password from client {:?}!", client_id);
-            guest.send_rejected(RejectionReason::Unauthorized);
-            Ok(None)
-        } else {
-            guest.send_accepted();
-            Ok(Some(*client_id))
-        }
+        guest.try_connect(client_id, connect, security)
     }
 
     pub fn on_ping(&mut self, client_id: &ClientId, ping: &Ping) {

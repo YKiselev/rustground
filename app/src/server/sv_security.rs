@@ -1,23 +1,12 @@
-use crate::{error::AppError, server::key_pair::KeyPair};
+use crate::error::AppError;
 
-
-#[derive(Debug)]
 pub(super) struct ServerSecurity {
-    pub keys: KeyPair,
     pub password: Option<String>,
 }
 
 impl ServerSecurity {
-    pub(super) fn new(key_bits: usize, password: Option<String>) -> Result<Self, AppError> {
-        let keys = KeyPair::new(key_bits)?;
-        Ok(Self {
-            keys,
-            password
-        })
-    }
-
-    pub(super) fn decode(&self, value: &[u8]) -> Result<Vec<u8>, AppError> {
-        self.keys.decode(value)
+    pub(super) fn new(password: Option<String>) -> Result<Self, AppError> {
+        Ok(Self { password })
     }
 
     pub(super) fn is_password_ok(&self, pwd: &[u8]) -> bool {

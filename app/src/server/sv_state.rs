@@ -4,9 +4,9 @@ use std::{
 };
 
 use bytes::Bytes;
-use tracing::{debug, info, warn};
 use rg_common::App;
-use rg_net::{NetBufReader, PacketKind, read_connect, read_hello, read_ping};
+use rg_net::{NetBufReader, PacketKind, read_client_info, read_connect, read_hello, read_ping};
+use tracing::{debug, info, warn};
 
 use crate::{
     application::async_runtime::ServerChannel,
@@ -43,7 +43,7 @@ impl ServerState {
             .send(server::Request::StartNetworkLoop(addr))
             .map_err(|e| AppError::ChannelError(e.to_string()))?;
 
-        let security = ServerSecurity::new(cfg.key_bits, cfg.password.to_owned())?;
+        let security = ServerSecurity::new(cfg.password.to_owned())?;
 
         drop(cfg);
 
@@ -100,8 +100,19 @@ impl ServerState {
                 PacketKind::Hello => {
                     if !clients.exists(&client_id) {
                         match read_hello(&mut payload) {
-                            Ok(ref hello) => {
-                                guests.on_hello(&client_id, hello, security.keys.public_key_bytes())
+                            Ok(ref hello) => guests.on_hello(&client_id, hello),
+                            Err(e) => {
+                                warn!("Failed to parse: {:?}", e)
+                            }
+                        }
+                    }
+                }
+
+                PacketKind::ClientInfo => {
+                    if !clients.exists(&client_id) {
+                        match read_client_info(&mut payload) {
+                            Ok(ref info) => {
+                                guests.on_client_info(&client_id, info)
                             }
                             Err(e) => {
                                 warn!("Failed to parse: {:?}", e)
@@ -112,9 +123,9 @@ impl ServerState {
 
                 PacketKind::Connect => match read_connect(&mut payload) {
                     Ok(ref connect) => match guests.on_connect(&client_id, connect, security) {
-                        Ok(id) => {
-                            if id.is_some() {
-                                clients.add(client_id, connect.name);
+                        Ok(cipher) => {
+                            if let Some(cipher) = cipher {
+                                clients.add(client_id, connect.name, cipher);
                             }
                         }
                         Err(e) => {

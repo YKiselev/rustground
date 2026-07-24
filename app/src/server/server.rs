@@ -18,7 +18,6 @@ pub struct ServerConfig {
     pub address: String,
     #[serde(skip_serializing)]
     pub bound_to: Option<String>,
-    pub key_bits: usize,
     pub password: Option<String>,
 }
 
@@ -27,7 +26,6 @@ impl ServerConfig {
         Self {
             address: "127.0.0.1:0".to_owned(),
             bound_to: None,
-            key_bits: 512,
             password: None,
         }
     }

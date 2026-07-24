@@ -1,4 +1,5 @@
 pub use accepted::{read_accepted, write_accepted};
+pub use client_info::{read_client_info, write_client_info};
 pub use connect::{read_connect, write_connect};
 pub use header::{read_header, write_header_placeholder, write_with_header};
 pub use hello::{read_hello, write_hello};
@@ -11,6 +12,7 @@ pub use server_info::{read_server_info, write_server_info};
 pub use version::{read_protocol_version, write_protocol_version};
 
 mod accepted;
+mod client_info;
 mod connect;
 mod header;
 mod hello;

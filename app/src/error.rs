@@ -1,4 +1,6 @@
-use std::{borrow::Cow, net::AddrParseError, sync::PoisonError};
+use std::{
+    array::TryFromSliceError, borrow::Cow, convert::Infallible, fmt::Debug, net::AddrParseError, sync::PoisonError,
+};
 
 use rg_common::{VarRegistryError, commands::CmdError};
 use rg_net::ProtocolError;
@@ -11,10 +13,6 @@ pub enum AppError {
     ProtocolError(#[from] ProtocolError),
     #[error("Lock poisoned")]
     PoisonError,
-    #[error(transparent)]
-    RsaError(#[from] rsa::Error),
-    #[error(transparent)]
-    RsaPksc1Error(#[from] rsa::pkcs1::Error),
     #[error("I/O error {0}")]
     IoError(std::io::ErrorKind),
     #[error("Address parsing error")]
@@ -32,7 +30,11 @@ pub enum AppError {
     #[error("Async runtime error: {0}")]
     AsyncError(String),
     #[error("Channel error: {0}")]
-    ChannelError(String)
+    ChannelError(String),
+    #[error(transparent)]
+    SliceError(#[from] TryFromSliceError),
+    #[error(transparent)]
+    Infallible(#[from] Infallible)
 }
 
 impl<T> From<PoisonError<T>> for AppError {
@@ -51,4 +53,11 @@ impl From<AddrParseError> for AppError {
     fn from(_: AddrParseError) -> Self {
         Self::AddrParseError
     }
+}
+
+pub fn to_illegal_state<S>(msg: S) -> AppError
+where
+    S: Into<Cow<'static, str>>,
+{
+    AppError::IllegalState(msg.into())
 }

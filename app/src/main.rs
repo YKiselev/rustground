@@ -7,6 +7,7 @@ mod application;
 mod client;
 mod error;
 mod server;
+mod cipher;
 
 fn main() -> Result<(), AppError> {
     let args = get_arguments()?;

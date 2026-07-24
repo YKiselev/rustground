@@ -7,6 +7,8 @@ use std::{
 };
 
 use rg_common::App;
+use tokio::runtime::{Handle, Runtime};
+use tracing::error;
 
 use crate::{
     client::{self, run_client_worker},
@@ -34,15 +36,9 @@ pub fn init_client_server_async_runtime()
     let (to_client_tx, client_rx) = flume::unbounded::<client::Response>();
 
     let handle = thread::spawn(move || {
-        let rt = tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .thread_name_fn(|| {
-                static ID: AtomicUsize = AtomicUsize::new(1);
-                let id = ID.fetch_add(1, Ordering::SeqCst);
-                format!("async-{}", id)
-            })
-            .build()
-            .expect("Async runtime initialization failed!");
+        let rt = create_async_runtime()
+            .inspect_err(|e| error!("Unable to create async runtime: {:?}", e))
+            .unwrap();
 
         let _ = rt.block_on(async {
             let server_handle = rt.spawn(run_server_worker(from_server_rx, to_server_tx));
@@ -64,4 +60,16 @@ pub fn init_client_server_async_runtime()
             rx: client_rx,
         },
     ))
+}
+
+fn create_async_runtime() -> Result<Runtime, std::io::Error> {
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .worker_threads(4)
+        .thread_name_fn(|| {
+            static ID: AtomicUsize = AtomicUsize::new(1);
+            let id = ID.fetch_add(1, Ordering::SeqCst);
+            format!("async-{}", id)
+        })
+        .build()
 }

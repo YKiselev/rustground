@@ -1,4 +1,3 @@
-mod key_pair;
 pub mod server;
 mod sv_async_dispatch;
 mod sv_client;

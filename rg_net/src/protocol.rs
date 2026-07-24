@@ -45,6 +45,7 @@ impl From<TryFromSliceError> for ProtocolError {
 pub enum PacketKind {
     Hello,
     ServerInfo,
+    ClientInfo,
     Connect,
     Accepted,
     Rejected,
@@ -81,7 +82,15 @@ pub struct Hello {
 #[derive(Debug)]
 pub struct ServerInfo<'a> {
     pub version: Version,
-    pub key: &'a [u8],
+    pub key: &'a [u8],  // server's public key
+}
+
+///
+/// ClientInfo packet. Sent by client in response to ServerInfo packet
+///
+#[derive(Debug)]
+pub struct ClientInfo<'a> {
+    pub key: &'a [u8], // client's public key
 }
 
 ///
