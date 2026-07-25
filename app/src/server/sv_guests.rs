@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::VecDeque,
     net::SocketAddr,
     sync::atomic::{AtomicU64, Ordering},
     time::{Duration, Instant},
@@ -11,23 +11,27 @@ use rg_net::{
     Ping, ProtocolError, RejectionReason, try_write, write_accepted, write_pong, write_rejected,
     write_server_info, write_with_header,
 };
+use rustc_hash::FxHashMap;
 use tracing::{debug, info, warn};
 use x25519_dalek::{EphemeralSecret, PublicKey};
 
 use crate::{
-    cipher::Cipher, error::{AppError, to_illegal_state}, server::{self, sv_security::ServerSecurity},
+    cipher::Cipher,
+    error::{AppError, to_illegal_state},
+    server::{self, sv_security::ServerSecurity},
 };
 
 use super::sv_clients::ClientId;
 
 const OBSOLETE_AFTER: Duration = Duration::from_secs(2 * 60);
-const BUF_ALLOCATOR_SIZE: usize = 8 * MAX_DATAGRAM_SIZE;
 
+///
+/// Guest
+///
 #[derive()]
 pub(super) struct Guest {
     send_buf: VecDeque<BytesMut>,
     received_at: Option<Instant>,
-    buf_allocator: BytesMut,
     keys: Option<(EphemeralSecret, PublicKey)>,
     cipher: Option<Cipher>,
 }
@@ -37,13 +41,12 @@ impl Guest {
         Self {
             send_buf: VecDeque::new(),
             received_at: None,
-            buf_allocator: BytesMut::with_capacity(BUF_ALLOCATOR_SIZE),
             keys: None,
             cipher: None,
         }
     }
 
-    pub fn send_server_info(&mut self) {
+    pub fn send_server_info(&mut self, buf_allocator: &mut BytesMut) {
         if self.keys.is_none() {
             debug!("Initializing secret");
             self.init_keys();
@@ -53,7 +56,7 @@ impl Guest {
 
         if let Some((_, key)) = self.keys {
             let _ = self
-                .write_to_send_buf(|w| {
+                .write_to_send_buf(buf_allocator, |w| {
                     write_with_header(w, PacketKind::ServerInfo, |w| {
                         write_server_info(w, key.as_bytes())
                     })
@@ -62,25 +65,25 @@ impl Guest {
         }
     }
 
-    pub fn send_rejected(&mut self, reason: RejectionReason) {
+    pub fn send_rejected(&mut self, reason: RejectionReason, buf_allocator: &mut BytesMut) {
         let _ = self
-            .write_to_send_buf(|w| {
+            .write_to_send_buf(buf_allocator, |w| {
                 write_with_header(w, PacketKind::Rejected, |w| write_rejected(w, reason))
             })
             .inspect_err(|e| warn!("Failed to write server info: {:?}", e));
     }
 
-    pub fn send_accepted(&mut self) {
+    pub fn send_accepted(&mut self, buf_allocator: &mut BytesMut) {
         let _ = self
-            .write_to_send_buf(|w| {
+            .write_to_send_buf(buf_allocator, |w| {
                 write_with_header(w, PacketKind::Accepted, |w| write_accepted(w))
             })
             .inspect_err(|e| warn!("Failed to write server info: {:?}", e));
     }
 
-    pub fn send_pong(&mut self, ping: &Ping) {
+    pub fn send_pong(&mut self, ping: &Ping, buf_allocator: &mut BytesMut) {
         let _ = self
-            .write_to_send_buf(|w| {
+            .write_to_send_buf(buf_allocator, |w| {
                 write_with_header(w, PacketKind::Pong, |w| write_pong(w, ping.time))
             })
             .inspect_err(|e| warn!("Failed to write pong: {:?}", e));
@@ -135,6 +138,7 @@ impl Guest {
         client_id: &ClientId,
         connect: &Connect,
         security: &ServerSecurity,
+        buf_allocator: &mut BytesMut,
     ) -> Result<Option<Cipher>, AppError> {
         if let Some(cipher) = self.cipher.as_mut() {
             let bytes = Bytes::copy_from_slice(connect.password);
@@ -142,10 +146,10 @@ impl Guest {
 
             if !security.is_password_ok(&decoded) {
                 info!("Wrong password from client {:?}!", client_id);
-                self.send_rejected(RejectionReason::Unauthorized);
+                self.send_rejected(RejectionReason::Unauthorized, buf_allocator);
                 Ok(None)
             } else {
-                self.send_accepted();
+                self.send_accepted(buf_allocator);
                 Ok(self.cipher.take())
             }
         } else {
@@ -156,7 +160,11 @@ impl Guest {
     ///
     /// Calls [handler] for last send buffer (and if that fails due to overflow - adds new buffer and retries).
     ///
-    fn write_to_send_buf<H>(&mut self, mut handler: H) -> Result<(), ProtocolError>
+    fn write_to_send_buf<H>(
+        &mut self,
+        buf_allocator: &mut BytesMut,
+        mut handler: H,
+    ) -> Result<(), ProtocolError>
     where
         H: FnMut(&mut NetBufWriter) -> Result<(), ProtocolError>,
     {
@@ -173,27 +181,31 @@ impl Guest {
                 }
             }
 
-            if !self.buf_allocator.try_reclaim(MAX_DATAGRAM_SIZE) {
+            if !buf_allocator.try_reclaim(MAX_DATAGRAM_SIZE) {
                 warn!("Unable to reclaim {} bytes", MAX_DATAGRAM_SIZE);
             }
 
-            let rest = self.buf_allocator.split_off(MAX_DATAGRAM_SIZE);
-            let new_buf = std::mem::replace(&mut self.buf_allocator, rest);
+            let rest = buf_allocator.split_off(MAX_DATAGRAM_SIZE);
+            let new_buf = std::mem::replace(buf_allocator, rest);
+            
             self.send_buf.push_back(new_buf);
         }
         Ok(())
     }
 }
 
+///
+/// Guests
+///
 #[derive()]
 pub(super) struct Guests {
-    guests: HashMap<ClientId, Guest>,
+    guests: FxHashMap<ClientId, Guest>,
 }
 
 impl Guests {
     pub fn new() -> Self {
         Self {
-            guests: HashMap::new(),
+            guests: FxHashMap::default(),
         }
     }
 
@@ -208,12 +220,12 @@ impl Guests {
         self.cleanup();
     }
 
-    pub fn on_hello(&mut self, client_id: &ClientId, hello: &Hello) {
+    pub fn on_hello(&mut self, client_id: &ClientId, hello: &Hello, buf_allocator: &mut BytesMut) {
         let guest = self.get_or_create(*client_id);
         if hello.version.0 <= PROTOCOL_VERSION.0 && hello.version.1 <= PROTOCOL_VERSION.1 {
-            guest.send_server_info();
+            guest.send_server_info(buf_allocator);
         } else {
-            guest.send_rejected(RejectionReason::UnsupportedVersion);
+            guest.send_rejected(RejectionReason::UnsupportedVersion, buf_allocator);
         }
     }
 
@@ -238,14 +250,15 @@ impl Guests {
         client_id: &ClientId,
         connect: &Connect,
         security: &ServerSecurity,
+        buf_allocator: &mut BytesMut,
     ) -> Result<Option<Cipher>, AppError> {
         let guest = self.get_or_create(*client_id);
-        guest.try_connect(client_id, connect, security)
+        guest.try_connect(client_id, connect, security, buf_allocator)
     }
 
-    pub fn on_ping(&mut self, client_id: &ClientId, ping: &Ping) {
+    pub fn on_ping(&mut self, client_id: &ClientId, ping: &Ping, buf_allocator: &mut BytesMut) {
         let guest = self.get_or_create(*client_id);
-        guest.send_pong(&ping);
+        guest.send_pong(&ping, buf_allocator);
     }
 
     fn cleanup(&mut self) {

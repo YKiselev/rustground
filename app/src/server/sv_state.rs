@@ -3,9 +3,11 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use rg_common::App;
-use rg_net::{NetBufReader, PacketKind, read_client_info, read_connect, read_hello, read_ping};
+use rg_net::{
+    NET_BUF_SIZE, NetBufReader, PacketKind, read_client_info, read_connect, read_hello, read_ping,
+};
 use tracing::{debug, info, warn};
 
 use crate::{
@@ -20,6 +22,8 @@ use crate::{
     },
 };
 
+const BUF_ALLOCATOR_CAPACITY: usize = 16 * NET_BUF_SIZE;
+
 #[derive()]
 pub(super) struct ServerState {
     config: Arc<RwLock<ServerConfig>>,
@@ -27,6 +31,7 @@ pub(super) struct ServerState {
     guests: Guests,
     security: ServerSecurity,
     channel: ServerChannel,
+    buf_allocator: BytesMut,
 }
 
 impl ServerState {
@@ -44,6 +49,7 @@ impl ServerState {
             .map_err(|e| AppError::ChannelError(e.to_string()))?;
 
         let security = ServerSecurity::new(cfg.password.to_owned())?;
+        let buf_allocator = BytesMut::with_capacity(BUF_ALLOCATOR_CAPACITY);
 
         drop(cfg);
 
@@ -53,6 +59,7 @@ impl ServerState {
             guests: Guests::new(),
             security,
             channel,
+            buf_allocator,
         })
     }
 
@@ -100,7 +107,9 @@ impl ServerState {
                 PacketKind::Hello => {
                     if !clients.exists(&client_id) {
                         match read_hello(&mut payload) {
-                            Ok(ref hello) => guests.on_hello(&client_id, hello),
+                            Ok(ref hello) => {
+                                guests.on_hello(&client_id, hello, &mut self.buf_allocator)
+                            }
                             Err(e) => {
                                 warn!("Failed to parse: {:?}", e)
                             }
@@ -111,9 +120,7 @@ impl ServerState {
                 PacketKind::ClientInfo => {
                     if !clients.exists(&client_id) {
                         match read_client_info(&mut payload) {
-                            Ok(ref info) => {
-                                guests.on_client_info(&client_id, info)
-                            }
+                            Ok(ref info) => guests.on_client_info(&client_id, info),
                             Err(e) => {
                                 warn!("Failed to parse: {:?}", e)
                             }
@@ -122,7 +129,12 @@ impl ServerState {
                 }
 
                 PacketKind::Connect => match read_connect(&mut payload) {
-                    Ok(ref connect) => match guests.on_connect(&client_id, connect, security) {
+                    Ok(ref connect) => match guests.on_connect(
+                        &client_id,
+                        connect,
+                        security,
+                        &mut self.buf_allocator,
+                    ) {
                         Ok(cipher) => {
                             if let Some(cipher) = cipher {
                                 clients.add(client_id, connect.name, cipher);
@@ -139,7 +151,7 @@ impl ServerState {
 
                 PacketKind::Ping => match read_ping(&mut payload) {
                     Ok(ref ping) => {
-                        guests.on_ping(&client_id, ping);
+                        guests.on_ping(&client_id, ping, &mut self.buf_allocator);
                     }
                     Err(e) => {
                         warn!("Failed to parse: {:?}", e);
@@ -149,5 +161,74 @@ impl ServerState {
                 _ => {}
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bytes::{Bytes, BytesMut};
+
+    fn alloc2(buf: &mut BytesMut) -> Option<Bytes> {
+        let required = 100;
+        if buf.capacity() < required {
+            if !buf.try_reclaim(required) {
+                println!("Failed to reclaim!");
+                return None;
+            }
+        }
+
+        let rest = buf.split_off(required);
+        let mut x = std::mem::replace(buf, rest);
+
+        x.clear();
+        x.extend_from_slice(b"O, my sweet slice of bytes!");
+        Some(x.freeze())
+    }
+
+    #[test]
+    fn test() {
+        let cap = 1024;
+        let mut buf = BytesMut::with_capacity(cap);
+        // #1
+        {
+            let allocations: Vec<_> = (0..10)
+                .map(|_| alloc2(&mut buf))
+                .filter(|v| v.is_some())
+                .collect();
+            println!("Got {} allocations!", allocations.len());
+            println!(
+                "buf(len={}, cap={})",
+                buf.len(),
+                buf.capacity()
+            );
+        }
+        println!(
+            "After first pass: buf(len={}, cap={})",
+            buf.len(),
+            buf.capacity()
+        );
+        // #2
+        {
+            let allocations: Vec<_> = (0..10)
+                .map(|_| alloc2(&mut buf))
+                .filter(|v| v.is_some())
+                .collect();
+            println!("Got {} allocations!", allocations.len());
+        }
+        println!(
+            "After second pass: buf{:p}(len={}, cap={})",
+            buf.as_ptr(),
+            buf.len(),
+            buf.capacity()
+        );
+        if !buf.try_reclaim(1024) {
+            println!("Oops!");
+        }
+        println!(
+            "After reclaim: buf(len={}, cap={})",
+            buf.len(),
+            buf.capacity()
+        );
+        println!("Done!");
     }
 }

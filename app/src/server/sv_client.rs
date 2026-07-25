@@ -10,13 +10,10 @@ use rg_net::MAX_DATAGRAM_SIZE;
 use crate::cipher::Cipher;
 use crate::server;
 
-const BUF_ALLOCATOR_SIZE: usize = 8 * MAX_DATAGRAM_SIZE;
-
 pub struct Client {
     name: String,
     last_seen: Instant,
     send_buf: VecDeque<BytesMut>,
-    buf_allocator: BytesMut,
     cipher: Cipher
 }
 
@@ -26,7 +23,6 @@ impl Client {
             name: name.to_string(),
             last_seen: Instant::now(),
             send_buf: VecDeque::new(),
-            buf_allocator: BytesMut::with_capacity(BUF_ALLOCATOR_SIZE),
             cipher
         }
     }
