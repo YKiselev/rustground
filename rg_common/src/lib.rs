@@ -4,7 +4,7 @@ pub use app::App;
 pub use arguments::Arguments;
 pub use commands::CommandRegistry;
 pub use config::save_config;
-pub use files::{FileError, Files, SeekAndRead, SeekAndWrite};
+pub use files::{FileError, Files, SeekAndRead, SeekAndWrite, FileRoot};
 pub use loader::{Loader, LoaderError, load_bytes, load_deserializable};
 pub use plugin::Plugin;
 pub use vars::wrap_var_bag;

@@ -1,17 +1,24 @@
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use bytes::{Bytes, BytesMut};
-use tracing::{debug, error, warn};
 use rg_net::NET_BUF_SIZE;
 use tokio_util::sync::CancellationToken;
+use tracing::{debug, error, warn};
 
-use crate::error::AppError;
+use crate::{application::async_runtime::AsyncApp, error::AppError};
 
 #[derive(Debug)]
 pub enum Request {
-    SendDatagram { bytes: Bytes },
+    SendDatagram {
+        bytes: Bytes,
+    },
     NetworkConnect(SocketAddr),
     Disconnect,
+    LoadResource {
+        name: String,
+        buffer: BytesMut,
+        reply_channel: tokio::sync::oneshot::Sender<Result<Bytes, AppError>>,
+    },
 }
 
 #[derive(Debug)]
@@ -21,7 +28,11 @@ pub enum Response {
     Error(AppError),
 }
 
-pub async fn run_client_worker(rx: flume::Receiver<Request>, tx: flume::Sender<Response>) {
+pub async fn run_client_worker(
+    rx: flume::Receiver<Request>,
+    tx: flume::Sender<Response>,
+    app: Arc<AsyncApp>,
+) {
     debug!("Starting client worker...");
 
     while let Ok(request) = rx.recv_async().await {
@@ -31,6 +42,14 @@ pub async fn run_client_worker(rx: flume::Receiver<Request>, tx: flume::Sender<R
         match request {
             Request::NetworkConnect(addr) => {
                 let _ = init_udp_socket(addr, tx, rx_clone, CancellationToken::new()).await;
+            }
+            Request::LoadResource {
+                name,
+                buffer,
+                reply_channel,
+            } => {
+                let result = app.files.load_file(name, buffer).await;
+                let _ = reply_channel.send(result);
             }
             _ => {}
         }

@@ -32,10 +32,11 @@ thiserror = { workspace = true }
 glam = { workspace = true }
 indexmap = { workspace = true }
 rustc-hash = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread", "net", "macros"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "net", "macros", "fs"] }
 tokio-util = { workspace = true, features = ["full"] }
 flume = { workspace = true }
 bytes = { workspace = true }
+async_zip = { workspace = true, features = ["tokio", "deflate"] }
 
 [build-dependencies]
 shaderc = "0.10.1"

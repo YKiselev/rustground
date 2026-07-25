@@ -6,43 +6,58 @@ use std::{
     thread::{self, JoinHandle},
 };
 
-use rg_common::App;
-use tokio::runtime::{Handle, Runtime};
+use tokio::runtime::Runtime;
 use tracing::error;
 
 use crate::{
+    application::async_files::AsyncFiles,
     client::{self, run_client_worker},
     error::AppError,
     server::{self, run_server_worker},
 };
 
-#[derive(Clone)]
-pub struct ClientChannel {
-    pub tx: flume::Sender<client::Request>,
-    pub rx: flume::Receiver<client::Response>,
+pub struct RequestResponseChannel<Rq, Rs> {
+    pub tx: flume::Sender<Rq>,
+    pub rx: flume::Receiver<Rs>,
 }
 
-#[derive(Clone)]
-pub struct ServerChannel {
-    pub tx: flume::Sender<server::Request>,
-    pub rx: flume::Receiver<server::Response>,
+impl<Rq, Rs> Clone for RequestResponseChannel<Rq, Rs> {
+    fn clone(&self) -> Self {
+        Self {
+            tx: self.tx.clone(),
+            rx: self.rx.clone(),
+        }
+    }
 }
 
-pub fn init_client_server_async_runtime()
--> Result<(JoinHandle<()>, ServerChannel, ClientChannel), AppError> {
+pub type ClientChannel = RequestResponseChannel<client::Request, client::Response>;
+pub type ServerChannel = RequestResponseChannel<server::Request, server::Response>;
+
+pub struct AsyncApp {
+    pub files: AsyncFiles,
+}
+
+pub fn init_client_server_async_runtime(
+    files: AsyncFiles,
+) -> Result<(JoinHandle<()>, ServerChannel, ClientChannel), AppError> {
     let (server_tx, from_server_rx) = flume::unbounded::<server::Request>();
     let (to_server_tx, server_rx) = flume::unbounded::<server::Response>();
     let (client_tx, from_client_rx) = flume::unbounded::<client::Request>();
     let (to_client_tx, client_rx) = flume::unbounded::<client::Response>();
 
+    let async_app = Arc::new(AsyncApp { files });
+    let app_clone = Arc::clone(&async_app);
+    let app_clone2 = Arc::clone(&async_app);
     let handle = thread::spawn(move || {
         let rt = create_async_runtime()
             .inspect_err(|e| error!("Unable to create async runtime: {:?}", e))
             .unwrap();
 
         let _ = rt.block_on(async {
-            let server_handle = rt.spawn(run_server_worker(from_server_rx, to_server_tx));
-            let client_handle = rt.spawn(run_client_worker(from_client_rx, to_client_tx));
+            let server_handle =
+                rt.spawn(run_server_worker(from_server_rx, to_server_tx, app_clone));
+            let client_handle =
+                rt.spawn(run_client_worker(from_client_rx, to_client_tx, app_clone2));
 
             let _ = server_handle.await;
             let _ = client_handle.await;

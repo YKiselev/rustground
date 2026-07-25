@@ -86,10 +86,10 @@ impl Seek for SeekAndWrite {
 ///
 /// File root
 ///
-#[derive(Debug)]
-struct FileRoot {
-    readonly: bool,
-    path: PathBuf,
+#[derive(Debug, Clone)]
+pub struct FileRoot {
+    pub readonly: bool,
+    pub path: PathBuf,
 }
 
 impl FileRoot {
@@ -197,6 +197,10 @@ impl Files {
             .collect();
 
         Files { roots }
+    }
+
+    pub fn roots(&self) -> &Vec<FileRoot> {
+        &self.roots
     }
 
     pub fn read<S>(&self, path: S) -> Result<SeekAndRead, FileError>

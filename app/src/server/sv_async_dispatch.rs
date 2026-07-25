@@ -1,12 +1,12 @@
 use std::{net::SocketAddr, sync::Arc};
 
 use bytes::{Bytes, BytesMut};
-use tracing::{debug, error, info, warn};
 use rg_net::NET_BUF_SIZE;
 use tokio::{net::UdpSocket, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
+use tracing::{debug, error, info, warn};
 
-use crate::error::AppError;
+use crate::{application::async_runtime::AsyncApp, error::AppError};
 
 #[derive(Debug)]
 pub enum Request {
@@ -16,6 +16,11 @@ pub enum Request {
         addr: SocketAddr,
         bytes: Bytes,
         index: u64,
+    },
+    LoadResource {
+        name: String,
+        buffer: BytesMut,
+        reply_channel: tokio::sync::oneshot::Sender<Result<Bytes, AppError>>,
     },
 }
 
@@ -29,7 +34,11 @@ pub enum Response {
 ///
 /// Server worker loop
 ///
-pub async fn run_server_worker(rx: flume::Receiver<Request>, tx: flume::Sender<Response>) {
+pub async fn run_server_worker(
+    rx: flume::Receiver<Request>,
+    tx: flume::Sender<Response>,
+    app: Arc<AsyncApp>,
+) {
     debug!("Starting server worker...");
 
     let mut socket = None;
@@ -62,6 +71,14 @@ pub async fn run_server_worker(rx: flume::Receiver<Request>, tx: flume::Sender<R
                 } else {
                     warn!("No socket to send packet!");
                 }
+            }
+            Request::LoadResource {
+                name,
+                buffer,
+                reply_channel,
+            } => {
+                let result = app.files.load_file(name, buffer).await;
+                let _ = reply_channel.send(result);
             }
         }
     }
