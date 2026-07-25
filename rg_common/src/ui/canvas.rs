@@ -63,6 +63,10 @@ pub struct SpriteId(u32);
 /// Canvas
 ///
 pub trait Canvas {
+    fn width(&self) -> u32;
+
+    fn height(&self) -> u32;
+    
     fn set_font(&mut self, id: FontId);
 
     fn set_line_spacing(&mut self, spacing: usize);

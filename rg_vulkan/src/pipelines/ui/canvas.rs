@@ -1,14 +1,25 @@
-use tracing::warn;
 use rg_common::ui::{
     canvas::{Canvas, FontId, WrapMode},
     color::Color,
 };
+use tracing::warn;
 
-use crate::pipelines::ui::{text::{TextLayout, ToGlyphInstance}, ui::UiPipeline};
+use crate::pipelines::ui::{
+    text::{TextLayout, ToGlyphInstance},
+    ui::UiPipeline,
+};
 
 const FULL_BLOCK: char = unsafe { char::from_u32_unchecked(0x2588) };
 
 impl Canvas for UiPipeline {
+    fn width(&self) -> u32 {
+        self.extent.width
+    }
+
+    fn height(&self) -> u32 {
+        self.extent.height
+    }
+
     fn set_font(&mut self, id: FontId) {
         self.canvas_context.font_id = id;
     }

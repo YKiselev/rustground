@@ -10,9 +10,7 @@ use winit::{
 };
 
 use crate::{
-    application::async_runtime::ClientChannel,
-    client::{cl_config::ClientConfig, cl_state::ClientState},
-    error::AppError,
+    application::async_runtime::ClientChannel, client::{cl_config::ClientConfig, cl_menu::Menu, cl_state::ClientState}, error::AppError,
 };
 
 pub struct ClientEvent();
@@ -20,7 +18,7 @@ pub struct ClientEvent();
 pub struct Client {
     config: Arc<RwLock<ClientConfig>>,
     channel: ClientChannel,
-    state: Option<ClientState>,
+    state: Option<ClientState>
 }
 
 impl Client {

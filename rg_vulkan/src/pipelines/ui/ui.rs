@@ -90,6 +90,7 @@ pub struct UiPipeline {
     pub(super) frame_index: Option<usize>,
     pub(super) canvas_context: CanvasContext,
     sampler: vk::Sampler,
+    pub extent: vk::Extent2D
 }
 
 impl UiPipeline {
@@ -243,6 +244,7 @@ impl UiPipeline {
             frame_index: None,
             canvas_context: CanvasContext::new(),
             sampler,
+            extent: context.swapchain.extent
         };
 
         result.update_descriptor_sets(context)?;
@@ -281,6 +283,8 @@ impl UiPipeline {
     }
 
     pub fn on_swapchain_recreated(&mut self, instance: &VkContext) -> Result<(), VkError> {
+        self.extent = instance.swapchain.extent;
+        
         self.update_descriptor_sets(instance)
     }
 

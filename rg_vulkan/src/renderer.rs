@@ -4,7 +4,6 @@ use std::{
 };
 
 use ash::vk;
-use tracing::{info, warn};
 use rg_common::{
     App,
     gfx::world_renderer::{WorldRenderer, WorldRendererContext},
@@ -12,6 +11,7 @@ use rg_common::{
     world::HyperCube,
     wrap_var_bag,
 };
+use tracing::{info, warn};
 use winit::{event_loop::ActiveEventLoop, window::Window};
 
 use crate::{
@@ -318,6 +318,14 @@ impl<'a> VulkanCanvas<'a> {
 }
 
 impl<'a> Canvas for VulkanCanvas<'a> {
+    fn width(&self) -> u32 {
+        self.owner.ui.width()
+    }
+
+    fn height(&self) -> u32 {
+        self.owner.ui.height()
+    }
+
     fn set_font(&mut self, id: rg_common::ui::canvas::FontId) {
         self.owner.ui.set_font(id);
     }

@@ -23,9 +23,7 @@ use winit::{
 };
 
 use crate::{
-    application::async_runtime::ClientChannel,
-    client::{cl_config::ClientConfig, cl_fps::FrameStats, cl_net::ClientNetwork},
-    error::AppError,
+    application::async_runtime::ClientChannel, client::{cl_config::ClientConfig, cl_fps::FrameStats, cl_menu::Menu, cl_net::ClientNetwork}, error::AppError,
 };
 
 pub(super) struct ClientState {
@@ -38,6 +36,7 @@ pub(super) struct ClientState {
     frame_stats: FrameStats,
     modifiers: ModifiersState,
     hyper_cube: HyperCube,
+    menu: Menu
 }
 
 impl ClientState {
@@ -47,6 +46,7 @@ impl ClientState {
         channel: ClientChannel,
     ) -> Result<Self, AppError> {
         let net = ClientNetwork::new(app, channel)?;
+        let menu = Menu::new();
         Ok(Self {
             app: Arc::clone(&app),
             config: Arc::clone(&config),
@@ -57,6 +57,7 @@ impl ClientState {
             frame_stats: FrameStats::default(),
             modifiers: ModifiersState::default(),
             hyper_cube: HyperCube::solid(),
+            menu
         })
     }
 
@@ -114,7 +115,7 @@ impl ClientState {
                 ctx.draw_hyper_cube(hc);
             });
 
-            // DRaw UI
+            // Draw UI
             renderer.draw_ui(|canvas| {
                 canvas.set_color(Color::RED);
                 canvas.set_wrap_mode(WrapMode::Word);
@@ -124,6 +125,8 @@ impl ClientState {
                     400,
                     "Hello, Vulkan user! What is your name? Do you like ballons?",
                 );
+
+                self.menu.draw(canvas);
             });
         }
     }
