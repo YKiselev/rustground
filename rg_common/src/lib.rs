@@ -28,3 +28,4 @@ mod v_from_str;
 mod v_from_value;
 mod vars;
 pub mod world;
+pub mod v_hash_map;

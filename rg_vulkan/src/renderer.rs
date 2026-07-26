@@ -12,7 +12,10 @@ use rg_common::{
     wrap_var_bag,
 };
 use tracing::{info, warn};
-use winit::{event_loop::ActiveEventLoop, window::Window};
+use winit::{
+    event_loop::ActiveEventLoop,
+    window::{CursorGrabMode, Window},
+};
 
 use crate::{
     config::Config,
@@ -184,6 +187,22 @@ impl VulkanRenderer {
         self.window.request_redraw();
 
         true
+    }
+
+    pub fn capture_mouse(&self) {
+        self.window.set_cursor_visible(false);
+        if self.window.set_cursor_grab(CursorGrabMode::Locked).is_err() {
+            if let Err(e) = self.window.set_cursor_grab(CursorGrabMode::Confined) {
+                warn!("Unable to capture cursor: {:?}", e);
+            }
+        }
+    }
+
+    pub fn release_mouse(&self) {
+        self.window.set_cursor_visible(true);
+        if let Err(e) = self.window.set_cursor_grab(CursorGrabMode::None) {
+            warn!("Unable to release cursor: {:?}", e);
+        }
     }
 
     fn save_new_window_size(&self) {

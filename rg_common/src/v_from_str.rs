@@ -6,23 +6,6 @@ use crate::VariableError;
 use crate::vars::FromStrMutator;
 
 ///
-/// Error converters
-///
-macro_rules! impl_parsing_error_from {
-    ( $($t:ty),* ) => {
-        $(
-            impl From<$t> for VariableError {
-                fn from(e: $t) -> Self {
-                    VariableError::ParsingError
-                }
-            }
-        )*
-    };
-}
-
-//impl_parsing_error_from! { ParseIntError, ParseFloatError, ParseBoolError }
-
-///
 /// Mutators
 ///
 macro_rules! impl_from_str_mutator {

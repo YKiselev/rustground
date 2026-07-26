@@ -10,7 +10,7 @@ use winit::{
 };
 
 use crate::{
-    application::async_runtime::ClientChannel, client::{cl_config::ClientConfig, cl_menu::Menu, cl_state::ClientState}, error::AppError,
+    application::async_runtime::ClientChannel, client::{cl_config::{ClientConfig}, cl_menu::Menu, cl_state::ClientState}, error::AppError,
 };
 
 pub struct ClientEvent();
@@ -24,9 +24,12 @@ pub struct Client {
 impl Client {
     pub(crate) fn new(app: &Arc<App>, channel: ClientChannel) -> Result<Self, AppError> {
         info!("Starting client...");
+
         let cfg = wrap_var_bag(ClientConfig::new());
         app.vars.add("client", &cfg)?;
+
         let state = ClientState::new(&app, &cfg, channel.clone())?;
+
         Ok(Client {
             config: cfg,
             channel,
@@ -53,10 +56,12 @@ impl ApplicationHandler<ClientEvent> for Client {
     fn device_event(
         &mut self,
         event_loop: &ActiveEventLoop,
-        device_id: DeviceId,
+        _device_id: DeviceId,
         event: DeviceEvent,
     ) {
-        let _ = (event_loop, device_id, event);
+        if let Some(state) = self.state.as_mut() {
+            state.device_event(event, event_loop);
+        }
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {

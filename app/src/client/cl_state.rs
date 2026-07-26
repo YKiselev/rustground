@@ -3,6 +3,16 @@ use std::{
     time::{Duration, Instant},
 };
 
+use crate::{
+    application::async_runtime::ClientChannel,
+    client::{
+        cl_config::ClientConfig, cl_console::Console, cl_fps::FrameStats,
+        cl_in_game_overlay::InGameOverlay, cl_menu::Menu, cl_net::ClientNetwork,
+        cl_ui_layer::UiLayer,
+    },
+    error::AppError,
+};
+use bitflags::bitflags;
 use glam::Vec3;
 use rg_common::{
     App, Plugin,
@@ -14,17 +24,28 @@ use rg_common::{
     world::HyperCube,
 };
 use rg_vulkan::renderer::VulkanRenderer;
-use tracing::{debug, error, info};
+use tracing::{error, info};
 use winit::{
-    event::{Event, MouseScrollDelta, WindowEvent},
+    event::{DeviceEvent, DeviceId, MouseScrollDelta, WindowEvent},
     event_loop::ActiveEventLoop,
     keyboard::{KeyCode, ModifiersState, PhysicalKey},
     window::WindowId,
 };
 
-use crate::{
-    application::async_runtime::ClientChannel, client::{cl_config::ClientConfig, cl_fps::FrameStats, cl_menu::Menu, cl_net::ClientNetwork}, error::AppError,
-};
+bitflags! {
+    struct VisibilityFlags : u32 {
+        const IN_GAME_OVERLAY = 1 << 0;
+        const CONSOLE = 1 << 1;
+        const MENU = 1 << 2;
+    }
+}
+
+#[derive(Debug, Default)]
+struct WindowState {
+    modifiers: ModifiersState,
+    focused: bool,
+    cursor_captured: bool,
+}
 
 pub(super) struct ClientState {
     pub app: Arc<App>,
@@ -34,9 +55,12 @@ pub(super) struct ClientState {
     renderer_failed: bool,
     max_fps: f32,
     frame_stats: FrameStats,
-    modifiers: ModifiersState,
+    window_state: WindowState,
     hyper_cube: HyperCube,
-    menu: Menu
+    in_game_overlay: InGameOverlay,
+    menu: Menu,
+    console: Console,
+    ui_layer_visibility: VisibilityFlags,
 }
 
 impl ClientState {
@@ -46,7 +70,9 @@ impl ClientState {
         channel: ClientChannel,
     ) -> Result<Self, AppError> {
         let net = ClientNetwork::new(app, channel)?;
+        let in_game_overlay = InGameOverlay::new();
         let menu = Menu::new();
+        let console = Console::new();
         Ok(Self {
             app: Arc::clone(&app),
             config: Arc::clone(&config),
@@ -55,9 +81,12 @@ impl ClientState {
             renderer_failed: false,
             max_fps: 200.0,
             frame_stats: FrameStats::default(),
-            modifiers: ModifiersState::default(),
+            window_state: WindowState::default(),
             hyper_cube: HyperCube::solid(),
-            menu
+            in_game_overlay,
+            menu,
+            console,
+            ui_layer_visibility: VisibilityFlags::empty(),
         })
     }
 
@@ -69,6 +98,7 @@ impl ClientState {
 
     fn run_frame(&mut self, event_loop: &ActiveEventLoop) {
         let frame_start = Instant::now();
+        self.ensure_cursor();
         self.ensure_renderer(event_loop);
         self.frame_stats.add_sample();
 
@@ -117,16 +147,16 @@ impl ClientState {
 
             // Draw UI
             renderer.draw_ui(|canvas| {
-                canvas.set_color(Color::RED);
-                canvas.set_wrap_mode(WrapMode::Word);
-                canvas.draw_text(
-                    50,
-                    20,
-                    400,
-                    "Hello, Vulkan user! What is your name? Do you like ballons?",
-                );
-
-                self.menu.draw(canvas);
+                let flags = &self.ui_layer_visibility;
+                if flags.contains(VisibilityFlags::IN_GAME_OVERLAY) {
+                    self.in_game_overlay.draw(canvas);
+                }
+                if flags.contains(VisibilityFlags::CONSOLE) {
+                    self.console.draw(canvas);
+                }
+                if flags.contains(VisibilityFlags::MENU) {
+                    self.menu.draw(canvas);
+                }
             });
         }
     }
@@ -166,12 +196,30 @@ impl ClientState {
         }
     }
 
+    fn ensure_cursor(&mut self) {
+        let should_be_captured = !self
+            .ui_layer_visibility
+            .intersects(VisibilityFlags::CONSOLE | VisibilityFlags::MENU)
+            && self.window_state.focused;
+        if self.window_state.cursor_captured != should_be_captured {
+            if let Some(ref renderer) = self.renderer {
+                if should_be_captured {
+                    renderer.capture_mouse();
+                } else {
+                    renderer.release_mouse();
+                }
+                self.window_state.cursor_captured = should_be_captured;
+            }
+        }
+    }
+
     pub(super) fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         self.renderer.take();
         match VulkanRenderer::new(&self.app, event_loop) {
             Ok(renderer) => self.renderer = Some(renderer),
             Err(e) => error!("Unable to create Vulkan renderer: {:?}", e),
         }
+        event_loop.listen_device_events(winit::event_loop::DeviceEvents::Always);
     }
 
     pub(super) fn window_event(
@@ -187,17 +235,13 @@ impl ClientState {
                 }
             }
             WindowEvent::Focused(focused) => {
-                if focused {
-                    info!("Window={window_id:?} focused");
-                } else {
-                    info!("Window={window_id:?} unfocused");
-                }
+                self.window_state.focused = focused;
             }
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
                 info!("Window={window_id:?} changed scale to {scale_factor}");
             }
             WindowEvent::ModifiersChanged(modifiers) => {
-                self.modifiers = modifiers.state();
+                self.window_state.modifiers = modifiers.state();
             }
             WindowEvent::MouseWheel { delta, .. } => match delta {
                 MouseScrollDelta::LineDelta(x, y) => {
@@ -226,5 +270,31 @@ impl ClientState {
             },
             _ => (),
         }
+    }
+
+    pub(super) fn device_event(&mut self, event: DeviceEvent, event_loop: &ActiveEventLoop) {
+        let flags = &self.ui_layer_visibility;
+
+        if flags.contains(VisibilityFlags::MENU) {
+            if self.menu.device_event(event_loop, &event) {
+                return;
+            }
+        }
+
+        if flags.contains(VisibilityFlags::CONSOLE) {
+            if self.console.device_event(event_loop, &event) {
+                return;
+            }
+        }
+
+        // pass to world
+
+        // match event {
+        //     DeviceEvent::MouseWheel { delta } => {}
+        //     DeviceEvent::Motion { axis, value } => {}
+        //     DeviceEvent::Button { button, state } => {}
+        //     DeviceEvent::Key(raw_key_event) => {}
+        //     _ => {}
+        // }
     }
 }

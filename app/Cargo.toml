@@ -37,6 +37,7 @@ tokio-util = { workspace = true, features = ["full"] }
 flume = { workspace = true }
 bytes = { workspace = true }
 async_zip = { workspace = true, features = ["tokio", "deflate"] }
+bitflags = { workspace = true }
 
 [build-dependencies]
 shaderc = "0.10.1"

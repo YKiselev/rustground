@@ -2,10 +2,10 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::convert::Infallible;
-use std::fmt::{Debug};
+use std::fmt::Debug;
 use std::iter::Peekable;
 use std::ops::Deref;
-use std::str::Split;
+use std::str::{FromStr, Split};
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard, Weak};
 
 use thiserror::Error;
@@ -33,6 +33,15 @@ impl<'a> Variable<'a> {
                 }
             }
         }
+    }
+
+    pub fn from_map<M>(map: &'a M) -> Self
+    where
+        //for<'b> V: serde::Deserialize<'b> + serde::Serialize + FromStr + FromValue,
+        //for<'b> Variable<'a>: From<&'b V>,
+        M : VarBag,
+    {
+        Self::VarBag(map)
     }
 }
 
@@ -293,6 +302,8 @@ pub enum VariableError {
     FloatParsingError(#[from] std::num::ParseFloatError),
     #[error(transparent)]
     BoolParsingError(#[from] std::str::ParseBoolError),
+    #[error("Parsing failed")]
+    ParsingError,
     #[error(transparent)]
     DeserializationError(#[from] toml::de::Error),
     #[error("Not found")]
@@ -579,6 +590,7 @@ speed = 110.5
         sub: Sub,
         speed: f32,
         flag: bool,
+        bindings: HashMap<String, String>,
     }
 
     fn empty_split() -> Split<'static, &'static str> {
@@ -589,6 +601,9 @@ speed = 110.5
 
     #[test]
     fn config() {
+        let s = String::from("aaaa");
+        let v = Variable::from(&s);
+
         let mut c = Outer {
             sub: Sub {
                 name: "test".to_string(),
@@ -596,6 +611,7 @@ speed = 110.5
             },
             speed: 3.22,
             flag: true,
+            bindings: HashMap::default()
         };
         let v = Variable::from(&c);
         assert!(matches!(v, Variable::VarBag { .. }));
