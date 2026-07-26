@@ -1,6 +1,7 @@
-use std::{collections::HashMap, ops::Index};
+use std::collections::HashMap;
 
-use bitflags::bitflags;
+use argh::FromArgValue;
+use bitflags::{Flags, bitflags};
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
@@ -8,6 +9,33 @@ use winit::{
     event::ElementState,
     keyboard::{KeyCode, PhysicalKey},
 };
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash, FromArgValue)]
+#[repr(u32)]
+pub enum MouseButton {
+    Mouse1 = 0,
+    Mouse2 = 1,
+    Mouse3 = 2,
+}
+
+impl TryFrom<u32> for MouseButton {
+    type Error = &'static str;
+
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::Mouse1),
+            1 => Ok(Self::Mouse2),
+            2 => Ok(Self::Mouse3),
+            _ => Err("Invalid button!"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Input {
+    Key(KeyCode),
+    Button(MouseButton),
+}
 
 bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
@@ -29,22 +57,25 @@ bitflags! {
 
 pub(crate) struct GameActions {
     flags: GameActionFlags,
-    bindings: FxHashMap<KeyCode, GameActionFlags>,
+    bindings: FxHashMap<Input, GameActionFlags>,
 }
 
 impl GameActions {
     pub fn new(source: &HashMap<String, String>) -> Self {
         let bindings = parse_bindings(source);
+        report_missing_bindings(&bindings);
         Self {
             flags: GameActionFlags::empty(),
             bindings,
         }
     }
 
-    pub fn update(&mut self, key: PhysicalKey, state: ElementState) {
+    pub fn update_from_key(&mut self, key: PhysicalKey, state: ElementState) {
         match key {
             PhysicalKey::Code(key_code) => {
-                if let Some(&flag) = self.bindings.get(&key_code) {
+                let key = Input::Key(key_code);
+
+                if let Some(&flag) = self.bindings.get(&key) {
                     match state {
                         ElementState::Pressed => self.flags.insert(flag),
                         ElementState::Released => self.flags.remove(flag),
@@ -54,22 +85,46 @@ impl GameActions {
             PhysicalKey::Unidentified(_) => {}
         }
     }
+
+    pub fn update_from_button(&mut self, button: u32, state: ElementState) {
+        if let Ok(button) = MouseButton::try_from(button) {
+            let key = Input::Button(button);
+
+            if let Some(&flag) = self.bindings.get(&key) {
+                match state {
+                    ElementState::Pressed => self.flags.insert(flag),
+                    ElementState::Released => self.flags.remove(flag),
+                }
+            }
+        }
+    }
 }
 
-fn parse_bindings(source: &HashMap<String, String>) -> FxHashMap<KeyCode, GameActionFlags> {
+fn parse_bindings(source: &HashMap<String, String>) -> FxHashMap<Input, GameActionFlags> {
     let mut bindings = FxHashMap::default();
     if let Ok(str) = toml::to_string(&source) {
         for line in str.lines() {
             if let Some((action, key)) = line.split_once("=") {
-                let line = format!("{}={}", action.trim().to_uppercase(), key.trim());
-
-                match toml::from_str::<HashMap<GameActionFlags, KeyCode>>(&line) {
-                    Ok(map) => {
-                        for (flag, key) in map.into_iter() {
-                            bindings.insert(key, flag);
+                if let Ok(flag) =
+                    bitflags::parser::from_str::<GameActionFlags>(&action.trim().to_uppercase())
+                {
+                    let trimmed = key.trim();
+                    if let Ok(deserializer) = toml::de::ValueDeserializer::parse(trimmed) {
+                        if let Ok(key) = KeyCode::deserialize(deserializer) {
+                            bindings.insert(Input::Key(key), flag);
+                            continue;
                         }
                     }
-                    Err(e) => warn!("Skipping line \"{}\": {}", &line, e.message()),
+                    
+                    if let Some(stripped) = trimmed
+                        .strip_prefix("\"")
+                        .and_then(|v| v.strip_suffix("\""))
+                        .map(|v| v.to_lowercase())
+                    {
+                        if let Ok(button) = MouseButton::from_arg_value(&stripped) {
+                            bindings.insert(Input::Button(button), flag);
+                        }
+                    }
                 }
             } else {
                 continue;
@@ -78,33 +133,18 @@ fn parse_bindings(source: &HashMap<String, String>) -> FxHashMap<KeyCode, GameAc
     } else {
         warn!("Unable to serialize bindings!");
     };
-    dbg!(&bindings);
     bindings
 }
 
-#[cfg(test)]
-mod tests {
-    use std::collections::HashMap;
+fn report_missing_bindings(bindings: &FxHashMap<Input, GameActionFlags>) {
+    let flags = bindings.values().map(|v| *v).collect::<GameActionFlags>();
 
-    use serde::Deserialize;
-    use winit::keyboard::KeyCode;
-
-    use crate::client::cl_game_actions::GameActionFlags;
-
-    #[test]
-    fn test() {
-        let str = "\"Escape\"";
-        let deserializer = toml::de::ValueDeserializer::parse(str).unwrap();
-        let key = KeyCode::deserialize(deserializer).unwrap();
-        println!("key: {:?}", key);
-
-        let str = "\"FORWARD\"";
-        let deserializer = toml::de::ValueDeserializer::parse(str).unwrap();
-        let action = GameActionFlags::deserialize(deserializer).unwrap();
-        println!("action: {:?}", action);
-
-        let str = "\"Escape\" = \"JUMP\"";
-        let map: HashMap<KeyCode, GameActionFlags> = toml::from_str(str).unwrap();
-        println!("Map: {:?}", map);
+    for (name, flag) in GameActionFlags::iter_defined_names() {
+        if !flags.contains(flag) {
+            warn!("Unbinded action: {}", name);
+        }
     }
 }
+
+#[cfg(test)]
+mod tests {}

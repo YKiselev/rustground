@@ -343,9 +343,14 @@ impl ClientState {
 
     fn update_game_actions(&mut self, event: &DeviceEvent) {
         match event {
-            DeviceEvent::Key(raw_key_event) => self
-                .game_actions
-                .update(raw_key_event.physical_key, raw_key_event.state),
+            DeviceEvent::Key(raw_key_event) => {
+                info!("{:?}", raw_key_event);
+                self.game_actions
+                    .update_from_key(raw_key_event.physical_key, raw_key_event.state)
+            }
+            DeviceEvent::Button { button, state } => {
+                self.game_actions.update_from_button(*button, *state)
+            }
             _ => {}
         }
     }
