@@ -21,7 +21,7 @@ pub fn run_client_server(args: Arguments) -> Result<(), AppError> {
     let host = AppHost::new(args);
     let app = Arc::clone(&host.app);
 
-    app.load_config("config.toml");
+    app.load_config(&["default-config.toml", "config.toml"]);
 
     let async_files = AsyncFiles::new(app.files.roots());
     let (async_handle, server_channel, client_channel) =

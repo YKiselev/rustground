@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, VarBag, Serialize, Deserialize, Default)]
 pub(super) struct ClientConfig {
-    name: String,
-    bindings: HashMap<String, String>
+    pub name: String,
+    pub bindings: HashMap<String, String>
 }
 
 impl ClientConfig {

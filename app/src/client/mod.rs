@@ -7,8 +7,9 @@ mod cl_world;
 mod client;
 mod cl_menu;
 mod cl_console;
-mod cl_in_game_overlay;
+mod cl_game_overlay;
 mod cl_ui_layer;
+mod cl_game_actions;
 
 pub(crate) use cl_async_dispatch::{Request, Response, run_client_worker};
 pub(crate) use client::Client;

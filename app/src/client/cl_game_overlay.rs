@@ -2,15 +2,15 @@ use rg_common::ui::{canvas::{Canvas, WrapMode}, color::Color};
 
 use crate::client::cl_ui_layer::UiLayer;
 
-pub struct InGameOverlay {}
+pub struct GameOverlay {}
 
-impl InGameOverlay {
+impl GameOverlay {
     pub fn new() -> Self {
         Self {}
     }
 }
 
-impl UiLayer for InGameOverlay {
+impl UiLayer for GameOverlay {
     fn device_event(
         &mut self,
         _event_loop: &winit::event_loop::ActiveEventLoop,

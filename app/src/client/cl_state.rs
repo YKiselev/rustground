@@ -7,8 +7,8 @@ use crate::{
     application::async_runtime::ClientChannel,
     client::{
         cl_config::ClientConfig, cl_console::Console, cl_fps::FrameStats,
-        cl_in_game_overlay::InGameOverlay, cl_menu::Menu, cl_net::ClientNetwork,
-        cl_ui_layer::UiLayer,
+        cl_game_actions::GameActions, cl_game_overlay::GameOverlay, cl_menu::Menu,
+        cl_net::ClientNetwork, cl_ui_layer::UiLayer,
     },
     error::AppError,
 };
@@ -26,7 +26,7 @@ use rg_common::{
 use rg_vulkan::renderer::VulkanRenderer;
 use tracing::{error, info};
 use winit::{
-    event::{DeviceEvent, DeviceId, MouseScrollDelta, WindowEvent},
+    event::{DeviceEvent, DeviceId, ElementState, MouseScrollDelta, WindowEvent},
     event_loop::ActiveEventLoop,
     keyboard::{KeyCode, ModifiersState, PhysicalKey},
     window::WindowId,
@@ -57,10 +57,11 @@ pub(super) struct ClientState {
     frame_stats: FrameStats,
     window_state: WindowState,
     hyper_cube: HyperCube,
-    in_game_overlay: InGameOverlay,
+    game_overlay: GameOverlay,
     menu: Menu,
     console: Console,
     ui_layer_visibility: VisibilityFlags,
+    game_actions: GameActions,
 }
 
 impl ClientState {
@@ -70,9 +71,11 @@ impl ClientState {
         channel: ClientChannel,
     ) -> Result<Self, AppError> {
         let net = ClientNetwork::new(app, channel)?;
-        let in_game_overlay = InGameOverlay::new();
+        let in_game_overlay = GameOverlay::new();
         let menu = Menu::new();
         let console = Console::new();
+        let guard = config.read()?;
+        let game_actions = GameActions::new(&guard.bindings);
         Ok(Self {
             app: Arc::clone(&app),
             config: Arc::clone(&config),
@@ -83,10 +86,11 @@ impl ClientState {
             frame_stats: FrameStats::default(),
             window_state: WindowState::default(),
             hyper_cube: HyperCube::solid(),
-            in_game_overlay,
+            game_overlay: in_game_overlay,
             menu,
             console,
             ui_layer_visibility: VisibilityFlags::empty(),
+            game_actions,
         })
     }
 
@@ -149,7 +153,7 @@ impl ClientState {
             renderer.draw_ui(|canvas| {
                 let flags = &self.ui_layer_visibility;
                 if flags.contains(VisibilityFlags::IN_GAME_OVERLAY) {
-                    self.in_game_overlay.draw(canvas);
+                    self.game_overlay.draw(canvas);
                 }
                 if flags.contains(VisibilityFlags::CONSOLE) {
                     self.console.draw(canvas);
@@ -287,14 +291,62 @@ impl ClientState {
             }
         }
 
-        // pass to world
+        if flags.contains(VisibilityFlags::IN_GAME_OVERLAY) {
+            if self.game_overlay.device_event(event_loop, &event) {
+                return;
+            }
+        }
 
-        // match event {
-        //     DeviceEvent::MouseWheel { delta } => {}
-        //     DeviceEvent::Motion { axis, value } => {}
-        //     DeviceEvent::Button { button, state } => {}
-        //     DeviceEvent::Key(raw_key_event) => {}
-        //     _ => {}
-        // }
+        self.update_game_actions(&event);
+
+        self.device_event_fallback(event, event_loop);
+    }
+
+    fn device_event_fallback(&mut self, event: DeviceEvent, _: &ActiveEventLoop) {
+        match event {
+            DeviceEvent::Key(raw_key_event) => {
+                // Process only key release actions
+                if raw_key_event.state == ElementState::Released {
+                    match raw_key_event.physical_key {
+                        PhysicalKey::Code(key_code) => match key_code {
+                            KeyCode::Escape => self.toggle_menu(),
+                            KeyCode::Backquote => self.toggle_console(),
+                            _ => {}
+                        },
+                        PhysicalKey::Unidentified(_) => {}
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn toggle_menu(&mut self) {
+        if self.ui_layer_visibility.contains(VisibilityFlags::MENU) {
+            if self.menu.toggle() == 0 {
+                self.ui_layer_visibility.remove(VisibilityFlags::MENU);
+            }
+        } else {
+            self.ui_layer_visibility.insert(VisibilityFlags::MENU);
+        }
+    }
+
+    fn toggle_console(&mut self) {
+        if self.ui_layer_visibility.contains(VisibilityFlags::CONSOLE) {
+            if self.console.toggle() == 0 {
+                self.ui_layer_visibility.remove(VisibilityFlags::CONSOLE);
+            }
+        } else {
+            self.ui_layer_visibility.insert(VisibilityFlags::CONSOLE);
+        }
+    }
+
+    fn update_game_actions(&mut self, event: &DeviceEvent) {
+        match event {
+            DeviceEvent::Key(raw_key_event) => self
+                .game_actions
+                .update(raw_key_event.physical_key, raw_key_event.state),
+            _ => {}
+        }
     }
 }

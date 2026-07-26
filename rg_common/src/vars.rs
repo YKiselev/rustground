@@ -601,9 +601,6 @@ speed = 110.5
 
     #[test]
     fn config() {
-        let s = String::from("aaaa");
-        let v = Variable::from(&s);
-
         let mut c = Outer {
             sub: Sub {
                 name: "test".to_string(),

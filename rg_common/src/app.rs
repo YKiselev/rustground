@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
+use toml::Table;
 use tracing::{info, warn};
 
 use rg_common::arguments::Arguments;
@@ -51,17 +52,33 @@ impl App {
         self.started_at.elapsed()
     }
 
-    pub fn load_config<S>(&self, name: S)
+    pub fn load_config<S>(&self, names: &[S])
     where
         S: AsRef<str>,
     {
-        if let Some(cfg) = self.load_resource(name.as_ref(), &read_config, ()).ok() {
-            info!("Loaded config: {:?}", name.as_ref());
-            let _ = self
-                .vars
-                .set_table(cfg)
-                .inspect_err(|e| warn!("Unable to load {}: {:?}", name.as_ref(), e));
-        }
+        let cfg = names
+            .iter()
+            .map(
+                |name| match self.load_resource(name.as_ref(), &read_config, ()) {
+                    Ok(cfg) => Some(cfg),
+                    Err(e) => {
+                        warn!("Failed to load {}: {:?}", name.as_ref(), e);
+                        None
+                    }
+                },
+            )
+            .into_iter()
+            .fold(Table::default(), |mut a, b| {
+                if b.is_some() {
+                    deep_merge(&mut a, b.unwrap());
+                }
+                a
+            });
+
+        let _ = self
+            .vars
+            .set_table(cfg)
+            .inspect_err(|e| warn!("Unable to set config table: {:?}", e));
     }
 
     pub fn save_config(&self, name: &str, value: String) {
@@ -98,5 +115,23 @@ impl App {
             .buf_read(name.as_ref())
             .map_err(|_| LoaderError::NotFound(String::from(name.as_ref())))
             .and_then(|mut r| loader.load(&mut r, ctx))
+    }
+}
+
+fn deep_merge(a: &mut Table, b: Table) {
+    for (key, value) in b {
+        match value {
+            // If value is Table, and a have this key, merge recursively
+            toml::Value::Table(b_inner_table) => {
+                if let Some(toml::Value::Table(a_inner_table)) = a.get_mut(&key) {
+                    deep_merge(a_inner_table, b_inner_table);
+                } else {
+                    a.insert(key, toml::Value::Table(b_inner_table));
+                }
+            }
+            other_value => {
+                a.insert(key, other_value);
+            }
+        }
     }
 }

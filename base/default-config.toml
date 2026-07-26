@@ -1,0 +1,16 @@
+debug = true
+
+[server]
+address = "127.0.0.1:0"
+key_bits = 512
+password = "123456"
+
+[client]
+
+[client.bindings]
+toggle_menu = "Escape"
+toggle_console = "Backquote"
+forward = "KeyW"
+backward = "KeyS"
+strafe_left = "KeyA"
+strafe_right = "KeyD"
