@@ -1,4 +1,7 @@
-use std::sync::{Arc, RwLock, atomic::Ordering};
+use std::{
+    rc::Rc,
+    sync::{Arc, RwLock, atomic::Ordering},
+};
 
 use rg_common::{App, save_config, wrap_var_bag};
 use tracing::{info, warn};
@@ -10,7 +13,10 @@ use winit::{
 };
 
 use crate::{
-    application::async_runtime::ClientChannel, client::{cl_config::{ClientConfig}, cl_menu::Menu, cl_state::ClientState}, error::AppError,
+    app_logger::AppLoggerBuffer,
+    application::async_runtime::ClientChannel,
+    client::{cl_config::ClientConfig, cl_menu::Menu, cl_state::ClientState},
+    error::AppError,
 };
 
 pub struct ClientEvent();
@@ -18,22 +24,29 @@ pub struct ClientEvent();
 pub struct Client {
     config: Arc<RwLock<ClientConfig>>,
     channel: ClientChannel,
-    state: Option<ClientState>
+    state: Option<ClientState>,
+    app_log_buffer: Rc<AppLoggerBuffer>,
 }
 
 impl Client {
-    pub(crate) fn new(app: &Arc<App>, channel: ClientChannel) -> Result<Self, AppError> {
+    pub(crate) fn new(
+        app: &Arc<App>,
+        channel: ClientChannel,
+        app_log_buffer: AppLoggerBuffer,
+    ) -> Result<Self, AppError> {
         info!("Starting client...");
 
         let cfg = wrap_var_bag(ClientConfig::new());
         app.vars.add("client", &cfg)?;
 
-        let state = ClientState::new(&app, &cfg, channel.clone())?;
+        let app_log_buffer = Rc::new(app_log_buffer);
+        let state = ClientState::new(&app, &cfg, channel.clone(), Rc::clone(&app_log_buffer))?;
 
         Ok(Client {
             config: cfg,
             channel,
             state: Some(state),
+            app_log_buffer
         })
     }
 }

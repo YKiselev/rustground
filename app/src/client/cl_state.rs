@@ -1,9 +1,11 @@
 use std::{
+    rc::Rc,
     sync::{Arc, RwLock},
     time::{Duration, Instant},
 };
 
 use crate::{
+    app_logger::AppLoggerBuffer,
     application::async_runtime::ClientChannel,
     client::{
         cl_config::ClientConfig, cl_console::Console, cl_fps::FrameStats,
@@ -32,14 +34,6 @@ use winit::{
     window::WindowId,
 };
 
-bitflags! {
-    struct VisibilityFlags : u32 {
-        const IN_GAME_OVERLAY = 1 << 0;
-        const CONSOLE = 1 << 1;
-        const MENU = 1 << 2;
-    }
-}
-
 #[derive(Debug, Default)]
 struct WindowState {
     modifiers: ModifiersState,
@@ -60,7 +54,6 @@ pub(super) struct ClientState {
     game_overlay: GameOverlay,
     menu: Menu,
     console: Console,
-    ui_layer_visibility: VisibilityFlags,
     game_actions: GameActions,
 }
 
@@ -69,11 +62,12 @@ impl ClientState {
         app: &Arc<App>,
         config: &Arc<RwLock<ClientConfig>>,
         channel: ClientChannel,
+        app_log_buffer: Rc<AppLoggerBuffer>,
     ) -> Result<Self, AppError> {
         let net = ClientNetwork::new(app, channel)?;
         let in_game_overlay = GameOverlay::new();
         let menu = Menu::new();
-        let console = Console::new();
+        let console = Console::new(app_log_buffer);
         let guard = config.read()?;
         let game_actions = GameActions::new(&guard.bindings);
         Ok(Self {
@@ -89,7 +83,6 @@ impl ClientState {
             game_overlay: in_game_overlay,
             menu,
             console,
-            ui_layer_visibility: VisibilityFlags::empty(),
             game_actions,
         })
     }
@@ -151,14 +144,13 @@ impl ClientState {
 
             // Draw UI
             renderer.draw_ui(|canvas| {
-                let flags = &self.ui_layer_visibility;
-                if flags.contains(VisibilityFlags::IN_GAME_OVERLAY) {
+                if self.game_overlay.is_visible() {
                     self.game_overlay.draw(canvas);
                 }
-                if flags.contains(VisibilityFlags::CONSOLE) {
+                if self.console.is_visible() {
                     self.console.draw(canvas);
                 }
-                if flags.contains(VisibilityFlags::MENU) {
+                if self.menu.is_visible() {
                     self.menu.draw(canvas);
                 }
             });
@@ -201,10 +193,8 @@ impl ClientState {
     }
 
     fn ensure_cursor(&mut self) {
-        let should_be_captured = !self
-            .ui_layer_visibility
-            .intersects(VisibilityFlags::CONSOLE | VisibilityFlags::MENU)
-            && self.window_state.focused;
+        let should_be_captured =
+            !self.console.is_visible() && !self.menu.is_visible() && self.window_state.focused;
         if self.window_state.cursor_captured != should_be_captured {
             if let Some(ref renderer) = self.renderer {
                 if should_be_captured {
@@ -260,11 +250,7 @@ impl ClientState {
                     self.run_frame(event_loop);
                 }
             }
-            WindowEvent::KeyboardInput {
-                ref event,
-                is_synthetic: false,
-                ..
-            } => match event.physical_key {
+            WindowEvent::KeyboardInput { ref event, .. } => match event.physical_key {
                 PhysicalKey::Code(ref key_code) => {
                     if *key_code == KeyCode::Space {
                         info!("fps: {:.2}", self.frame_stats.calc_fps());
@@ -277,24 +263,16 @@ impl ClientState {
     }
 
     pub(super) fn device_event(&mut self, event: DeviceEvent, event_loop: &ActiveEventLoop) {
-        let flags = &self.ui_layer_visibility;
-
-        if flags.contains(VisibilityFlags::MENU) {
-            if self.menu.device_event(event_loop, &event) {
-                return;
-            }
+        if self.menu.device_event(event_loop, &event) {
+            return;
         }
 
-        if flags.contains(VisibilityFlags::CONSOLE) {
-            if self.console.device_event(event_loop, &event) {
-                return;
-            }
+        if self.console.device_event(event_loop, &event) {
+            return;
         }
 
-        if flags.contains(VisibilityFlags::IN_GAME_OVERLAY) {
-            if self.game_overlay.device_event(event_loop, &event) {
-                return;
-            }
+        if self.game_overlay.device_event(event_loop, &event) {
+            return;
         }
 
         self.update_game_actions(&event);
@@ -322,23 +300,11 @@ impl ClientState {
     }
 
     fn toggle_menu(&mut self) {
-        if self.ui_layer_visibility.contains(VisibilityFlags::MENU) {
-            if self.menu.toggle() == 0 {
-                self.ui_layer_visibility.remove(VisibilityFlags::MENU);
-            }
-        } else {
-            self.ui_layer_visibility.insert(VisibilityFlags::MENU);
-        }
+        self.menu.toggle();
     }
 
     fn toggle_console(&mut self) {
-        if self.ui_layer_visibility.contains(VisibilityFlags::CONSOLE) {
-            if self.console.toggle() == 0 {
-                self.ui_layer_visibility.remove(VisibilityFlags::CONSOLE);
-            }
-        } else {
-            self.ui_layer_visibility.insert(VisibilityFlags::CONSOLE);
-        }
+        self.console.toggle();
     }
 
     fn update_game_actions(&mut self, event: &DeviceEvent) {

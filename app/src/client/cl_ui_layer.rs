@@ -13,11 +13,14 @@ pub trait UiLayer {
 
     fn draw(&self, canvas: &mut VulkanCanvas);
 
+    fn is_visible(&self) -> bool {
+        false
+    }
+
     ///
     /// Toggles layer visibility.
     /// Returns 0 if there is no sublayers left (for e.g. menu)
     /// 
-    fn toggle(&self) -> usize {
-        0
+    fn toggle(&mut self) {
     }
 }

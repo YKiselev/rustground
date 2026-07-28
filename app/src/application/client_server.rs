@@ -14,7 +14,7 @@ use crate::{
 };
 
 pub fn run_client_server(args: Arguments) -> Result<(), AppError> {
-    let _guard = app_logger::init(&args)?;
+    let (app_log_buffer, _guard) = app_logger::init(&args)?;
 
     info!("========= Starting =========");
 
@@ -32,7 +32,7 @@ pub fn run_client_server(args: Arguments) -> Result<(), AppError> {
     //let proxy = event_loop.create_proxy();
     //proxy.send_event(ClientEvent::new());
 
-    let mut client = Client::new(&app, client_channel)?;
+    let mut client = Client::new(&app, client_channel, app_log_buffer)?;
     event_loop.set_control_flow(ControlFlow::Poll);
 
     info!("Entering main loop...");

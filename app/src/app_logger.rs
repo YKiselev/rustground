@@ -1,58 +1,76 @@
 use std::collections::VecDeque;
 use std::collections::vec_deque::Iter;
 use std::fs::File;
+use std::iter::Rev;
 use std::sync::mpsc::{self, Receiver, SyncSender};
 
 use crate::error::AppError;
+use chrono::Local;
+use flume::Sender;
 use rg_common::Arguments;
 use tracing::{Event, Subscriber};
 use tracing::{Level, warn};
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::Layer;
-use tracing_subscriber::fmt::time::ChronoLocal;
+use tracing_subscriber::fmt::time::{ChronoLocal, LocalTime};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::layer::{Context, Filter};
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, fmt};
 
+pub struct LogRecord {
+    pub level: Level,
+    pub message: String,
+    pub time: chrono::DateTime<Local>,
+}
+
 ///
 /// App log layer
 ///
-#[derive(Default)]
-pub struct AppLogLayer;
+pub struct AppLogLayer {
+    tx: flume::Sender<LogRecord>,
+    rx: flume::Receiver<LogRecord>,
+}
 
+impl AppLogLayer {
+    fn new(tx: flume::Sender<LogRecord>, rx: flume::Receiver<LogRecord>) -> Self {
+        Self { tx, rx }
+    }
+}
 impl<S: Subscriber> Layer<S> for AppLogLayer {
     fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
-        let metadata = event.metadata();
-        let level = metadata.level();
-        let target = metadata.target();
+        let mut log_record = if let Ok(lr) = self.rx.try_recv() {
+            lr
+        } else {
+            LogRecord {
+                level: Level::INFO,
+                message: String::with_capacity(200),
+                time: Local::now(),
+            }
+        };
 
-        let mut fields = String::new();
+        let metadata = event.metadata();
+
+        log_record.level = *metadata.level();
+        log_record.time = Local::now();
+
         let mut visitor = EventVisitor {
-            output: &mut fields,
+            message: &mut log_record.message,
         };
         event.record(&mut visitor);
 
-        // todo - do something with it
-        // println!(
-        //     "Got: {}, Таргет: {}, Данные: {}",
-        //     level, target, fields
-        // );
+        let _ = self.tx.try_send(log_record);
     }
 }
 
-/// Вспомогательная структура (Visitor) для чтения полей из события `tracing`
 struct EventVisitor<'a> {
-    output: &'a mut String,
+    message: &'a mut String,
 }
 
 impl<'a> tracing::field::Visit for EventVisitor<'a> {
     fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
         if field.name() == "message" {
-            self.output.push_str(&format!("{:?}", value));
-        } else {
-            self.output
-                .push_str(&format!(" {}={:?}", field.name(), value));
+            self.message.push_str(&format!("{:?}", value));
         }
     }
 }
@@ -62,23 +80,35 @@ impl<'a> tracing::field::Visit for EventVisitor<'a> {
 //
 
 pub(crate) struct AppLoggerBuffer {
-    rx: Receiver<String>,
+    rx: flume::Receiver<LogRecord>,
+    tx: flume::Sender<LogRecord>,
     max_size: usize,
-    buffer: VecDeque<String>,
+    buffer: VecDeque<LogRecord>,
 }
 
 impl AppLoggerBuffer {
-    pub fn update(&mut self) {
-        while let Ok(msg) = self.rx.try_recv() {
-            if self.buffer.len() == self.max_size {
-                self.buffer.pop_front();
-            }
-            self.buffer.push_back(msg);
+    fn new(max_size: usize, tx: flume::Sender<LogRecord>, rx: flume::Receiver<LogRecord>) -> Self {
+        Self {
+            rx,
+            tx,
+            max_size,
+            buffer: VecDeque::with_capacity(max_size),
         }
     }
 
-    pub(crate) fn iter(&self) -> Iter<'_, String> {
-        self.buffer.iter()
+    pub fn update(&mut self) {
+        while let Ok(record) = self.rx.try_recv() {
+            if self.buffer.len() == self.max_size {
+                if let Some(record) = self.buffer.pop_front() {
+                    let _ = self.tx.try_send(record);
+                }
+            }
+            self.buffer.push_back(record);
+        }
+    }
+
+    pub(crate) fn iter(&self) -> Rev<Iter<'_, LogRecord>> {
+        self.buffer.iter().rev()
     }
 }
 
@@ -86,39 +116,7 @@ impl AppLoggerBuffer {
 // Functions
 //
 
-// fn create_app_logger(max_size: usize) -> (AppLogger, AppLoggerBuffer) {
-//     let (tx, rx): (SyncSender<String>, Receiver<String>) = mpsc::sync_channel(max_size);
-//     let buf = AppLoggerBuffer {
-//         rx,
-//         max_size,
-//         buffer: VecDeque::new(),
-//     };
-//     let logger = AppLogger { tx };
-//     (logger, buf)
-// }
-
-pub(crate) fn init(args: &Arguments) -> Result<Vec<WorkerGuard>, AppError> {
-    // let stdout = ConsoleAppender::builder()
-    //     .encoder(Box::new(PatternEncoder::new(CONSOLE_PATTERN)))
-    //     .build();
-    // let file = FileAppender::builder()
-    //     .encoder(Box::new(PatternEncoder::new(PATTERN)))
-    //     .build("app.log")?;
-    //let (_logger, buf) = create_app_logger(400);
-    // let level = args.log_level.unwrap_or(LevelFilter::Info);
-    // let config = Config::builder()
-    //     .appender(Appender::builder().build("stdout", Box::new(stdout)))
-    //     //.appender(Appender::builder().build("file", Box::new(file)))
-    //     //.appender(Appender::builder().build("app", Box::new(logger)))
-    //     .logger(Logger::builder().build("app", level))
-    //     .build(
-    //         Root::builder()
-    //             .appender("stdout")
-    //             //.appender("app")
-    //             //.appender("file")
-    //             .build(level),
-    //     )?;
-
+pub(crate) fn init(args: &Arguments) -> Result<(AppLoggerBuffer, Vec<WorkerGuard>), AppError> {
     let env_filter = EnvFilter::from_default_env();
 
     let (non_blocking_stdout, stdout_guard) = tracing_appender::non_blocking(std::io::stdout());
@@ -158,34 +156,17 @@ pub(crate) fn init(args: &Arguments) -> Result<Vec<WorkerGuard>, AppError> {
         .with_ansi(false)
         .with_writer(non_blocking_file);
 
-    let _app_layer = AppLogLayer::default();
+    let (to_buf_tx, from_layer_rx) = flume::bounded(100);
+    let (to_layer_tx, from_buf_rx) = flume::bounded(100);
+    let app_layer = AppLogLayer::new(to_buf_tx, from_buf_rx);
+    let app_log_buffer = AppLoggerBuffer::new(500, to_layer_tx, from_layer_rx);
 
     tracing_subscriber::registry()
         .with(env_filter)
         .with(stdout_format_layer)
         .with(file_format_layer)
+        .with(app_layer)
         .init();
 
-    Ok(vec![stdout_guard, file_guard])
+    Ok((app_log_buffer, vec![stdout_guard, file_guard]))
 }
-
-// pub(crate) fn build_dedicated_config() -> Result<Config, AppError> {
-//     let stdout = ConsoleAppender::builder().build();
-//     let file = FileAppender::builder()
-//         .encoder(Box::new(PatternEncoder::new(PATTERN)))
-//         .build("app.log")?;
-//     let config = Config::builder()
-//         .appender(Appender::builder().build("stdout", Box::new(stdout)))
-//         .appender(Appender::builder().build("file", Box::new(file)))
-//         .build(
-//             Root::builder()
-//                 .appender("stdout")
-//                 .appender("file")
-//                 .build(LevelFilter::Info),
-//         )?;
-
-//     Ok(config)
-// }
-
-#[cfg(test)]
-mod tests {}
