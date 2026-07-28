@@ -62,7 +62,7 @@ impl ClientState {
         app: &Arc<App>,
         config: &Arc<RwLock<ClientConfig>>,
         channel: ClientChannel,
-        app_log_buffer: Rc<AppLoggerBuffer>,
+        app_log_buffer: AppLoggerBuffer,
     ) -> Result<Self, AppError> {
         let net = ClientNetwork::new(app, channel)?;
         let in_game_overlay = GameOverlay::new();
@@ -107,6 +107,9 @@ impl ClientState {
 
         // Update
         self.net.update(&self.app);
+        self.console.update();
+        self.menu.update();
+        self.game_overlay.update();
         self.update_renderer();
 
         // End frame

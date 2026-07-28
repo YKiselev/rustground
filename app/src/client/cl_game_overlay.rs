@@ -8,6 +8,10 @@ impl GameOverlay {
     pub fn new() -> Self {
         Self {}
     }
+
+    pub fn update(&mut self) {
+        
+    }
 }
 
 impl UiLayer for GameOverlay {
@@ -19,7 +23,7 @@ impl UiLayer for GameOverlay {
         false
     }
 
-    fn draw(&self, canvas: &mut rg_vulkan::renderer::VulkanCanvas) {
+    fn draw(&mut self, canvas: &mut rg_vulkan::renderer::VulkanCanvas) {
         let w = canvas.width();
         let h = canvas.height();
 
@@ -31,5 +35,9 @@ impl UiLayer for GameOverlay {
             w/2,
             "Hello, Vulkan user! THis is your in-game overlay.",
         );
+    }
+
+    fn is_visible(&self) -> bool {
+        false
     }
 }

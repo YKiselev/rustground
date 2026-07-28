@@ -14,6 +14,10 @@ impl Menu {
     pub fn new() -> Self {
         Self { visible: false }
     }
+
+    pub fn update(&mut self) {
+
+    }
 }
 
 impl UiLayer for Menu {
@@ -25,7 +29,7 @@ impl UiLayer for Menu {
         false
     }
 
-    fn draw(&self, canvas: &mut VulkanCanvas) {
+    fn draw(&mut self, canvas: &mut VulkanCanvas) {
         canvas.set_color(Color::RED);
         canvas.set_wrap_mode(WrapMode::Word);
         canvas.draw_text(50, 120, 400, "This is menu");

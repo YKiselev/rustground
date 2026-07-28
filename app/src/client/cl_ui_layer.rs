@@ -11,11 +11,9 @@ pub trait UiLayer {
         false
     }
 
-    fn draw(&self, canvas: &mut VulkanCanvas);
+    fn draw(&mut self, canvas: &mut VulkanCanvas);
 
-    fn is_visible(&self) -> bool {
-        false
-    }
+    fn is_visible(&self) -> bool;
 
     ///
     /// Toggles layer visibility.

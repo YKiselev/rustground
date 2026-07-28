@@ -15,7 +15,7 @@ use winit::{
 use crate::{
     app_logger::AppLoggerBuffer,
     application::async_runtime::ClientChannel,
-    client::{cl_config::ClientConfig, cl_menu::Menu, cl_state::ClientState},
+    client::{cl_config::ClientConfig, cl_state::ClientState},
     error::AppError,
 };
 
@@ -25,7 +25,6 @@ pub struct Client {
     config: Arc<RwLock<ClientConfig>>,
     channel: ClientChannel,
     state: Option<ClientState>,
-    app_log_buffer: Rc<AppLoggerBuffer>,
 }
 
 impl Client {
@@ -39,14 +38,12 @@ impl Client {
         let cfg = wrap_var_bag(ClientConfig::new());
         app.vars.add("client", &cfg)?;
 
-        let app_log_buffer = Rc::new(app_log_buffer);
-        let state = ClientState::new(&app, &cfg, channel.clone(), Rc::clone(&app_log_buffer))?;
+        let state = ClientState::new(&app, &cfg, channel.clone(), app_log_buffer)?;
 
         Ok(Client {
             config: cfg,
             channel,
             state: Some(state),
-            app_log_buffer
         })
     }
 }
