@@ -458,7 +458,7 @@ impl CubePipeline {
         Ok(())
     }
 
-    pub fn on_swapchain_recreated(&mut self, instance: &VkContext) -> Result<(), VkError> {
+    pub fn on_swapchain_recreated(&mut self, _context: &VkContext) -> Result<(), VkError> {
         //self.update_descriptor_sets(instance)
         Ok(())
     }

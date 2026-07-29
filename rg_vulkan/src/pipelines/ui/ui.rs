@@ -282,10 +282,10 @@ impl UiPipeline {
         Ok(())
     }
 
-    pub fn on_swapchain_recreated(&mut self, instance: &VkContext) -> Result<(), VkError> {
-        self.extent = instance.swapchain.extent;
+    pub fn on_swapchain_recreated(&mut self, context: &VkContext) -> Result<(), VkError> {
+        self.extent = context.swapchain.extent;
         
-        self.update_descriptor_sets(instance)
+        self.update_descriptor_sets(context)
     }
 
     fn update_descriptor_sets(&mut self, instance: &VkContext) -> Result<(), VkError> {

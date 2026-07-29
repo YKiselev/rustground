@@ -1,10 +1,12 @@
 use ab_glyph::{Font, Glyph, PxScale, ScaleFont};
 use guillotiere::euclid::{Size2D, UnknownUnit};
 use guillotiere::{AtlasAllocator, size2};
+use indexmap::IndexMap;
+use nohash_hasher::NoHashHasher;
 use rg_common::LoaderError;
 use std::collections::HashMap;
+use std::hash::BuildHasherDefault;
 use std::{cmp::max, ops::RangeInclusive};
-
 
 use crate::misc::image::VkImage;
 use crate::types::Vec2;
@@ -24,16 +26,18 @@ pub(crate) struct GlyphInfo {
     pub layer_index: u32,
 }
 
+type CharMap = IndexMap<char, GlyphInfo, BuildHasherDefault<NoHashHasher<u32>>>;
+
 ///
 /// Font
 ///
 pub(crate) struct VkFont {
-    pub glyphs: HashMap<char, GlyphInfo>,
+    pub glyphs: CharMap,
     pub height: u32,
 }
 
 impl VkFont {
-    pub fn new(glyphs: HashMap<char, GlyphInfo>, height: u32) -> Self {
+    pub fn new(glyphs: CharMap, height: u32) -> Self {
         Self { glyphs, height }
     }
 
@@ -131,11 +135,11 @@ impl FontAtlasBuilder {
         font: &FontVec,
         font_size: f32,
         chars_to_pack: &Vec<char>,
-    ) -> Result<HashMap<char, GlyphInfo>, LoaderError> {
+    ) -> Result<CharMap, LoaderError> {
         let scale = PxScale::from(font_size);
         let scaled_font = font.as_scaled(scale);
         let data_size = self.layer_width as usize * self.layer_height as usize;
-        let mut glyph_map = HashMap::with_capacity(chars_to_pack.len());
+        let mut glyph_map = CharMap::default();
 
         // Render and pack each character
         for &ch in chars_to_pack {

@@ -230,6 +230,8 @@ impl VulkanRenderer {
             .recreate_swapchain(&self.instance, &self.window)?;
 
         self.tex_triangle.on_swapchain_recreated(&self.context)?;
+        self.ui.on_swapchain_recreated(&self.context)?;
+        self.cube.on_swapchain_recreated(&self.context)?;
 
         info!("Swapchain recreated");
         Ok(())

@@ -21,3 +21,5 @@ ab_glyph = "0.2.32"
 guillotiere = "0.7.0"
 glam = { workspace = true }
 rand = { workspace = true }
+indexmap = { workspace = true }
+nohash-hasher = { workspace = true }

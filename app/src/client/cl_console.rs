@@ -75,6 +75,10 @@ impl UiLayer for Console {
             } else {
                 break;
             }
+
+            if y < 0 {
+                break;
+            }
         }
     }
 
