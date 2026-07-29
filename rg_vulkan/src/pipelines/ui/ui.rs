@@ -1,17 +1,19 @@
 use ash::Device;
 use ash::vk;
 use glam::Mat4;
-use tracing::error;
 use rg_common::App;
 use rg_common::load_bytes;
 use rg_common::load_deserializable;
+use rg_common::ui::canvas::FontId;
 use serde::Deserialize;
 use serde::Serialize;
 use std::sync::Arc;
+use tracing::error;
 
 use crate::misc::buffer::VkBuffer;
 use crate::misc::context::MAX_FRAMES_IN_FLIGHT;
 use crate::misc::dyn_buffer::VkDynamicBuffer;
+use crate::misc::font::VkFont;
 use crate::misc::font::VkFontAtlas;
 use crate::misc::loaders::FontAtlasLoaderContext;
 use crate::misc::loaders::load_font_atlas;
@@ -19,6 +21,7 @@ use crate::misc::vertex::GlyphInstance;
 use crate::misc::vertex::vertex_input_descriptions;
 use crate::pipelines::shader::ShaderStages;
 use crate::pipelines::ui::text::CanvasContext;
+use crate::pipelines::ui::text::TextDraw;
 use crate::renderer::create_default_viewport_and_scissor;
 use crate::{
     error::{VkError, to_generic},
@@ -88,9 +91,7 @@ pub struct UiPipeline {
     descriptor_pool: vk::DescriptorPool,
     pub(super) font_atlas: VkFontAtlas,
     pub(super) frame_index: Option<usize>,
-    pub(super) canvas_context: CanvasContext,
     sampler: vk::Sampler,
-    pub extent: vk::Extent2D
 }
 
 impl UiPipeline {
@@ -242,9 +243,7 @@ impl UiPipeline {
             descriptor_pool,
             font_atlas,
             frame_index: None,
-            canvas_context: CanvasContext::new(),
             sampler,
-            extent: context.swapchain.extent
         };
 
         result.update_descriptor_sets(context)?;
@@ -283,8 +282,6 @@ impl UiPipeline {
     }
 
     pub fn on_swapchain_recreated(&mut self, context: &VkContext) -> Result<(), VkError> {
-        self.extent = context.swapchain.extent;
-        
         self.update_descriptor_sets(context)
     }
 
@@ -360,12 +357,12 @@ impl UiPipeline {
         &mut self,
         instance: &VkContext,
         command_buffer: vk::CommandBuffer,
+        context: &CanvasContext,
     ) -> Result<(), VkError> {
         if let Some(frame_index) = self.frame_index.take() {
             let frame_obj = &self.frame_objects[frame_index];
-            let buf = &self.canvas_context.glyphs;
+            let buf = &context.glyphs;
             frame_obj.vertex_buffer.copy_from(buf.as_ptr(), buf.len());
-            let instance_count = buf.len() as u32;
             let vertex_count = 4;
 
             let buffers = [frame_obj.vertex_buffer.buffer];
@@ -376,13 +373,63 @@ impl UiPipeline {
                     .device
                     .cmd_bind_vertex_buffers(command_buffer, 0, &buffers, &offsets);
 
-                if instance_count > 0 {
-                    instance
-                        .device
-                        .cmd_draw(command_buffer, vertex_count, instance_count, 0, 0);
+                if !buf.is_empty() {
+                    if context.draws.is_empty() {
+                        instance.device.cmd_draw(
+                            command_buffer,
+                            vertex_count,
+                            buf.len() as u32,
+                            0,
+                            0,
+                        );
+                    } else {
+                        let mut first_instance = 0;
+                        let mut scissor = None;
+                        // Store current draw params and draw previous text fragment
+                        for draw in context.draws.iter() {
+                            let instance_count = draw.first_glyph - first_instance;
+
+                            if instance_count > 0 {
+                                // Set previous scissor (if any)
+                                if let Some(scissor) = scissor {
+                                    instance
+                                        .device
+                                        .cmd_set_scissor(command_buffer, 0, &[scissor]);
+                                }
+
+                                // Draw previous text segment
+                                instance.device.cmd_draw(
+                                    command_buffer,
+                                    vertex_count,
+                                    instance_count as u32,
+                                    0,
+                                    first_instance as u32,
+                                );
+                            }
+
+                            scissor = Some(draw.scissor);
+                            first_instance = draw.first_glyph;
+                        }
+                        // Draw last fragment
+                        if first_instance < buf.len() {
+                            if let Some(scissor) = scissor {
+                                instance
+                                    .device
+                                    .cmd_set_scissor(command_buffer, 0, &[scissor]);
+                            }
+                            
+                            let instance_count = buf.len() - first_instance;
+                            instance.device.cmd_draw(
+                                command_buffer,
+                                vertex_count,
+                                instance_count as u32,
+                                0,
+                                first_instance as u32,
+                            );
+                        }
+                    }
                 }
             }
-            self.canvas_context.glyphs.clear();
         }
         Ok(())
     }
@@ -402,6 +449,10 @@ impl UiPipeline {
             device.destroy_pipeline(self.pipeline, None);
             device.destroy_pipeline_layout(self.layout, None);
         }
+    }
+
+    pub fn get_font(&self, font_id: &FontId) -> Option<&VkFont> {
+        self.font_atlas.fonts.get(font_id.as_ref())
     }
 }
 

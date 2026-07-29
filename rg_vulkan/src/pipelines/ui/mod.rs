@@ -1,4 +1,3 @@
 
 pub(crate) mod ui;
-mod text;
-mod canvas;
+pub(crate) mod text;

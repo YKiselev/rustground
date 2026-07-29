@@ -75,6 +75,8 @@ pub trait Canvas {
 
     fn set_wrap_mode(&mut self, mode: WrapMode);
 
+    fn set_scissor(&mut self, x: i32, y: i32, width: u32, height: u32);
+
     fn get_font_height(&self) -> u32;
     
     fn draw_text<S>(&mut self, x: i32, y: i32, width: u32, text: S)

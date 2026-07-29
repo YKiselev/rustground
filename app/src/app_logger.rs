@@ -126,7 +126,7 @@ pub(crate) fn init(args: &Arguments) -> Result<(AppLoggerBuffer, Vec<WorkerGuard
         .with_timer(time_format)
         .with_ansi(true)
         .with_level(true)
-        .with_target(false)
+        .with_target(true)
         .with_thread_ids(false)
         .with_thread_names(false)
         .with_file(false)

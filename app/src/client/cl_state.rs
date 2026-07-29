@@ -299,14 +299,6 @@ impl ClientState {
     }
 
     fn dispatch_key_event(&mut self, event: &KeyEvent) {
-        if self.menu.keyboard_input(event) {
-            return;
-        }
-
-        if self.console.keyboard_input(event) {
-            return;
-        }
-
         match event.physical_key {
             PhysicalKey::Code(ref key_code) => {
                 if *key_code == KeyCode::Space {
@@ -315,6 +307,17 @@ impl ClientState {
             }
             _ => {}
         };
+
+        if self.menu.keyboard_input(event, self.window_state.modifiers) {
+            return;
+        }
+
+        if self
+            .console
+            .keyboard_input(event, self.window_state.modifiers)
+        {
+            return;
+        }
     }
 
     fn toggle_menu(&mut self) {
@@ -327,11 +330,9 @@ impl ClientState {
 
     fn update_game_actions(&mut self, event: &DeviceEvent) {
         match event {
-            DeviceEvent::Key(raw_key_event) => {
-                info!("{:?}", raw_key_event);
-                self.game_actions
-                    .update_from_key(raw_key_event.physical_key, raw_key_event.state)
-            }
+            DeviceEvent::Key(raw_key_event) => self
+                .game_actions
+                .update_from_key(raw_key_event.physical_key, raw_key_event.state),
             DeviceEvent::Button { button, state } => {
                 self.game_actions.update_from_button(*button, *state)
             }

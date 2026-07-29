@@ -1,5 +1,5 @@
 use rg_vulkan::renderer::VulkanCanvas;
-use winit::{event::{DeviceEvent, KeyEvent}, event_loop::ActiveEventLoop};
+use winit::{event::{DeviceEvent, KeyEvent}, event_loop::ActiveEventLoop, keyboard::ModifiersState};
 
 pub trait UiLayer {
     ///
@@ -11,7 +11,7 @@ pub trait UiLayer {
         false
     }
 
-    fn keyboard_input(&mut self, event: &KeyEvent) -> bool {
+    fn keyboard_input(&mut self, event: &KeyEvent, modifiers: ModifiersState) -> bool {
         let _ = event;
         false
     }

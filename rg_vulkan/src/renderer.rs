@@ -3,7 +3,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use ash::vk;
+use ash::vk::{self, Offset2D, Rect2D};
 use rg_common::{
     App,
     gfx::world_renderer::{WorldRenderer, WorldRendererContext},
@@ -26,8 +26,17 @@ use crate::{
         debug::DebugUtils,
         window::{MAX_VIDEO_MODE, create_window},
     },
-    pipelines::{cube::CubePipeline, textured_triangle::TexturedTriangle, ui::ui::UiPipeline},
+    pipelines::{
+        cube::CubePipeline,
+        textured_triangle::TexturedTriangle,
+        ui::{
+            text::{CanvasContext, TextDraw, TextLayout, ToGlyphInstance},
+            ui::UiPipeline,
+        },
+    },
 };
+
+const FULL_BLOCK: char = unsafe { char::from_u32_unchecked(0x2588) };
 
 pub struct VulkanRenderer {
     app: Arc<App>,
@@ -45,6 +54,7 @@ pub struct VulkanRenderer {
     ui: UiPipeline,
     image_index: Option<usize>,
     command_buffer: Option<vk::CommandBuffer>,
+    canvas_context: CanvasContext,
 }
 
 const RESIZE_DEBOUNCE_DURATION: Duration = Duration::from_millis(200);
@@ -89,6 +99,7 @@ impl VulkanRenderer {
             ui,
             image_index: None,
             command_buffer: None,
+            canvas_context: CanvasContext::new(),
         })
     }
 
@@ -141,10 +152,15 @@ impl VulkanRenderer {
                 warn!("Failed to begin ui frame: {}", e);
             }
 
+            self.canvas_context.clear();
+
             let mut canvas = VulkanCanvas::new(self);
             (handler)(&mut canvas);
 
-            match self.ui.end_frame(&self.context, command_buffer) {
+            match self
+                .ui
+                .end_frame(&self.context, command_buffer, &self.canvas_context)
+            {
                 Ok(_) => {}
                 Err(e) => warn!("Failed to draw ui to command buffer: {:?}", e),
             }
@@ -236,8 +252,6 @@ impl VulkanRenderer {
         info!("Swapchain recreated");
         Ok(())
     }
-
-    fn draw_frame(&mut self, frame_index: usize, command_buffer: vk::CommandBuffer) {}
 
     fn begin_render_pass(&self, image_index: usize) -> Result<vk::CommandBuffer, VkError> {
         let info = vk::CommandBufferBeginInfo::default();
@@ -341,45 +355,76 @@ impl<'a> VulkanCanvas<'a> {
 
 impl<'a> Canvas for VulkanCanvas<'a> {
     fn width(&self) -> u32 {
-        self.owner.ui.width()
+        self.owner.context.swapchain.extent.width
     }
 
     fn height(&self) -> u32 {
-        self.owner.ui.height()
+        self.owner.context.swapchain.extent.height
     }
 
     fn set_font(&mut self, id: rg_common::ui::canvas::FontId) {
-        self.owner.ui.set_font(id);
+        self.owner.canvas_context.font_id = id;
     }
 
     fn set_line_spacing(&mut self, spacing: usize) {
-        self.owner.ui.set_line_spacing(spacing);
+        self.owner.canvas_context.line_spacing = spacing;
     }
 
     fn set_color(&mut self, color: rg_common::ui::color::Color) {
-        self.owner.ui.set_color(color);
+        self.owner.canvas_context.color = color;
     }
 
     fn set_wrap_mode(&mut self, mode: rg_common::ui::canvas::WrapMode) {
-        self.owner.ui.set_wrap_mode(mode);
+        self.owner.canvas_context.wrap_mode = mode;
+    }
+
+    fn set_scissor(&mut self, x: i32, y: i32, width: u32, height: u32) {
+        let ctx = &mut self.owner.canvas_context;
+
+        ctx.draws.push(TextDraw {
+            scissor: Rect2D {
+                offset: Offset2D { x, y },
+                extent: vk::Extent2D { width, height },
+            },
+            first_glyph: ctx.glyphs.len(),
+        });
     }
 
     fn get_font_height(&self) -> u32 {
-        self.owner.ui.get_font_height()
+        if let Some(font) = self.owner.ui.get_font(&self.owner.canvas_context.font_id) {
+            font.height
+        } else {
+            0
+        }
     }
 
     fn draw_text<S>(&mut self, x: i32, y: i32, width: u32, text: S)
     where
         S: AsRef<str>,
     {
-        self.owner.ui.draw_text(x, y, width, text);
+        let ctx = &mut self.owner.canvas_context;
+        if let Some(font) = self.owner.ui.get_font(&ctx.font_id) {
+            let wrap_mode = ctx.wrap_mode;
+            if let Err(e) = wrap_mode.layout(ctx, x, y, width, font, text) {
+                warn!("Failed to layout text: {}", e.to_string());
+            }
+        }
     }
 
     fn measure_text<S>(&self, width: u32, text: S) -> u32
     where
         S: AsRef<str>,
     {
-        self.owner.ui.measure_text(width, text)
+        let mut height = 0;
+        let ctx = &self.owner.canvas_context;
+        if let Some(font) = self.owner.ui.get_font(&ctx.font_id) {
+            let wrap_mode = ctx.wrap_mode;
+            match wrap_mode.measure(ctx, width, font, text) {
+                Ok(h) => height = h,
+                Err(e) => warn!("Failed to measure text: {}", e.to_string()),
+            }
+        }
+        height as u32
     }
 
     fn draw_sprite(
@@ -390,11 +435,22 @@ impl<'a> Canvas for VulkanCanvas<'a> {
         height: u32,
         sprite_id: rg_common::ui::canvas::SpriteId,
     ) {
-        self.owner.ui.draw_sprite(x, y, width, height, sprite_id);
+        todo!()
     }
 
     fn draw_rect(&mut self, x: i32, y: i32, width: u32, height: u32) {
-        self.owner.ui.draw_rect(x, y, width, height);
+        let ctx = &mut self.owner.canvas_context;
+        if let Some(font) = self.owner.ui.get_font(&ctx.font_id) {
+            if let Some(glyph) = font.get(FULL_BLOCK) {
+                let mut g = glyph.to_glyph_instance(0, 0);
+                g.color = ctx.color.into();
+                g.pos = [x as i16, y as i16];
+                g.size = [width as u16, height as u16];
+                ctx.glyphs.push(g);
+            } else {
+                warn!("Full block character (0x2588) is not mapped!");
+            }
+        }
     }
 }
 
@@ -468,12 +524,6 @@ fn create_viewport(width: u32, height: u32) -> vk::Viewport {
 
 fn create_viewport_from_extent(extent: vk::Extent2D) -> vk::Viewport {
     create_viewport(extent.width, extent.height)
-}
-
-fn create_scissor_from_extent(extent: vk::Extent2D) -> vk::Rect2D {
-    vk::Rect2D::default()
-        .offset(vk::Offset2D { x: 0, y: 0 })
-        .extent(extent)
 }
 
 pub(crate) fn create_default_viewport_and_scissor(

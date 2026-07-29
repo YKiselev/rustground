@@ -1,10 +1,11 @@
+use ash::vk;
 use rg_common::ui::canvas::{FontId, WrapMode};
 use rg_common::ui::color::Color;
 
 use crate::error::VkError;
 use crate::misc::font::{GlyphInfo, VkFont};
-use crate::pipelines::ui::ui::DEFAULT_GLYPH_BUFFER_SIZE;
 use crate::misc::vertex::GlyphInstance;
+use crate::pipelines::ui::ui::DEFAULT_GLYPH_BUFFER_SIZE;
 
 pub(crate) trait ToGlyphInstance {
     fn to_glyph_instance(&self, x: i32, y: i32) -> GlyphInstance;
@@ -32,15 +33,21 @@ impl ToGlyphInstance for GlyphInfo {
     }
 }
 
+pub struct TextDraw {
+    pub scissor: vk::Rect2D,
+    pub first_glyph: usize,
+}
+
 ///
 /// Canvas context
 ///
-pub(super) struct CanvasContext {
+pub(crate) struct CanvasContext {
     pub font_id: FontId,
     pub color: Color,
     pub wrap_mode: WrapMode,
     pub line_spacing: usize,
     pub glyphs: Vec<GlyphInstance>,
+    pub draws: Vec<TextDraw>,
     pub line_lengths: Vec<usize>,
 }
 
@@ -52,15 +59,28 @@ impl CanvasContext {
             wrap_mode: WrapMode::None,
             line_spacing: 0,
             glyphs: Vec::with_capacity(DEFAULT_GLYPH_BUFFER_SIZE),
+            draws: Vec::default(),
             line_lengths: Vec::new(),
         }
+    }
+
+    pub fn clear(&mut self) {
+        self.glyphs.clear();
+        self.draws.clear();
+    }
+
+    pub fn set_scissor(&mut self, rect: vk::Rect2D) {
+        self.draws.push(TextDraw {
+            scissor: rect,
+            first_glyph: self.glyphs.len(),
+        });
     }
 }
 
 ///
 /// Text layout
 ///
-pub(super) trait TextLayout {
+pub(crate) trait TextLayout {
     fn layout<S>(
         &self,
         context: &mut CanvasContext,
@@ -331,7 +351,6 @@ fn measure_word_wrap(
     let mut word_start_idx = 0;
     while let Some((idx, ch)) = it.next() {
         if let Some(glyph) = font.get(ch).or_else(|| font.get('?')) {
-
             if ch.is_whitespace() {
                 is_whitespace = true;
             } else if is_whitespace {
