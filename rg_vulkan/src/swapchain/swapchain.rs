@@ -178,13 +178,7 @@ impl Swapchain {
                 vk::Fence::null(),
             )
         } {
-            Ok((image_index, suboptimal)) => {
-                if suboptimal {
-                    Err(VkError::SwapchainChanged)
-                } else {
-                    Ok(image_index as usize)
-                }
-            }
+            Ok((image_index, _)) => Ok(image_index as usize),
             Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => Err(VkError::SwapchainChanged),
             Err(e) => Err(e.into()),
         }
@@ -200,7 +194,7 @@ impl Swapchain {
         image_index: usize,
     ) -> Result<bool, vk::Result> {
         let frame = self.frames_in_flight.frame();
-        let fences = [frame.in_flight_fence];
+
         let wait_semaphores = [frame.image_available];
         let wait_stages = [vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
         let command_buffers = [frame.command_buffer];
@@ -212,7 +206,9 @@ impl Swapchain {
             .signal_semaphores(&signal_semaphores);
 
         unsafe {
+            let fences = [frame.in_flight_fence];
             device.reset_fences(&fences)?;
+
             let infos = [submit_info];
             device.queue_submit(graphics_queue, &infos, frame.in_flight_fence)?;
         }

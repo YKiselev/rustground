@@ -108,6 +108,7 @@ impl VulkanRenderer {
                     self.image_index = Some(image_index);
                 }
                 Err(VkError::SwapchainChanged) => {
+                    warn!("Swapchain changed!");
                     if self.window_resized_at.is_none() {
                         self.recreate_swapchain = true
                     }
