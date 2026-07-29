@@ -9,6 +9,7 @@ pub struct Console {
     app_log_buffer: AppLoggerBuffer,
     height: u32,
     opening: bool,
+    line_buf: String
 }
 
 impl Console {
@@ -17,6 +18,7 @@ impl Console {
             app_log_buffer,
             height: 0,
             opening: false,
+            line_buf: String::with_capacity(200)
         }
     }
 
@@ -28,8 +30,8 @@ impl Console {
 impl UiLayer for Console {
     fn device_event(
         &mut self,
-        event_loop: &winit::event_loop::ActiveEventLoop,
-        event: &winit::event::DeviceEvent,
+        _event_loop: &winit::event_loop::ActiveEventLoop,
+        _event: &winit::event::DeviceEvent,
     ) -> bool {
         false
     }
@@ -55,23 +57,21 @@ impl UiLayer for Console {
         let mut y = self.height as i32;
         let line_width = canvas.width() - 2 * margin;
 
-        let mut buf = String::with_capacity(200);
-
         for record in self.app_log_buffer.iter() {
-            buf.clear();
+            self.line_buf.clear();
 
             if let Ok(_) = write!(
-                buf,
+                self.line_buf,
                 "{} {:>6} {}",
                 record.time.format("%H:%M:%S%.3f"),
                 record.level,
                 record.message
             ) {
-                let line_height = canvas.measure_text(line_width, &buf);
+                let line_height = canvas.measure_text(line_width, &self.line_buf);
 
                 y -= line_height as i32;
 
-                canvas.draw_text(x, y, line_width, &buf);
+                canvas.draw_text(x, y, line_width, &self.line_buf);
             } else {
                 break;
             }

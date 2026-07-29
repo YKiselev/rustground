@@ -121,6 +121,7 @@ impl ClientState {
 
         if render_failed {
             self.renderer.take();
+            self.renderer_failed = false;
         }
         self.cap_fps(frame_start);
     }

@@ -51,6 +51,7 @@ impl<S: Subscriber> Layer<S> for AppLogLayer {
 
         let metadata = event.metadata();
 
+        log_record.message.clear();
         log_record.level = *metadata.level();
         log_record.time = Local::now();
 
