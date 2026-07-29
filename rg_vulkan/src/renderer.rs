@@ -364,6 +364,10 @@ impl<'a> Canvas for VulkanCanvas<'a> {
         self.owner.ui.set_wrap_mode(mode);
     }
 
+    fn get_font_height(&self) -> u32 {
+        self.owner.ui.get_font_height()
+    }
+
     fn draw_text<S>(&mut self, x: i32, y: i32, width: u32, text: S)
     where
         S: AsRef<str>,

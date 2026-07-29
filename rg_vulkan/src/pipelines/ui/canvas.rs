@@ -36,6 +36,15 @@ impl Canvas for UiPipeline {
         self.canvas_context.wrap_mode = mode;
     }
 
+    fn get_font_height(&self) -> u32 {
+        let ctx = &self.canvas_context;
+        if let Some(font) = self.font_atlas.fonts.get(ctx.font_id.as_ref()) {
+            font.height
+        } else {
+            0
+        }
+    }
+
     fn draw_text<S>(&mut self, x0: i32, y0: i32, width: u32, text: S)
     where
         S: AsRef<str>,

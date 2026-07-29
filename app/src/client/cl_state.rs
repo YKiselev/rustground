@@ -28,7 +28,7 @@ use rg_common::{
 use rg_vulkan::renderer::VulkanRenderer;
 use tracing::{error, info};
 use winit::{
-    event::{DeviceEvent, DeviceId, ElementState, MouseScrollDelta, WindowEvent},
+    event::{DeviceEvent, DeviceId, ElementState, KeyEvent, MouseScrollDelta, WindowEvent},
     event_loop::ActiveEventLoop,
     keyboard::{KeyCode, ModifiersState, PhysicalKey},
     window::WindowId,
@@ -254,14 +254,9 @@ impl ClientState {
                     self.run_frame(event_loop);
                 }
             }
-            WindowEvent::KeyboardInput { ref event, .. } => match event.physical_key {
-                PhysicalKey::Code(ref key_code) => {
-                    if *key_code == KeyCode::Space {
-                        info!("fps: {:.2}", self.frame_stats.calc_fps());
-                    }
-                }
-                PhysicalKey::Unidentified(_) => {}
-            },
+            WindowEvent::KeyboardInput { ref event, .. } => {
+                self.dispatch_key_event(event);
+            }
             _ => (),
         }
     }
@@ -301,6 +296,25 @@ impl ClientState {
             }
             _ => {}
         }
+    }
+
+    fn dispatch_key_event(&mut self, event: &KeyEvent) {
+        if self.menu.keyboard_input(event) {
+            return;
+        }
+
+        if self.console.keyboard_input(event) {
+            return;
+        }
+
+        match event.physical_key {
+            PhysicalKey::Code(ref key_code) => {
+                if *key_code == KeyCode::Space {
+                    info!("fps: {:.2}", self.frame_stats.calc_fps());
+                }
+            }
+            _ => {}
+        };
     }
 
     fn toggle_menu(&mut self) {
