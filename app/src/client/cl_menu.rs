@@ -32,7 +32,7 @@ impl UiLayer for Menu {
     fn draw(&mut self, canvas: &mut VulkanCanvas) {
         canvas.set_color(Color::RED);
         canvas.set_wrap_mode(WrapMode::Word);
-        canvas.draw_text(50, 120, 400, "This is menu");
+        canvas.draw_text(0, 0, 400, "|This is menu|");
     }
 
     fn toggle(&mut self) {

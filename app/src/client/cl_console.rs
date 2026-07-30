@@ -1,4 +1,4 @@
-use std::fmt::Write;
+use std::{fmt::Write, time::Instant};
 
 use rg_common::ui::{
     canvas::{Canvas, WrapMode},
@@ -19,8 +19,8 @@ use crate::{app_logger::AppLoggerBuffer, client::cl_ui_layer::UiLayer};
 #[derive(Default)]
 struct CommandLine {
     buffer: String,
-    caret_pos: i32,
-    scroll_offset: u32,
+    caret_pos: i32,     // in characters
+    scroll_offset: u32, // in lines
 }
 
 pub struct Console {
@@ -30,6 +30,7 @@ pub struct Console {
     opening: bool,
     line_buf: String,
     cmd_line: CommandLine,
+    time: Instant,
 }
 
 impl Console {
@@ -41,6 +42,7 @@ impl Console {
             opening: false,
             line_buf: String::with_capacity(200),
             cmd_line: CommandLine::default(),
+            time: Instant::now(),
         }
     }
 
@@ -48,10 +50,9 @@ impl Console {
         self.app_log_buffer.update();
     }
 
-    fn draw_lines(&mut self, y0: i32, margin: u32, canvas: &mut VulkanCanvas) {
-        let x = margin as i32;
+    fn draw_lines(&mut self, x0: i32, y0: i32, line_width: u32, canvas: &mut VulkanCanvas) {
+        let x = x0;
         let mut y = y0 + self.scroll_offset as i32;
-        let line_width = canvas.width() - 2 * margin;
 
         canvas.set_scissor(x, 0, line_width, y0 as u32);
 
@@ -82,17 +83,29 @@ impl Console {
         }
     }
 
-    fn draw_command_line(&mut self, y0: i32, margin: u32, canvas: &mut VulkanCanvas) -> u32 {
-        let x = margin as i32;
-        let line_width = canvas.width() - 2 * margin;
+    fn draw_command_line(
+        &mut self,
+        x0: i32,
+        y0: i32,
+        line_width: u32,
+        line_spacing: u32,
+        canvas: &mut VulkanCanvas,
+    ) -> u32 {
         let font_height = canvas.get_font_height();
-        let cmd_line_height = font_height + 2 * 2;
+        let char_width = canvas.get_char_width('_');
+        let cmd_line_height = font_height + line_spacing;
+        let y = y0.saturating_sub(cmd_line_height as i32);
 
-        canvas.set_scissor(x, y0 - cmd_line_height as i32, line_width, cmd_line_height);
+        //canvas.set_scissor(x0, y0, line_width, cmd_line_height);
         canvas.set_wrap_mode(WrapMode::None);
 
-        canvas.draw_text(x, y0 - 2, line_width, &self.cmd_line.buffer);
+        canvas.draw_text(x0, y, line_width, &self.cmd_line.buffer);
 
+        let x = x0 + self.cmd_line.caret_pos * char_width as i32;
+        let is_visible = (self.time.elapsed().as_millis() >> 9) & 1 != 0;
+        if is_visible {
+            canvas.draw_text(x, y + 1, line_width, "_");
+        }
         cmd_line_height
     }
 
@@ -142,9 +155,9 @@ impl UiLayer for Console {
         match event {
             winit::event::DeviceEvent::MouseWheel { delta } => match delta {
                 winit::event::MouseScrollDelta::LineDelta(_, _) => {}
-                winit::event::MouseScrollDelta::PixelDelta(physical_position) => {}
+                winit::event::MouseScrollDelta::PixelDelta(_physical_position) => {}
             },
-            winit::event::DeviceEvent::Key(raw_key_event) => {}
+            winit::event::DeviceEvent::Key(_raw_key_event) => {}
             _ => {}
         }
         false
@@ -193,7 +206,10 @@ impl UiLayer for Console {
             return;
         }
 
-        let line_spacing = 1;
+        canvas.set_color(Color::BLACK.with_alpha(230));
+        canvas.draw_rect(0, 0, canvas.width(), self.height);
+
+        let line_spacing = 1u32;
         canvas.set_font(rg_common::ui::canvas::FontId::CONSOLE);
         canvas.set_color(Color::WHITE);
         canvas.set_line_spacing(line_spacing);
@@ -203,12 +219,17 @@ impl UiLayer for Console {
         let extra = self.scroll_offset % (canvas.get_font_height() + line_spacing as u32);
         self.scroll_offset = self.scroll_offset.saturating_sub(extra);
 
+        let font_height = canvas.get_font_height();
         let margin = 4;
-        let mut y = self.height as i32;
+        let line_width = canvas.width().saturating_sub(2 * margin);
+        let x = margin as i32;
+        let mut y = self.height.saturating_sub(font_height) as i32;
 
-        y -= self.draw_command_line(y, margin, canvas) as i32;
+        self.draw_command_line(x, y, line_width, line_spacing, canvas) as i32;
 
-        self.draw_lines(y, margin, canvas);
+        y = y.saturating_sub_unsigned(font_height + line_spacing);
+
+        self.draw_lines(x, y, line_width, canvas);
     }
 
     fn toggle(&mut self) {
@@ -241,7 +262,16 @@ impl CommandLine {
 
     pub fn complete_command(&mut self) {}
 
-    pub fn delete_char_before_cursor(&mut self) {}
+    pub fn delete_char_before_cursor(&mut self) {
+        if self.caret_pos > 0 {
+            self.move_caret(-1);
+            self.delete_char_at_cursor();
+        }
+    }
 
-    pub fn delete_char_at_cursor(&mut self) {}
+    pub fn delete_char_at_cursor(&mut self) {
+        if self.caret_pos < self.buffer.len() as i32 {
+            self.buffer.remove(self.caret_pos as usize);
+        }
+    }
 }

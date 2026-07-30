@@ -69,7 +69,7 @@ pub trait Canvas {
     
     fn set_font(&mut self, id: FontId);
 
-    fn set_line_spacing(&mut self, spacing: usize);
+    fn set_line_spacing(&mut self, spacing: u32);
 
     fn set_color(&mut self, color: Color);
 
@@ -78,6 +78,8 @@ pub trait Canvas {
     fn set_scissor(&mut self, x: i32, y: i32, width: u32, height: u32);
 
     fn get_font_height(&self) -> u32;
+
+    fn get_char_width(&self, ch: char) -> u32;
     
     fn draw_text<S>(&mut self, x: i32, y: i32, width: u32, text: S)
     where

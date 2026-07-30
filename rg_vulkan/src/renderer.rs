@@ -7,7 +7,7 @@ use ash::vk::{self, Offset2D, Rect2D};
 use rg_common::{
     App,
     gfx::world_renderer::{WorldRenderer, WorldRendererContext},
-    ui::canvas::Canvas,
+    ui::canvas::{Canvas, FontId},
     world::HyperCube,
     wrap_var_bag,
 };
@@ -24,6 +24,7 @@ use crate::{
         context::VkContext,
         create_instance::create_instance,
         debug::DebugUtils,
+        font::VkFont,
         window::{MAX_VIDEO_MODE, create_window},
     },
     pipelines::{
@@ -351,6 +352,10 @@ impl<'a> VulkanCanvas<'a> {
     fn new(owner: &'a mut VulkanRenderer) -> Self {
         Self { owner }
     }
+
+    fn get_font(&self) -> Option<&VkFont> {
+        self.owner.ui.get_font(&self.owner.canvas_context.font_id)
+    }
 }
 
 impl<'a> Canvas for VulkanCanvas<'a> {
@@ -366,7 +371,7 @@ impl<'a> Canvas for VulkanCanvas<'a> {
         self.owner.canvas_context.font_id = id;
     }
 
-    fn set_line_spacing(&mut self, spacing: usize) {
+    fn set_line_spacing(&mut self, spacing: u32) {
         self.owner.canvas_context.line_spacing = spacing;
     }
 
@@ -379,23 +384,25 @@ impl<'a> Canvas for VulkanCanvas<'a> {
     }
 
     fn set_scissor(&mut self, x: i32, y: i32, width: u32, height: u32) {
-        let ctx = &mut self.owner.canvas_context;
-
-        ctx.draws.push(TextDraw {
-            scissor: Rect2D {
-                offset: Offset2D { x, y },
-                extent: vk::Extent2D { width, height },
-            },
-            first_glyph: ctx.glyphs.len(),
+        self.owner.canvas_context.set_scissor(Rect2D {
+            offset: Offset2D { x, y },
+            extent: vk::Extent2D { width, height },
         });
     }
 
     fn get_font_height(&self) -> u32 {
-        if let Some(font) = self.owner.ui.get_font(&self.owner.canvas_context.font_id) {
+        if let Some(font) = self.get_font() {
             font.height
         } else {
             0
         }
+    }
+
+    fn get_char_width(&self, ch: char) -> u32 {
+        self.get_font()
+            .and_then(|f| f.glyphs.get(&ch))
+            .map(|g| g.h_advance as u32)
+            .unwrap_or(0)
     }
 
     fn draw_text<S>(&mut self, x: i32, y: i32, width: u32, text: S)

@@ -45,7 +45,7 @@ pub(crate) struct CanvasContext {
     pub font_id: FontId,
     pub color: Color,
     pub wrap_mode: WrapMode,
-    pub line_spacing: usize,
+    pub line_spacing: u32,
     pub glyphs: Vec<GlyphInstance>,
     pub draws: Vec<TextDraw>,
     pub line_lengths: Vec<usize>,
@@ -69,9 +69,9 @@ impl CanvasContext {
         self.draws.clear();
     }
 
-    pub fn set_scissor(&mut self, rect: vk::Rect2D) {
+    pub fn set_scissor(&mut self, scissor: vk::Rect2D) {
         self.draws.push(TextDraw {
-            scissor: rect,
+            scissor,
             first_glyph: self.glyphs.len(),
         });
     }
@@ -89,7 +89,7 @@ pub(crate) trait TextLayout {
         width: u32,
         font: &VkFont,
         text: S,
-    ) -> Result<(), VkError>
+    ) -> Result<i32, VkError>
     where
         S: AsRef<str>;
 
@@ -108,19 +108,23 @@ impl TextLayout for WrapMode {
     fn layout<S>(
         &self,
         context: &mut CanvasContext,
-        x: i32,
-        y: i32,
+        x0: i32,
+        y0: i32,
         width: u32,
         font: &VkFont,
         text: S,
-    ) -> Result<(), VkError>
+    ) -> Result<i32, VkError>
     where
         S: AsRef<str>,
     {
+        // glyph origin is at the lover left corner,
+        // increase y so that upper left corner will be in (x0, y0)
+        let y = y0.saturating_add(font.height as i32);
+
         match self {
-            WrapMode::None => layout_no_wrap(context, x, y, font, text.as_ref()),
-            WrapMode::Character => layout_char_wrap(context, x, y, width, font, text.as_ref()),
-            WrapMode::Word => layout_word_wrap(context, x, y, width, font, text.as_ref()),
+            WrapMode::None => layout_no_wrap(context, x0, y, font, text.as_ref()),
+            WrapMode::Character => layout_char_wrap(context, x0, y, width, font, text.as_ref()),
+            WrapMode::Word => layout_word_wrap(context, x0, y, width, font, text.as_ref()),
         }
     }
 
@@ -148,7 +152,7 @@ fn layout_no_wrap(
     y0: i32,
     font: &VkFont,
     text: &str,
-) -> Result<(), VkError> {
+) -> Result<i32, VkError> {
     context.line_lengths.clear();
 
     let color = context.color;
@@ -167,10 +171,12 @@ fn layout_no_wrap(
 
     context.line_lengths.push(context.glyphs.len());
 
-    Ok(())
+    let line_height = (font.height + context.line_spacing as u32) as i32;
+
+    Ok(y0 + line_height)
 }
 
-fn measure_no_wrap(context: &CanvasContext, font: &VkFont, text: &str) -> Result<i32, VkError> {
+fn measure_no_wrap(context: &CanvasContext, font: &VkFont, _text: &str) -> Result<i32, VkError> {
     let line_height = (font.height + context.line_spacing as u32) as i32;
 
     Ok(line_height)
@@ -183,7 +189,7 @@ fn layout_char_wrap(
     width: u32,
     font: &VkFont,
     text: &str,
-) -> Result<(), VkError> {
+) -> Result<i32, VkError> {
     context.line_lengths.clear();
 
     let color = context.color;
@@ -221,9 +227,10 @@ fn layout_char_wrap(
 
     if line_glyphs > 0 {
         context.line_lengths.push(line_glyphs);
+        y += line_height;
     }
 
-    Ok(())
+    Ok(y)
 }
 
 fn measure_char_wrap(
@@ -272,13 +279,13 @@ fn layout_word_wrap(
     width: u32,
     font: &VkFont,
     text: &str,
-) -> Result<(), VkError> {
+) -> Result<i32, VkError> {
     context.line_lengths.clear();
 
     let line_height = (font.height + context.line_spacing as u32) as i32;
     let right_margin = x0 + width as i32;
     let mut slice = text;
-    let mut color = context.color;
+    let color = context.color;
     let mut x = x0;
     let mut y = y0;
     let mut line_start = 0;
@@ -326,9 +333,10 @@ fn layout_word_wrap(
 
     if i > line_start {
         context.line_lengths.push(i - line_start);
+        y += line_height;
     }
 
-    Ok(())
+    Ok(y)
 }
 
 fn measure_word_wrap(

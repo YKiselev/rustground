@@ -51,6 +51,16 @@ impl Color {
     pub const fn from_rgb(r: u8, g: u8, b: u8) -> Self {
         Self::new(r, g, b, 0xFF)
     }
+
+    pub const fn to_rgba(&self) -> [u8; 4] {
+        self.0.to_le_bytes()
+    }
+
+    pub fn with_alpha(&self, a: u8) -> Self {
+        let mut rgba = self.to_rgba();
+        rgba[3] = a;
+        Self(u32::from_le_bytes(rgba))
+    }
 }
 
 impl From<Color> for u32 {
