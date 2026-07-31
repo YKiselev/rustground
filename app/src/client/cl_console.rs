@@ -30,6 +30,7 @@ pub struct Console {
     opening: bool,
     line_buf: String,
     cmd_line: CommandLine,
+    cmd_line_offset: i32,
     time: Instant,
 }
 
@@ -42,6 +43,7 @@ impl Console {
             opening: false,
             line_buf: String::with_capacity(200),
             cmd_line: CommandLine::default(),
+            cmd_line_offset: 0,
             time: Instant::now(),
         }
     }
@@ -94,17 +96,26 @@ impl Console {
         let font_height = canvas.get_font_height();
         let char_width = canvas.get_char_width('_');
         let cmd_line_height = font_height + line_spacing;
+        let mut x = x0;
         let y = y0.saturating_sub(cmd_line_height as i32);
+        let caret_offset = self.cmd_line.caret_pos * char_width as i32;
+
+        if caret_offset as u32 + char_width > line_width + self.cmd_line_offset as u32 {
+            self.cmd_line_offset = caret_offset + char_width as i32 - line_width as i32;
+        } else if x + caret_offset < self.cmd_line_offset {
+            self.cmd_line_offset = caret_offset;
+        }
+        x -= self.cmd_line_offset;
 
         //canvas.set_scissor(x0, y0, line_width, cmd_line_height);
         canvas.set_wrap_mode(WrapMode::None);
 
-        canvas.draw_text(x0, y, line_width, &self.cmd_line.buffer);
+        canvas.draw_text(x, y, line_width, &self.cmd_line.buffer);
 
-        let x = x0 + self.cmd_line.caret_pos * char_width as i32;
         let is_visible = (self.time.elapsed().as_millis() >> 9) & 1 != 0;
         if is_visible {
-            canvas.draw_text(x, y + 1, line_width, "_");
+            canvas.draw_text(x + caret_offset, y + 4, line_width, "_");
+            canvas.draw_text(x + caret_offset, y + 3, line_width, "_");
         }
         cmd_line_height
     }
@@ -140,6 +151,12 @@ impl Console {
             }
             NamedKey::Delete => {
                 self.cmd_line.delete_char_at_cursor();
+            }
+            NamedKey::Home => {
+                self.cmd_line.move_caret_to_start();
+            }
+            NamedKey::End => {
+                self.cmd_line.move_caret_to_end();
             }
             _ => {}
         }
@@ -256,6 +273,14 @@ impl CommandLine {
             .caret_pos
             .saturating_add(delta)
             .clamp(0, self.buffer.len() as i32)
+    }
+
+    pub fn move_caret_to_start(&mut self) {
+        self.caret_pos = 0;
+    }
+
+    pub fn move_caret_to_end(&mut self) {
+        self.caret_pos = self.buffer.len() as i32;
     }
 
     pub fn execute(&mut self) {}
