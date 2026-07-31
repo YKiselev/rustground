@@ -89,7 +89,7 @@ pub(crate) trait TextLayout {
         width: u32,
         font: &VkFont,
         text: S,
-    ) -> Result<i32, VkError>
+    ) -> Result<(i32, i32), VkError>
     where
         S: AsRef<str>;
 
@@ -113,7 +113,7 @@ impl TextLayout for WrapMode {
         width: u32,
         font: &VkFont,
         text: S,
-    ) -> Result<i32, VkError>
+    ) -> Result<(i32, i32), VkError>
     where
         S: AsRef<str>,
     {
@@ -152,7 +152,7 @@ fn layout_no_wrap(
     y0: i32,
     font: &VkFont,
     text: &str,
-) -> Result<i32, VkError> {
+) -> Result<(i32, i32), VkError> {
     context.line_lengths.clear();
 
     let color = context.color;
@@ -173,7 +173,7 @@ fn layout_no_wrap(
 
     let line_height = (font.height + context.line_spacing as u32) as i32;
 
-    Ok(y0 + line_height)
+    Ok((x, y0 + line_height))
 }
 
 fn measure_no_wrap(context: &CanvasContext, font: &VkFont, _text: &str) -> Result<i32, VkError> {
@@ -189,7 +189,7 @@ fn layout_char_wrap(
     width: u32,
     font: &VkFont,
     text: &str,
-) -> Result<i32, VkError> {
+) -> Result<(i32, i32), VkError> {
     context.line_lengths.clear();
 
     let color = context.color;
@@ -230,7 +230,7 @@ fn layout_char_wrap(
         y += line_height;
     }
 
-    Ok(y)
+    Ok((x, y))
 }
 
 fn measure_char_wrap(
@@ -279,7 +279,7 @@ fn layout_word_wrap(
     width: u32,
     font: &VkFont,
     text: &str,
-) -> Result<i32, VkError> {
+) -> Result<(i32, i32), VkError> {
     context.line_lengths.clear();
 
     let line_height = (font.height + context.line_spacing as u32) as i32;
@@ -336,7 +336,7 @@ fn layout_word_wrap(
         y += line_height;
     }
 
-    Ok(y)
+    Ok((x, y))
 }
 
 fn measure_word_wrap(

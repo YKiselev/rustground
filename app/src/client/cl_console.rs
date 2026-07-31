@@ -100,6 +100,14 @@ impl Console {
         let y = y0.saturating_sub(cmd_line_height as i32);
         let caret_offset = self.cmd_line.caret_pos * char_width as i32;
 
+        // Draw prompt
+        canvas.draw_text(x, y, line_width, ">");
+        x += char_width as i32;
+
+        // Clip command line
+        canvas.set_scissor(x, y, line_width, cmd_line_height + 8);
+
+        // Check that caret position is in bounds
         if caret_offset as u32 + char_width > line_width + self.cmd_line_offset as u32 {
             self.cmd_line_offset = caret_offset + char_width as i32 - line_width as i32;
         } else if x + caret_offset < self.cmd_line_offset {
@@ -107,16 +115,17 @@ impl Console {
         }
         x -= self.cmd_line_offset;
 
-        //canvas.set_scissor(x0, y0, line_width, cmd_line_height);
+        
         canvas.set_wrap_mode(WrapMode::None);
 
         canvas.draw_text(x, y, line_width, &self.cmd_line.buffer);
 
+        // Draw caret
         let is_visible = (self.time.elapsed().as_millis() >> 9) & 1 != 0;
         if is_visible {
-            canvas.draw_text(x + caret_offset, y + 4, line_width, "_");
-            canvas.draw_text(x + caret_offset, y + 3, line_width, "_");
+            canvas.draw_text(x + caret_offset, y + 4, line_width, "\u{005F}");
         }
+
         cmd_line_height
     }
 
@@ -157,6 +166,9 @@ impl Console {
             }
             NamedKey::End => {
                 self.cmd_line.move_caret_to_end();
+            }
+            NamedKey::Space => {
+                self.cmd_line.push_at_caret(&" ");
             }
             _ => {}
         }
