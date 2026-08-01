@@ -5,7 +5,7 @@ use std::convert::Infallible;
 use std::fmt::Debug;
 use std::iter::Peekable;
 use std::ops::Deref;
-use std::str::{FromStr, Split};
+use std::str::Split;
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard, Weak};
 
 use thiserror::Error;
@@ -37,16 +37,14 @@ impl<'a> Variable<'a> {
 
     pub fn from_map<M>(map: &'a M) -> Self
     where
-        //for<'b> V: serde::Deserialize<'b> + serde::Serialize + FromStr + FromValue,
-        //for<'b> Variable<'a>: From<&'b V>,
-        M : VarBag,
+        M: VarBag,
     {
         Self::VarBag(map)
     }
 }
 
 pub trait VarBag: erased_serde::Serialize {
-    fn get_vars(&self) -> Vec<String>;
+    fn get_vars(&self) -> Vec<&str>;
 
     fn try_get_var(&self, sp: &mut Split<&str>) -> Option<Variable<'_>>;
 
@@ -209,26 +207,35 @@ impl VarRegistry {
         Ok(())
     }
 
-    pub fn complete(&self, part: &str) -> Option<Vec<String>> {
+    pub fn complete(&self, part: &str, buf: &mut String) -> Option<()> {
         let mut sp = part.split(Self::DELIMITER).peekable();
         let bag_name = sp.next()?;
         let guard = self.read()?;
-        let mut result = Vec::new();
+
         for (key, value) in guard.vars.iter() {
             if !bag_name.is_empty() && !key.starts_with(bag_name) {
                 continue;
             }
             if let Some(arc) = value.upgrade() {
                 if let Ok(lr) = arc.read() {
-                    let start = result.len();
-                    filter_names(lr.deref(), &mut sp, "", &mut result);
-                    for v in result[start..].iter_mut() {
-                        *v = key.clone() + VarRegistry::DELIMITER + v;
-                    }
+                    let mut path = Vec::new();
+                    path.push(key.as_str());
+                    filter_names(lr.deref(), &mut sp, &mut path, &mut |path| {
+                        if !buf.is_empty() {
+                            buf.push_str("\n");
+                        }
+                        if !path.is_empty() {
+                            buf.push_str(path[0]);
+                        }
+                        for i in 1..path.len() {
+                            buf.push_str(VarRegistry::DELIMITER);
+                            buf.push_str(path[i]);
+                        }
+                    });
                 }
             }
         }
-        Some(result)
+        Some(())
     }
 }
 
@@ -248,37 +255,37 @@ fn not_found() -> VarRegistryError {
     VarRegistryError::VarError(VariableError::NotFound)
 }
 
-fn filter_names(
-    owner: &dyn VarBag,
+fn filter_names<'a, C>(
+    owner: &'a dyn VarBag,
     sp: &mut Peekable<Split<&str>>,
-    prefix: &str,
-    result: &mut Vec<String>,
-) {
-    if let Some(part) = sp.next() {
-        if part.is_empty() {
-            return;
-        }
+    path: &mut Vec<&'a str>,
+    callback: &mut C,
+) where
+    C: FnMut(&Vec<&str>),
+{
+    if let Some(part) = sp.next() && !path.is_empty() {
+        // if part.is_empty() {
+        //     return;
+        // }
         for var_name in owner.get_vars() {
             if !var_name.starts_with(part) {
                 continue;
             }
             if let Some(v) = owner.try_get_var(&mut var_name.split(VarRegistry::DELIMITER)) {
-                let local_prefix = if !prefix.is_empty() {
-                    prefix.to_string() + VarRegistry::DELIMITER + &var_name
-                } else {
-                    var_name.clone()
-                };
-                if sp.peek().is_none() {
-                    result.push(local_prefix.clone());
-                }
+                path.push(&var_name);
+
+                // if sp.peek().is_none() {
+                //     (callback)(path);
+                // }
                 match v {
-                    Variable::VarBag(value) => {
-                        filter_names(value, sp, local_prefix.as_str(), result)
-                    }
+                    Variable::VarBag(value) => filter_names(value, sp, path, callback),
                     _ => {}
                 }
+                path.pop();
             }
         }
+    } else {
+        (callback)(path);
     }
 }
 
@@ -462,11 +469,19 @@ mod test {
         reg.try_set_value("root::sub::speed", "5").unwrap();
         assert_eq!("5", reg.try_get_value("root::sub::speed").unwrap());
 
-        let v = reg.complete("::s").unwrap();
-        assert_eq!(v, ["root::speed", "root::sub"]);
+        let mut buf = String::default();
+        
+        buf.clear();
+        let _ = reg.complete("r", &mut buf).unwrap();
+        assert_eq!(buf, "root");
 
-        let v = reg.complete("::s::s").unwrap();
-        assert_eq!(v, ["root::sub::speed"]);
+        buf.clear();
+        let _ = reg.complete("::s", &mut buf).unwrap();
+        assert_eq!(buf, "root::speed\nroot::sub");
+
+        buf.clear();
+        let _ = reg.complete("::s::s", &mut buf).unwrap();
+        assert_eq!(buf, "root::sub::speed");
 
         assert!(matches!(
             reg.add("root", &arc),
@@ -608,7 +623,7 @@ speed = 110.5
             },
             speed: 3.22,
             flag: true,
-            bindings: HashMap::default()
+            bindings: HashMap::default(),
         };
         let v = Variable::from(&c);
         assert!(matches!(v, Variable::VarBag { .. }));

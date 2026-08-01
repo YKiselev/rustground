@@ -197,7 +197,7 @@ impl Console {
                 .commands
                 .complete(&self.cmd_line.buffer, &mut self.completion_buf);
 
-            // todo add vars
+            let _ = self.app.vars.complete(&self.cmd_line.buffer, &mut self.completion_buf);
         }
 
         let comp_lines = self.completion_buf.lines().count();

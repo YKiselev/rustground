@@ -9,8 +9,8 @@ where
     for<'a> V: serde::Deserialize<'a> + serde::Serialize + FromStr + FromValue,
     for<'a> Variable<'a>: From<&'a V>,
 {
-    fn get_vars(&self) -> std::vec::Vec<String> {
-        self.keys().map(|k| k.to_string()).collect()
+    fn get_vars(&self) -> std::vec::Vec<&str> {
+        self.keys().map(|k| k.as_str()).collect()
     }
 
     fn try_get_var(&self, sp: &mut std::str::Split<&str>) -> Option<Variable<'_>> {

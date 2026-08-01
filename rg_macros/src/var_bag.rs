@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use proc_macro::TokenStream;
 
 use quote::quote;
@@ -18,10 +16,10 @@ pub(crate) fn define_var_bag(input: DeriveInput) -> TokenStream {
                 #[automatically_derived]
                 impl rg_common::VarBag for #struct_identifier {
 
-                    fn get_vars(&self) -> std::vec::Vec<String> {
+                    fn get_vars(&self) -> std::vec::Vec<&str> {
                         let mut result = std::vec::Vec::new();
                         #(
-                            result.push(String::from(stringify!(#ids)));
+                            result.push(stringify!(#ids));
                         )*
                         result
                     }
