@@ -8,20 +8,23 @@ use tracing::{info, warn};
 use winit::{
     application::ApplicationHandler,
     event::{DeviceEvent, DeviceId, StartCause, WindowEvent},
-    event_loop::ActiveEventLoop,
+    event_loop::{ActiveEventLoop, EventLoopProxy},
     window::WindowId,
 };
 
 use crate::{
     app_logger::AppLoggerBuffer,
-    application::async_runtime::ClientChannel,
+    application::{async_runtime::ClientChannel, trigger_exit},
     client::{cl_config::ClientConfig, cl_state::ClientState},
     error::AppError,
 };
 
-pub struct ClientEvent();
+pub enum ClientEvent {
+    Exiting
+}
 
 pub struct Client {
+    app: Arc<App>,
     config: Arc<RwLock<ClientConfig>>,
     channel: ClientChannel,
     state: Option<ClientState>,
@@ -29,7 +32,7 @@ pub struct Client {
 
 impl Client {
     pub(crate) fn new(
-        app: &Arc<App>,
+        app: Arc<App>,
         channel: ClientChannel,
         app_log_buffer: AppLoggerBuffer,
     ) -> Result<Self, AppError> {
@@ -41,6 +44,7 @@ impl Client {
         let state = ClientState::new(&app, &cfg, channel.clone(), app_log_buffer)?;
 
         Ok(Client {
+            app,
             config: cfg,
             channel,
             state: Some(state),
@@ -61,6 +65,11 @@ impl ApplicationHandler<ClientEvent> for Client {
 
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: ClientEvent) {
         let _ = (event_loop, event);
+        match event {
+            ClientEvent::Exiting => {
+                event_loop.exit();
+            },
+        }
     }
 
     fn device_event(
@@ -84,6 +93,18 @@ impl ApplicationHandler<ClientEvent> for Client {
 
     fn exiting(&mut self, event_loop: &ActiveEventLoop) {
         let _ = event_loop;
+
+        if let Some(mut state) = self.state.take() {
+            match state.app.vars.to_toml() {
+                Ok(toml) => {
+                    save_config("config.toml", &state.app.files, toml);
+                }
+                Err(e) => {
+                    warn!("Unable to export vars to toml: {:?}", e);
+                }
+            }
+            state.destroy();
+        }
     }
 
     fn window_event(
@@ -95,22 +116,11 @@ impl ApplicationHandler<ClientEvent> for Client {
         match event {
             WindowEvent::CloseRequested => {
                 info!("Window close requested");
-                if let Some(mut state) = self.state.take() {
-                    match state.app.vars.to_toml() {
-                        Ok(toml) => {
-                            save_config("config.toml", &state.app.files, toml);
-                        }
-                        Err(e) => {
-                            warn!("Unable to export vars to toml: {:?}", e);
-                        }
-                    }
-                    state.app.exit_flag.store(true, Ordering::Relaxed);
-                    state.destroy();
-                }
-                event_loop.exit();
+                trigger_exit();
             }
             _ => (),
         }
+
         if let Some(state) = self.state.as_mut() {
             state.window_event(event_loop, window_id, event);
         }

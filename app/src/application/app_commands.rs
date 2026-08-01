@@ -1,8 +1,8 @@
-use std::sync::{Arc, atomic::Ordering};
+use std::sync::Arc;
 
 use rg_common::{App, commands::CommandOwner};
 
-use crate::error::AppError;
+use crate::{application::trigger_exit, error::AppError};
 
 #[allow(dead_code)]
 pub(crate) struct AppCommands(CommandOwner);
@@ -12,7 +12,7 @@ impl AppCommands {
         let mut builder = app.command_builder();
         let app_ref = Arc::clone(&app);
         builder.add("quit", move || {
-            app_ref.exit_flag.store(true, Ordering::Relaxed);
+            trigger_exit();
             Ok(())
         })?;
         Ok(Self(builder.build()))

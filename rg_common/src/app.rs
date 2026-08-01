@@ -1,10 +1,9 @@
 use std::borrow::Borrow;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use toml::Table;
-use tracing::{info, warn};
+use tracing::warn;
 
 use rg_common::arguments::Arguments;
 use rg_common::{CommandRegistry, Files, VarRegistry};
@@ -17,7 +16,6 @@ use crate::{Loader, LoaderError, save_config};
 pub struct App {
     pub name: String,
     pub arguments: Arguments,
-    pub exit_flag: AtomicBool,
     pub started_at: Instant,
     pub files: Files,
     pub vars: VarRegistry,
@@ -31,7 +29,6 @@ impl App {
         Self {
             name: "Rust Ground".to_string(),
             arguments: args,
-            exit_flag: AtomicBool::new(false),
             started_at: Instant::now(),
             files: files,
             vars: VarRegistry::new(None),
@@ -42,10 +39,6 @@ impl App {
 
     pub fn command_builder<'a>(&'a self) -> CommandBuilder<'a> {
         CommandBuilder::new(&self.commands)
-    }
-
-    pub fn is_exit(&self) -> bool {
-        self.exit_flag.load(Ordering::Relaxed)
     }
 
     pub fn elapsed(&self) -> Duration {

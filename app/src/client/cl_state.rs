@@ -67,7 +67,7 @@ impl ClientState {
         let net = ClientNetwork::new(app, channel)?;
         let in_game_overlay = GameOverlay::new();
         let menu = Menu::new();
-        let console = Console::new(app_log_buffer);
+        let console = Console::new(Arc::clone(app), app_log_buffer);
         let guard = config.read()?;
         let game_actions = GameActions::new(&guard.bindings);
         Ok(Self {

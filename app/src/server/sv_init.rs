@@ -1,4 +1,5 @@
 use crate::application::async_runtime::ServerChannel;
+use crate::application::is_exit;
 use crate::error::AppError;
 use crate::server::Server;
 use tracing::{info, warn};
@@ -26,7 +27,7 @@ fn start_server_thread(app: Arc<App>, mut server: Server) -> Result<JoinHandle<(
 
             info!("Entering server main loop...");
 
-            while !app.is_exit() {
+            while !is_exit() {
                 let delta = time.elapsed();
                 time = Instant::now();
                 lag += delta.as_millis();

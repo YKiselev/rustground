@@ -1,10 +1,14 @@
-use std::{fmt::Write, time::Instant};
+use std::{fmt::Write, sync::Arc, time::Instant};
 
-use rg_common::ui::{
-    canvas::{Canvas, WrapMode},
-    color::Color,
+use rg_common::{
+    App,
+    ui::{
+        canvas::{Canvas, WrapMode},
+        color::Color,
+    },
 };
 use rg_vulkan::renderer::VulkanCanvas;
+use tracing::warn;
 use winit::{
     event::ElementState,
     keyboard::{
@@ -24,6 +28,7 @@ struct CommandLine {
 }
 
 pub struct Console {
+    app: Arc<App>,
     app_log_buffer: AppLoggerBuffer,
     height: u32,
     scroll_offset: u32,
@@ -35,8 +40,9 @@ pub struct Console {
 }
 
 impl Console {
-    pub fn new(app_log_buffer: AppLoggerBuffer) -> Self {
+    pub fn new(app: Arc<App>, app_log_buffer: AppLoggerBuffer) -> Self {
         Self {
+            app,
             app_log_buffer,
             height: 0,
             scroll_offset: 0,
@@ -115,7 +121,6 @@ impl Console {
         }
         x -= self.cmd_line_offset;
 
-        
         canvas.set_wrap_mode(WrapMode::None);
 
         canvas.draw_text(x, y, line_width, &self.cmd_line.buffer);
@@ -150,7 +155,7 @@ impl Console {
                 self.cmd_line.move_caret(1);
             }
             NamedKey::Enter => {
-                self.cmd_line.execute();
+                self.execute();
             }
             NamedKey::Tab => {
                 self.cmd_line.complete_command();
@@ -172,6 +177,14 @@ impl Console {
             }
             _ => {}
         }
+    }
+
+    fn execute(&mut self) {
+        if let Err(e) = self.app.commands.execute(&self.cmd_line.buffer) {
+            warn!("{}", e);
+        }
+        self.cmd_line.clear();
+        self.cmd_line_offset = 0;
     }
 }
 
@@ -295,8 +308,6 @@ impl CommandLine {
         self.caret_pos = self.buffer.len() as i32;
     }
 
-    pub fn execute(&mut self) {}
-
     pub fn complete_command(&mut self) {}
 
     pub fn delete_char_before_cursor(&mut self) {
@@ -310,5 +321,10 @@ impl CommandLine {
         if self.caret_pos < self.buffer.len() as i32 {
             self.buffer.remove(self.caret_pos as usize);
         }
+    }
+
+    pub fn clear(&mut self) {
+        self.buffer.clear();
+        self.caret_pos = 0;
     }
 }

@@ -4,13 +4,9 @@ use tracing::{debug, info, warn};
 use winit::event_loop::{ControlFlow, EventLoop};
 
 use crate::{
-    app_logger,
-    application::{
-        app_host::AppHost, async_files::AsyncFiles, async_runtime::init_client_server_async_runtime,
-    },
-    client::{Client, ClientEvent},
-    error::AppError,
-    server,
+    app_logger, application::{
+        app_host::AppHost, async_files::AsyncFiles, async_runtime::init_client_server_async_runtime, set_event_proxy,
+    }, client::{Client, ClientEvent}, error::AppError, server,
 };
 
 pub fn run_client_server(args: Arguments) -> Result<(), AppError> {
@@ -29,10 +25,11 @@ pub fn run_client_server(args: Arguments) -> Result<(), AppError> {
 
     let sv_handle = server::init(&app, server_channel)?;
     let event_loop = EventLoop::<ClientEvent>::with_user_event().build()?;
-    //let proxy = event_loop.create_proxy();
-    //proxy.send_event(ClientEvent::new());
+    
+    let proxy = event_loop.create_proxy();
+    set_event_proxy(proxy);
 
-    let mut client = Client::new(&app, client_channel, app_log_buffer)?;
+    let mut client = Client::new(app, client_channel, app_log_buffer)?;
     event_loop.set_control_flow(ControlFlow::Poll);
 
     info!("Entering main loop...");
