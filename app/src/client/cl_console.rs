@@ -37,6 +37,8 @@ pub struct Console {
     cmd_line: CommandLine,
     cmd_line_offset: i32,
     time: Instant,
+    completion_buf: String,
+    completion_index: usize,
 }
 
 impl Console {
@@ -51,6 +53,8 @@ impl Console {
             cmd_line: CommandLine::default(),
             cmd_line_offset: 0,
             time: Instant::now(),
+            completion_buf: String::with_capacity(200),
+            completion_index: 0,
         }
     }
 
@@ -108,7 +112,7 @@ impl Console {
 
         // Draw prompt
         canvas.draw_text(x, y, line_width, ">");
-        x += char_width as i32;
+        x += (3 * char_width as i32) / 2;
 
         // Clip command line
         canvas.set_scissor(x, y, line_width, cmd_line_height + 8);
@@ -158,7 +162,7 @@ impl Console {
                 self.execute();
             }
             NamedKey::Tab => {
-                self.cmd_line.complete_command();
+                self.complete_command();
             }
             NamedKey::Backspace => {
                 self.cmd_line.delete_char_before_cursor();
@@ -173,7 +177,7 @@ impl Console {
                 self.cmd_line.move_caret_to_end();
             }
             NamedKey::Space => {
-                self.cmd_line.push_at_caret(&" ");
+                self.push_at_caret(&" ");
             }
             _ => {}
         }
@@ -185,6 +189,37 @@ impl Console {
         }
         self.cmd_line.clear();
         self.cmd_line_offset = 0;
+    }
+
+    fn complete_command(&mut self) {
+        if self.completion_index == 0 {
+            self.app
+                .commands
+                .complete(&self.cmd_line.buffer, &mut self.completion_buf);
+
+            // todo add vars
+        }
+
+        let comp_lines = self.completion_buf.lines().count();
+
+        if comp_lines > 0 {
+            self.cmd_line.clear();
+            if let Some(completion) = self.completion_buf.lines().nth(self.completion_index) {
+                self.cmd_line.push_at_caret(completion);
+            }
+        }
+
+        if self.completion_index + 1 < comp_lines {
+            self.completion_index += 1;
+        } else {
+            self.completion_index = 0;
+        }
+    }
+
+    fn push_at_caret(&mut self, ch: &str) {
+        self.cmd_line.push_at_caret(ch);
+        self.completion_buf.clear();
+        self.completion_index = 0;
     }
 }
 
@@ -225,7 +260,7 @@ impl UiLayer for Console {
                     Key::Character(s) => {
                         if modifiers.control_key() {
                         } else {
-                            self.cmd_line.push_at_caret(s);
+                            self.push_at_caret(s);
                         }
                     }
                     _ => {}
@@ -284,46 +319,44 @@ impl UiLayer for Console {
 }
 
 impl CommandLine {
-    pub fn push_at_caret(&mut self, ch: &str) {
+    fn push_at_caret(&mut self, ch: &str) {
         self.buffer.insert_str(self.caret_pos as usize, ch);
         self.move_caret(ch.chars().count() as i32);
     }
 
-    pub fn prev_command(&mut self) {}
+    fn prev_command(&mut self) {}
 
-    pub fn next_command(&mut self) {}
+    fn next_command(&mut self) {}
 
-    pub fn move_caret(&mut self, delta: i32) {
+    fn move_caret(&mut self, delta: i32) {
         self.caret_pos = self
             .caret_pos
             .saturating_add(delta)
             .clamp(0, self.buffer.len() as i32)
     }
 
-    pub fn move_caret_to_start(&mut self) {
+    fn move_caret_to_start(&mut self) {
         self.caret_pos = 0;
     }
 
-    pub fn move_caret_to_end(&mut self) {
+    fn move_caret_to_end(&mut self) {
         self.caret_pos = self.buffer.len() as i32;
     }
 
-    pub fn complete_command(&mut self) {}
-
-    pub fn delete_char_before_cursor(&mut self) {
+    fn delete_char_before_cursor(&mut self) {
         if self.caret_pos > 0 {
             self.move_caret(-1);
             self.delete_char_at_cursor();
         }
     }
 
-    pub fn delete_char_at_cursor(&mut self) {
+    fn delete_char_at_cursor(&mut self) {
         if self.caret_pos < self.buffer.len() as i32 {
             self.buffer.remove(self.caret_pos as usize);
         }
     }
 
-    pub fn clear(&mut self) {
+    fn clear(&mut self) {
         self.buffer.clear();
         self.caret_pos = 0;
     }

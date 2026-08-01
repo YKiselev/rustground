@@ -5,6 +5,7 @@ use std::{
 };
 
 use thiserror::Error;
+use tracing::warn;
 
 use crate::cmd_parser::parse_command_line;
 
@@ -60,6 +61,20 @@ impl CommandRegistry {
             }
         }
         Ok(())
+    }
+
+    pub fn complete<S>(&self, prefix: S, buf: &mut String)
+    where
+        S: AsRef<str>,
+    {
+        if let Ok(guard) = self.0.lock() {
+            for key in guard.keys().filter(|key| key.starts_with(prefix.as_ref())) {
+                buf.push_str(key);
+                buf.push_str("\n");
+            }
+        } else {
+            warn!("Mutex is poisoned!");
+        }
     }
 }
 
