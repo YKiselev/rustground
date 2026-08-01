@@ -264,9 +264,6 @@ fn filter_names<'a, C>(
     C: FnMut(&Vec<&str>),
 {
     if let Some(part) = sp.next() && !path.is_empty() {
-        // if part.is_empty() {
-        //     return;
-        // }
         for var_name in owner.get_vars() {
             if !var_name.starts_with(part) {
                 continue;
@@ -274,12 +271,13 @@ fn filter_names<'a, C>(
             if let Some(v) = owner.try_get_var(&mut var_name.split(VarRegistry::DELIMITER)) {
                 path.push(&var_name);
 
-                // if sp.peek().is_none() {
-                //     (callback)(path);
-                // }
                 match v {
                     Variable::VarBag(value) => filter_names(value, sp, path, callback),
-                    _ => {}
+                    _ => {
+                        if sp.peek().is_none() {
+                            (callback)(path);
+                        }
+                    }
                 }
                 path.pop();
             }

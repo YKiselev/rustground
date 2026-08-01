@@ -8,9 +8,9 @@ use crate::{
     app_logger::AppLoggerBuffer,
     application::async_runtime::ClientChannel,
     client::{
-        cl_config::ClientConfig, cl_console::Console, cl_fps::FrameStats,
-        cl_game_actions::GameActions, cl_game_overlay::GameOverlay, cl_menu::Menu,
-        cl_net::ClientNetwork, cl_ui_layer::UiLayer,
+        cl_commands::ClientCommand, cl_config::ClientConfig, cl_console::Console,
+        cl_fps::FrameStats, cl_game_actions::GameActions, cl_game_overlay::GameOverlay,
+        cl_menu::Menu, cl_net::ClientNetwork, cl_ui_layer::UiLayer,
     },
     error::AppError,
 };
@@ -275,38 +275,22 @@ impl ClientState {
         }
 
         self.update_game_actions(&event);
-
-        self.device_event_fallback(event, event_loop);
-    }
-
-    fn device_event_fallback(&mut self, event: DeviceEvent, _: &ActiveEventLoop) {
-        match event {
-            DeviceEvent::Key(raw_key_event) => {
-                // Process only key release actions
-                if raw_key_event.state == ElementState::Released {
-                    match raw_key_event.physical_key {
-                        PhysicalKey::Code(key_code) => match key_code {
-                            KeyCode::Escape => self.toggle_menu(),
-                            KeyCode::Backquote => self.toggle_console(),
-                            _ => {}
-                        },
-                        PhysicalKey::Unidentified(_) => {}
-                    }
-                }
-            }
-            _ => {}
-        }
     }
 
     fn dispatch_key_event(&mut self, event: &KeyEvent) {
         match event.physical_key {
-            PhysicalKey::Code(ref key_code) => {
-                if *key_code == KeyCode::Space {
-                    info!("fps: {:.2}", self.frame_stats.calc_fps());
+            PhysicalKey::Code(key_code) if event.state == ElementState::Released => {
+                match key_code {
+                    KeyCode::Escape => self.toggle_menu(),
+                    KeyCode::Backquote => self.toggle_console(),
+                    KeyCode::Space => {
+                        info!("fps: {:.2}", self.frame_stats.calc_fps());
+                    }
+                    _ => {}
                 }
             }
             _ => {}
-        };
+        }
 
         if self.menu.keyboard_input(event, self.window_state.modifiers) {
             return;
@@ -337,6 +321,13 @@ impl ClientState {
                 self.game_actions.update_from_button(*button, *state)
             }
             _ => {}
+        }
+    }
+
+    pub fn on_command(&mut self, command: ClientCommand) {
+        match command {
+            ClientCommand::ToggleConsole => self.toggle_console(),
+            ClientCommand::ToggleMenu => self.toggle_menu(),
         }
     }
 }

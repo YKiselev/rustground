@@ -141,10 +141,7 @@ fn report_missing_bindings(bindings: &FxHashMap<Input, GameActionFlags>) {
 
     for (name, flag) in GameActionFlags::iter_defined_names() {
         if !flags.contains(flag) {
-            warn!("Unbinded action: {}", name);
+            warn!("Unbound action: {}", name);
         }
     }
 }
-
-#[cfg(test)]
-mod tests {}

@@ -11,11 +11,7 @@ use rg_vulkan::renderer::VulkanCanvas;
 use tracing::warn;
 use winit::{
     event::ElementState,
-    keyboard::{
-        Key,
-        KeyCode::{PageDown, PageUp},
-        ModifiersState, NamedKey, SmolStr,
-    },
+    keyboard::{Key, ModifiersState, NamedKey},
 };
 
 use crate::{app_logger::AppLoggerBuffer, client::cl_ui_layer::UiLayer};
@@ -23,15 +19,15 @@ use crate::{app_logger::AppLoggerBuffer, client::cl_ui_layer::UiLayer};
 #[derive(Default)]
 struct CommandLine {
     buffer: String,
-    caret_pos: i32,     // in characters
-    scroll_offset: u32, // in lines
+    caret_pos: i32, // in characters
 }
 
 pub struct Console {
     app: Arc<App>,
     app_log_buffer: AppLoggerBuffer,
     height: u32,
-    scroll_offset: u32,
+    scroll_offset: u32, // how many lines to show from start not end
+    autoscroll: bool,
     opening: bool,
     line_buf: String,
     cmd_line: CommandLine,
@@ -48,6 +44,7 @@ impl Console {
             app_log_buffer,
             height: 0,
             scroll_offset: 0,
+            autoscroll: true,
             opening: false,
             line_buf: String::with_capacity(200),
             cmd_line: CommandLine::default(),
@@ -62,11 +59,29 @@ impl Console {
         self.app_log_buffer.update();
     }
 
-    fn draw_lines(&mut self, x0: i32, y0: i32, line_width: u32, canvas: &mut VulkanCanvas) {
-        let x = x0;
-        let mut y = y0 + self.scroll_offset as i32;
+    fn draw_lines(
+        &mut self,
+        x0: i32,
+        y0: i32,
+        line_width: u32,
+        line_height: u32,
+        canvas: &mut VulkanCanvas,
+    ) {
+        canvas.set_scissor(x0, 0, line_width, y0 as u32);
 
-        canvas.set_scissor(x, 0, line_width, y0 as u32);
+        let line_count = self.app_log_buffer.iter().count() as u32;
+        if !self.autoscroll && self.scroll_offset == line_count {
+            self.autoscroll = true;
+        }
+        if self.scroll_offset > line_count || self.autoscroll {
+            self.scroll_offset = line_count;
+        }
+        if self.scroll_offset < 5 && line_count >= 5 {
+            self.scroll_offset = 5;
+        }
+
+        let x = x0;
+        let mut y = y0.saturating_add_unsigned((line_count - self.scroll_offset) * line_height);
 
         for record in self.app_log_buffer.iter() {
             self.line_buf.clear();
@@ -141,10 +156,12 @@ impl Console {
     fn dispatch_named_key(&mut self, key: &NamedKey) {
         match key {
             NamedKey::PageUp => {
-                self.scroll_offset = self.scroll_offset.saturating_add(100);
+                self.scroll_offset = self.scroll_offset.saturating_sub(10);
+                self.autoscroll = false;
             }
             NamedKey::PageDown => {
-                self.scroll_offset = self.scroll_offset.saturating_sub(100);
+                self.scroll_offset = self.scroll_offset.saturating_add(10);
+                self.autoscroll = false;
             }
             NamedKey::ArrowUp => {
                 self.cmd_line.prev_command();
@@ -192,12 +209,17 @@ impl Console {
     }
 
     fn complete_command(&mut self) {
-        if self.completion_index == 0 {
+        if self.completion_index == 0 && self.completion_buf.is_empty() {
+            self.completion_buf.clear();
+
             self.app
                 .commands
                 .complete(&self.cmd_line.buffer, &mut self.completion_buf);
 
-            let _ = self.app.vars.complete(&self.cmd_line.buffer, &mut self.completion_buf);
+            let _ = self
+                .app
+                .vars
+                .complete(&self.cmd_line.buffer, &mut self.completion_buf);
         }
 
         let comp_lines = self.completion_buf.lines().count();
@@ -234,7 +256,6 @@ impl UiLayer for Console {
                 winit::event::MouseScrollDelta::LineDelta(_, _) => {}
                 winit::event::MouseScrollDelta::PixelDelta(_physical_position) => {}
             },
-            winit::event::DeviceEvent::Key(_raw_key_event) => {}
             _ => {}
         }
         false
@@ -293,20 +314,21 @@ impl UiLayer for Console {
         canvas.set_wrap_mode(rg_common::ui::canvas::WrapMode::Word);
 
         // Check offset (should be multiple of font height to prevent text jumps)
-        let extra = self.scroll_offset % (canvas.get_font_height() + line_spacing as u32);
-        self.scroll_offset = self.scroll_offset.saturating_sub(extra);
+        //let extra = self.scroll_offset % (canvas.get_font_height() + line_spacing as u32);
+        //self.scroll_offset = self.scroll_offset.saturating_sub(extra);
 
         let font_height = canvas.get_font_height();
         let margin = 4;
         let line_width = canvas.width().saturating_sub(2 * margin);
+        let line_height = font_height + line_spacing;
         let x = margin as i32;
         let mut y = self.height.saturating_sub(font_height) as i32;
 
         self.draw_command_line(x, y, line_width, line_spacing, canvas) as i32;
 
-        y = y.saturating_sub_unsigned(font_height + line_spacing);
+        y = y.saturating_sub_unsigned(line_height);
 
-        self.draw_lines(x, y, line_width, canvas);
+        self.draw_lines(x, y, line_width, line_height, canvas);
     }
 
     fn toggle(&mut self) {

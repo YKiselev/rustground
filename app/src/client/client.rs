@@ -1,26 +1,27 @@
-use std::{
-    rc::Rc,
-    sync::{Arc, RwLock, atomic::Ordering},
-};
+use std::sync::{Arc, RwLock};
 
-use rg_common::{App, save_config, wrap_var_bag};
+use rg_common::{App, commands::CommandOwner, save_config, wrap_var_bag};
 use tracing::{info, warn};
 use winit::{
     application::ApplicationHandler,
     event::{DeviceEvent, DeviceId, StartCause, WindowEvent},
-    event_loop::{ActiveEventLoop, EventLoopProxy},
+    event_loop::ActiveEventLoop,
     window::WindowId,
 };
 
 use crate::{
     app_logger::AppLoggerBuffer,
     application::{async_runtime::ClientChannel, trigger_exit},
-    client::{cl_config::ClientConfig, cl_state::ClientState},
+    client::{
+        cl_commands::{ClientCommand, init_client_commands},
+        cl_config::ClientConfig,
+        cl_state::ClientState,
+    },
     error::AppError,
 };
 
 pub enum ClientEvent {
-    Exiting
+    Exiting,
 }
 
 pub struct Client {
@@ -28,6 +29,8 @@ pub struct Client {
     config: Arc<RwLock<ClientConfig>>,
     channel: ClientChannel,
     state: Option<ClientState>,
+    command_rx: flume::Receiver<ClientCommand>,
+    _commands: CommandOwner,
 }
 
 impl Client {
@@ -42,13 +45,19 @@ impl Client {
         app.vars.add("client", &cfg)?;
 
         let state = ClientState::new(&app, &cfg, channel.clone(), app_log_buffer)?;
+        let (command_tx, command_rx) = flume::bounded(100);
+        let _commands = init_client_commands(Arc::clone(&app), command_tx)?;
 
-        Ok(Client {
+        let client = Self {
             app,
             config: cfg,
             channel,
             state: Some(state),
-        })
+            command_rx,
+            _commands,
+        };
+
+        Ok(client)
     }
 }
 
@@ -68,7 +77,7 @@ impl ApplicationHandler<ClientEvent> for Client {
         match event {
             ClientEvent::Exiting => {
                 event_loop.exit();
-            },
+            }
         }
     }
 
@@ -119,6 +128,14 @@ impl ApplicationHandler<ClientEvent> for Client {
                 trigger_exit();
             }
             _ => (),
+        }
+
+        for command in self.command_rx.try_iter() {
+            match command {
+                _ => if let Some(state) = self.state.as_mut() {
+                    state.on_command(command);
+                },
+            }
         }
 
         if let Some(state) = self.state.as_mut() {
