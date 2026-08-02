@@ -1,4 +1,7 @@
-use std::sync::{Arc, RwLock};
+use std::{
+    rc::Rc,
+    sync::{Arc, Mutex, RwLock},
+};
 
 use rg_common::{App, commands::CommandOwner, save_config, wrap_var_bag};
 use tracing::{info, warn};
@@ -27,9 +30,7 @@ pub enum ClientEvent {
 pub struct Client {
     app: Arc<App>,
     config: Arc<RwLock<ClientConfig>>,
-    channel: ClientChannel,
-    state: Option<ClientState>,
-    command_rx: flume::Receiver<ClientCommand>,
+    state: ClientState,
     _commands: CommandOwner,
 }
 
@@ -44,20 +45,27 @@ impl Client {
         let cfg = wrap_var_bag(ClientConfig::new());
         app.vars.add("client", &cfg)?;
 
-        let state = ClientState::new(&app, &cfg, channel.clone(), app_log_buffer)?;
-        let (command_tx, command_rx) = flume::bounded(100);
-        let _commands = init_client_commands(Arc::clone(&app), command_tx)?;
+        let state = ClientState::new(&app, &cfg, channel, app_log_buffer)?;
+
+        let _commands = init_client_commands(Arc::clone(&app))?;
 
         let client = Self {
             app,
             config: cfg,
-            channel,
-            state: Some(state),
-            command_rx,
+            state,
             _commands,
         };
 
         Ok(client)
+    }
+
+    fn on_cl_restart(&mut self) {
+        // todo get current state
+        //let Some(ClientState { app, config, console, .. }) = self.state.take();
+
+        //let state = ClientState::new(&app, &cfg, self.channel.clone(), app_log_buffer)?;
+        //self.state = Some(state);
+        // restore state
     }
 }
 
@@ -67,9 +75,7 @@ impl ApplicationHandler<ClientEvent> for Client {
     }
 
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        if let Some(state) = self.state.as_mut() {
-            state.resumed(event_loop);
-        }
+        self.state.resumed(event_loop);
     }
 
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: ClientEvent) {
@@ -87,9 +93,7 @@ impl ApplicationHandler<ClientEvent> for Client {
         _device_id: DeviceId,
         event: DeviceEvent,
     ) {
-        if let Some(state) = self.state.as_mut() {
-            state.device_event(event, event_loop);
-        }
+        self.state.device_event(event, event_loop);
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
@@ -103,17 +107,17 @@ impl ApplicationHandler<ClientEvent> for Client {
     fn exiting(&mut self, event_loop: &ActiveEventLoop) {
         let _ = event_loop;
 
-        if let Some(mut state) = self.state.take() {
-            match state.app.vars.to_toml() {
+        //if let Some(mut state) = self.state.take() {
+            match self.state.app.vars.to_toml() {
                 Ok(toml) => {
-                    save_config("config.toml", &state.app.files, toml);
+                    save_config("config.toml", &self.state.app.files, toml);
                 }
                 Err(e) => {
                     warn!("Unable to export vars to toml: {:?}", e);
                 }
             }
-            state.destroy();
-        }
+            self.state.destroy();
+        //}
     }
 
     fn window_event(
@@ -130,16 +134,25 @@ impl ApplicationHandler<ClientEvent> for Client {
             _ => (),
         }
 
-        for command in self.command_rx.try_iter() {
-            match command {
-                _ => if let Some(state) = self.state.as_mut() {
-                    state.on_command(command);
-                },
-            }
+        let mut restart = false;
+
+        // for command in self.command_rx.try_iter() {
+        //     match command {
+        //         ClientCommand::Restart => restart = true,
+        //         _ => {
+        //             if let Some(state) = self.state.as_mut() {
+        //                 state.on_command(command);
+        //             }
+        //         }
+        //     }
+        // }
+
+        if restart {
+            self.on_cl_restart();
         }
 
-        if let Some(state) = self.state.as_mut() {
-            state.window_event(event_loop, window_id, event);
-        }
+        //if let Some(state) = self.state.as_mut() {
+            self.state.window_event(event_loop, window_id, event);
+        //}
     }
 }

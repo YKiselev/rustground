@@ -304,11 +304,11 @@ impl ClientState {
         }
     }
 
-    fn toggle_menu(&mut self) {
+    pub(super) fn toggle_menu(&mut self) {
         self.menu.toggle();
     }
 
-    fn toggle_console(&mut self) {
+    pub(super) fn toggle_console(&mut self) {
         self.console.toggle();
     }
 
@@ -328,6 +328,7 @@ impl ClientState {
         match command {
             ClientCommand::ToggleConsole => self.toggle_console(),
             ClientCommand::ToggleMenu => self.toggle_menu(),
+            _ => {}
         }
     }
 }
