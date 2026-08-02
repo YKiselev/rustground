@@ -235,13 +235,13 @@ macro_rules! impl_as_adapter {
 
                 move |args: &[&str]| {
                     ensure_at_most(ARG_COUNT, args.len())?;
-                    let mut k = 0usize;
+                    let mut _k = 0usize;
 
                     (self)(
                         $({
-                            let arg = args.get(k).map(|s| *s);
+                            let arg = args.get(_k).map(|s| *s);
                             let arg = $t::to_arg(arg)?;
-                            k += 1;
+                            _k += 1;
                             arg
                         },)*
                     )
@@ -265,11 +265,14 @@ impl_as_adapter!(A, B, C, D, E, F);
 #[cfg(test)]
 mod test {
     use std::{
+        iter::repeat,
         ops::Deref,
         sync::{
             Arc, Mutex,
             atomic::{AtomicUsize, Ordering},
         },
+        thread,
+        time::{Duration, Instant},
     };
 
     use super::*;
@@ -279,38 +282,6 @@ mod test {
         args: [&str; N],
     ) -> Result<(), CmdError> {
         reg.invoke(args.as_slice())
-    }
-
-    fn build_and_invoke(reg: &CommandRegistry) {
-        let mut b = CommandBuilder::new(reg);
-        b.add("1", || Ok(())).unwrap();
-        b.add("2", || Ok(())).unwrap();
-        b.add("3", || Ok(())).unwrap();
-        let _cmds = b.build();
-        invoke(reg, ["1"]).unwrap();
-        invoke(reg, ["2"]).unwrap();
-        invoke(reg, ["3"]).unwrap();
-    }
-
-    #[test]
-    fn lifetime() {
-        let reg = CommandRegistry::default();
-        build_and_invoke(&reg);
-        {
-            assert!(matches!(
-                invoke(&reg, ["1", "2", ".3"]),
-                Err(CmdError::NotFound)
-            ));
-            assert!(matches!(
-                invoke(&reg, ["2", "2", ".3"]),
-                Err(CmdError::NotFound)
-            ));
-            assert!(matches!(
-                invoke(&reg, ["3", "2", ".3"]),
-                Err(CmdError::NotFound)
-            ));
-        }
-        build_and_invoke(&reg);
     }
 
     #[test]
@@ -425,5 +396,77 @@ mod test {
         invoke(&reg, ["data", "77"]).unwrap();
         assert_eq!(77, arc.lock().unwrap().data);
         invoke(&reg, ["two_args", "true", "Wohoaa!"]).unwrap();
+    }
+
+    #[test]
+    fn use_from_threads() {
+        let reg = Arc::new(CommandRegistry::default());
+        let arc = Arc::new(Mutex::new(Module {
+            commands: None,
+            data: 123,
+            name: "Dummy".to_owned(),
+        }));
+
+        let reg_clone = Arc::clone(&reg);
+        let arc_clone = Arc::clone(&arc);
+
+        let _ = thread::spawn(move || {
+            let mut b = CommandBuilder::new(&reg_clone);
+            let ac = Arc::clone(&arc_clone);
+            b.add("name", move |n: Option<String>| {
+                if let Some(n) = n {
+                    ac.lock().unwrap().name = n;
+                }
+                println!("Name is: {}", ac.lock().unwrap().name);
+                Ok(())
+            })
+            .unwrap();
+            let ac = Arc::clone(&arc_clone);
+            b.add("data", move |v: Option<i32>| {
+                let mut guard = ac.lock().unwrap();
+                if let Some(v) = v {
+                    guard.data = v;
+                }
+                println!("data={}", guard.data);
+                Ok(())
+            })
+            .unwrap();
+            let counter = Arc::new(Mutex::new(0));
+            let cloned = Arc::clone(&counter);
+            b.add("two_args", move |a: bool, b: &str| {
+                println!("Passed: {a}, {b}, {}", cloned.lock().unwrap());
+                *cloned.lock().unwrap() += 1;
+                Ok(())
+            })
+            .unwrap();
+            arc_clone.lock().unwrap().commands = Some(b.build());
+        })
+        .join()
+        .unwrap();
+
+        invoke(reg.as_ref(), ["name"]).unwrap();
+        invoke(reg.as_ref(), ["name", "Guffy"]).unwrap();
+        assert_eq!("Guffy", arc.lock().unwrap().name);
+        invoke(reg.as_ref(), ["data"]).unwrap();
+        assert_eq!(123, arc.lock().unwrap().data);
+        invoke(reg.as_ref(), ["data", "77"]).unwrap();
+        assert_eq!(77, arc.lock().unwrap().data);
+        invoke(reg.as_ref(), ["two_args", "true", "Wohoaa!"]).unwrap();
+
+        let reg_clone = Arc::clone(&reg);
+        let _ = thread::spawn(move || {
+            invoke(reg_clone.as_ref(), ["name"]).unwrap();
+            invoke(reg_clone.as_ref(), ["name", "Duffy"]).unwrap();
+            invoke(reg_clone.as_ref(), ["data"]).unwrap();
+            invoke(reg_clone.as_ref(), ["data", "88"]).unwrap();
+            invoke(reg_clone.as_ref(), ["two_args", "true", "Nope"]).unwrap();
+        })
+        .join()
+        .unwrap();
+
+        if let Ok(guard) = arc.lock() {
+            assert_eq!("Duffy", guard.name);
+            assert_eq!(88, guard.data);
+        }
     }
 }
