@@ -9,21 +9,21 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 use tracing::{info, warn};
 
-pub(crate) fn init(app: &Arc<App>, channel: ServerChannel) -> Result<JoinHandle<()>, AppError> {
+pub(crate) fn init(app: &Arc<App>, channel: ServerChannel) -> Result<JoinHandle<Server>, AppError> {
     let mut server = Server::new(app, channel)?;
     server.init(app)?;
     let handle = start_server_thread(Arc::clone(app), server)?;
     Ok(handle)
 }
 
-fn start_server_thread(app: Arc<App>, server: Server) -> Result<JoinHandle<()>, AppError> {
+fn start_server_thread(app: Arc<App>, server: Server) -> Result<JoinHandle<Server>, AppError> {
     let handle = thread::Builder::new()
         .name("server-main".to_string())
         .spawn(move || server_main(app, server))?;
     Ok(handle)
 }
 
-fn server_main(_app: Arc<App>, mut server: Server) {
+fn server_main(_app: Arc<App>, mut server: Server) -> Server {
     let mut time = Instant::now();
     let mut lag = 0u128;
 
@@ -47,5 +47,5 @@ fn server_main(_app: Arc<App>, mut server: Server) {
     }
     info!("Server loop ended.");
     server.shutdown();
-    //std::mem::drop(server);
+    server
 }
