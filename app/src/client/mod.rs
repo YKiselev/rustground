@@ -11,6 +11,7 @@ mod cl_ui_layer;
 mod cl_game_actions;
 mod cl_commands;
 mod cl_context;
+mod cl_actions;
 
 pub(crate) use cl_async_dispatch::{Request, Response, run_client_worker};
 pub(crate) use client::Client;

@@ -23,14 +23,9 @@ use winit::{
 };
 
 use crate::{
-    app_logger::AppLoggerBuffer,
-    application::{async_runtime::ClientChannel, trigger_exit},
-    client::{
-        cl_commands::init_client_commands, cl_config::ClientConfig, cl_console::Console,
-        cl_context::ClientContext, cl_fps::FrameStats, cl_game_actions::GameActions,
-        cl_game_overlay::GameOverlay, cl_menu::Menu, cl_net::ClientNetwork, cl_ui_layer::UiLayer,
-    },
-    error::AppError,
+    app_logger::AppLoggerBuffer, application::{async_runtime::ClientChannel, trigger_exit}, client::{
+        cl_actions::{ClientAction, ClientActions}, cl_commands::init_client_commands, cl_config::ClientConfig, cl_console::Console, cl_context::ClientContext, cl_fps::FrameStats, cl_game_actions::GameActions, cl_game_overlay::GameOverlay, cl_menu::Menu, cl_net::ClientNetwork, cl_ui_layer::UiLayer,
+    }, error::AppError,
 };
 
 pub enum ClientEvent {
@@ -57,6 +52,7 @@ pub struct Client {
     game_overlay: GameOverlay,
     menu: Menu,
     console: Console,
+    actions: ClientActions,
     game_actions: GameActions,
     _commands: CommandOwner,
 }
@@ -77,6 +73,10 @@ impl Client {
         let menu = Menu::new();
         let console = Console::new(Arc::clone(&app), app_log_buffer);
         let guard = cfg.read()?;
+        
+        let mut actions = ClientActions::default();
+        actions.load(&guard.bindings);
+
         let game_actions = GameActions::new(&guard.bindings);
         std::mem::drop(guard);
 
@@ -95,6 +95,7 @@ impl Client {
             game_overlay: in_game_overlay,
             menu,
             console,
+            actions,
             game_actions,
             _commands,
         };
