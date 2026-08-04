@@ -265,6 +265,8 @@ impl_as_adapter!(A, B, C, D, E, F);
 #[cfg(test)]
 mod test {
     use std::{
+        cell::UnsafeCell,
+        ffi::c_void,
         iter::repeat,
         ops::Deref,
         sync::{
@@ -345,57 +347,35 @@ mod test {
         assert_eq!(15, counter.load(Ordering::Acquire));
     }
 
-    struct Module {
-        commands: Option<CommandOwner>,
-        data: i32,
+    struct ModData {
+        value: i32,
         name: String,
+        _ptr: *mut c_void,
     }
 
-    #[test]
-    fn typical_usage() {
-        let reg = CommandRegistry::default();
-        let mut b = CommandBuilder::new(&reg);
-        let arc = Arc::new(Mutex::new(Module {
-            commands: None,
-            data: 123,
-            name: "Dummy".to_owned(),
-        }));
-        let ac = Arc::clone(&arc);
-        b.add("name", move |n: Option<String>| {
-            if let Some(n) = n {
-                ac.lock().unwrap().name = n;
+    unsafe impl Send for ModData {}
+
+    struct Module {
+        commands: Option<CommandOwner>,
+        data: UnsafeCell<ModData>,
+    }
+
+    impl ModData {
+        fn new() -> Self {
+            Self {
+                value: 123,
+                name: String::default(),
+                _ptr: std::ptr::null_mut(),
             }
-            println!("Name is: {}", ac.lock().unwrap().name);
-            Ok(())
-        })
-        .unwrap();
-        let ac = Arc::clone(&arc);
-        b.add("data", move |v: Option<i32>| {
-            let mut guard = ac.lock().unwrap();
-            if let Some(v) = v {
-                guard.data = v;
-            }
-            println!("data={}", guard.data);
-            Ok(())
-        })
-        .unwrap();
-        let counter = Arc::new(Mutex::new(0));
-        let cloned = Arc::clone(&counter);
-        b.add("two_args", move |a: bool, b: &str| {
-            println!("Passed: {a}, {b}, {}", cloned.lock().unwrap());
-            *cloned.lock().unwrap() += 1;
-            Ok(())
-        })
-        .unwrap();
-        arc.lock().unwrap().commands = Some(b.build());
-        invoke(&reg, ["name"]).unwrap();
-        invoke(&reg, ["name", "Guffy"]).unwrap();
-        assert_eq!("Guffy", arc.lock().unwrap().name);
-        invoke(&reg, ["data"]).unwrap();
-        assert_eq!(123, arc.lock().unwrap().data);
-        invoke(&reg, ["data", "77"]).unwrap();
-        assert_eq!(77, arc.lock().unwrap().data);
-        invoke(&reg, ["two_args", "true", "Wohoaa!"]).unwrap();
+        }
+
+        fn invoke<const N: usize, R: Deref<Target = CommandRegistry>>(
+            &mut self,
+            reg: R,
+            args: [&str; N],
+        ) -> Result<(), CmdError> {
+            reg.invoke(args.as_slice())
+        }
     }
 
     #[test]
@@ -403,8 +383,7 @@ mod test {
         let reg = Arc::new(CommandRegistry::default());
         let arc = Arc::new(Mutex::new(Module {
             commands: None,
-            data: 123,
-            name: "Dummy".to_owned(),
+            data: UnsafeCell::new(ModData::new()),
         }));
 
         let reg_clone = Arc::clone(&reg);
@@ -415,9 +394,9 @@ mod test {
             let ac = Arc::clone(&arc_clone);
             b.add("name", move |n: Option<String>| {
                 if let Some(n) = n {
-                    ac.lock().unwrap().name = n;
+                    ac.lock().unwrap().data.get_mut().name = n;
                 }
-                println!("Name is: {}", ac.lock().unwrap().name);
+                println!("Name is: {}", ac.lock().unwrap().data.get_mut().name);
                 Ok(())
             })
             .unwrap();
@@ -425,9 +404,9 @@ mod test {
             b.add("data", move |v: Option<i32>| {
                 let mut guard = ac.lock().unwrap();
                 if let Some(v) = v {
-                    guard.data = v;
+                    guard.data.get_mut().value = v;
                 }
-                println!("data={}", guard.data);
+                println!("data={}", guard.data.get_mut().value);
                 Ok(())
             })
             .unwrap();
@@ -445,12 +424,14 @@ mod test {
         .unwrap();
 
         invoke(reg.as_ref(), ["name"]).unwrap();
-        invoke(reg.as_ref(), ["name", "Guffy"]).unwrap();
-        assert_eq!("Guffy", arc.lock().unwrap().name);
+
+        arc.lock().unwrap().data.get_mut().invoke(reg.as_ref(), ["name", "Guffy"]).unwrap();
+
+        assert_eq!("Guffy", arc.lock().unwrap().data.get_mut().name);
         invoke(reg.as_ref(), ["data"]).unwrap();
-        assert_eq!(123, arc.lock().unwrap().data);
+        assert_eq!(123, arc.lock().unwrap().data.get_mut().value);
         invoke(reg.as_ref(), ["data", "77"]).unwrap();
-        assert_eq!(77, arc.lock().unwrap().data);
+        assert_eq!(77, arc.lock().unwrap().data.get_mut().value);
         invoke(reg.as_ref(), ["two_args", "true", "Wohoaa!"]).unwrap();
 
         let reg_clone = Arc::clone(&reg);
@@ -464,9 +445,9 @@ mod test {
         .join()
         .unwrap();
 
-        if let Ok(guard) = arc.lock() {
-            assert_eq!("Duffy", guard.name);
-            assert_eq!(88, guard.data);
+        if let Ok(mut guard) = arc.lock() {
+            assert_eq!("Duffy", guard.data.get_mut().name);
+            assert_eq!(88, guard.data.get_mut().value);
         }
     }
 }

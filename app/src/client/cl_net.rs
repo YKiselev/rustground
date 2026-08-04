@@ -5,13 +5,13 @@ use std::time::{Duration, Instant};
 
 use bytes::{Bytes, BytesMut};
 use rg_common::{App, Plugin};
+use rg_net::write_ping;
 use rg_net::write_with_header;
 use rg_net::{MAX_DATAGRAM_SIZE, write_connect};
 use rg_net::{NetBufReader, NetBufWriter, NetReader, try_write};
 use rg_net::{PacketKind, ProtocolError};
 use rg_net::{read_accepted, read_rejected};
 use rg_net::{read_pong, read_server_info};
-use rg_net::{write_ping};
 use rg_net::{write_client_info, write_hello};
 use tracing::{debug, error, info, warn};
 use x25519_dalek::{EphemeralSecret, PublicKey};
@@ -48,7 +48,7 @@ pub(super) struct ClientNetwork {
     last_seen: Option<Instant>,
     last_send: Option<Instant>,
     secret: Option<EphemeralSecret>,
-    cipher: Option<Cipher>
+    cipher: Option<Cipher>,
 }
 
 impl ClientNetwork {
@@ -66,7 +66,7 @@ impl ClientNetwork {
             last_seen: None,
             last_send: None,
             secret: None,
-            cipher: None
+            cipher: None,
         })
     }
 
@@ -271,12 +271,10 @@ impl ClientNetwork {
                 .last_send
                 .map_or_else(|| Self::CONN_RETRY_INTERVAL, |v| v.elapsed())
     }
-}
 
-impl Plugin for ClientNetwork {
-    fn frame_start(&mut self, _app: &Arc<App>) {}
+    pub(super) fn frame_start(&mut self, _app: &Arc<App>) {}
 
-    fn update(&mut self, app: &Arc<App>) {
+    pub(super) fn update(&mut self, app: &Arc<App>) {
         self.read_from_channel(app);
         if self.is_time_to_resend() {
             loop {
@@ -321,7 +319,7 @@ impl Plugin for ClientNetwork {
         }
     }
 
-    fn frame_end(&mut self, _app: &Arc<App>) {
+    pub(super) fn frame_end(&mut self, _app: &Arc<App>) {
         let bufs = &mut self.send_bufs;
         let mut sends = 0;
         while let Some(bytes) = bufs.pop_front() {

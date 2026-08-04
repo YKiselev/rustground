@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use rg_common::{App, commands::CommandOwner};
 
@@ -9,14 +9,19 @@ pub(crate) enum ClientCommand {
     ToggleMenu,
 }
 
+/// If at sometime point it would be necessary to call state from command handler:
+///
+/// But note: callback should not call any methods which can access Vulkan pointers!!!
+
 pub(super) fn init_client_commands(
     app: Arc<App>,
-    //state: Arc<Mutex<ClientState>>,
+    //state: Arc<ClientState>,
 ) -> Result<CommandOwner, AppError> {
     let mut builder = app.command_builder();
 
     //let state_clone = Arc::clone(&state);
-    builder.add("cl_restart", move || {
+    builder.add("cl_restart", || {
+        //state_clone.lock().unwrap().toggle_console();
         //let _ = tx_clone.send(ClientCommand::Restart);
         Ok(())
     })?;
