@@ -11,15 +11,9 @@ use winit::{
 
 use crate::client::cl_game_actions::{Input, MouseButton};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub enum ClientAction {
-    ToggleConsole,
-    ToggleMenu,
-}
-
 #[derive(Default)]
 pub struct ClientActions {
-    bindings: FxHashMap<Input, ClientAction>,
+    bindings: FxHashMap<Input, String>,
 }
 
 impl ClientActions {
@@ -27,13 +21,13 @@ impl ClientActions {
         self.bindings = parse_bindings(source);
     }
 
-    fn get_from_event(&mut self, event: &DeviceEvent) -> Option<ClientAction> {
+    pub fn get_from_event(&mut self, event: &DeviceEvent) -> Option<&String> {
         match event {
             DeviceEvent::Key(raw_key_event) => match raw_key_event.physical_key {
                 PhysicalKey::Code(key_code) if raw_key_event.state == ElementState::Pressed => {
                     let key = Input::Key(key_code);
 
-                    return self.bindings.get(&key).copied();
+                    return self.bindings.get(&key);
                 }
                 _ => {}
             },
@@ -41,7 +35,7 @@ impl ClientActions {
                 if let Ok(button) = MouseButton::try_from(*button) {
                     let key = Input::Button(button);
 
-                    return self.bindings.get(&key).copied();
+                    return self.bindings.get(&key);
                 }
             }
             _ => {}
@@ -51,37 +45,29 @@ impl ClientActions {
     }
 }
 
-fn parse_bindings(source: &HashMap<String, String>) -> FxHashMap<Input, ClientAction> {
+fn parse_bindings(source: &HashMap<String, String>) -> FxHashMap<Input, String> {
     let mut bindings = FxHashMap::default();
     if let Ok(str) = toml::to_string(&source) {
         for line in str.lines() {
-            if let Some((action, key)) = line.split_once("=") {
-                let action = toml::de::ValueDeserializer::parse(action)
-                    .and_then(|d| ClientAction::deserialize(d))
-                    .ok();
+            if let Some((key, action)) = line.split_once("=") {
+                let action = action.trim();
 
-                if action.is_none() {
+                if action.is_empty() {
                     continue;
                 }
 
-                let action = action.unwrap();
-                let trimmed_key = key.trim();
+                let key = format!("\"{}\"", key.trim());
+                let action = action.to_string();
 
-                if let Ok(deserializer) = toml::de::ValueDeserializer::parse(trimmed_key) {
+                if let Ok(deserializer) = toml::de::ValueDeserializer::parse(&key) {
                     if let Ok(key) = KeyCode::deserialize(deserializer) {
                         bindings.insert(Input::Key(key), action);
                         continue;
                     }
                 }
 
-                if let Some(stripped) = trimmed_key
-                    .strip_prefix("\"")
-                    .and_then(|v| v.strip_suffix("\""))
-                    .map(|v| v.to_lowercase())
-                {
-                    if let Ok(button) = MouseButton::from_arg_value(&stripped) {
-                        bindings.insert(Input::Button(button), action);
-                    }
+                if let Ok(button) = MouseButton::from_arg_value(&key) {
+                    bindings.insert(Input::Button(button), action);
                 }
             }
         }
@@ -89,4 +75,28 @@ fn parse_bindings(source: &HashMap<String, String>) -> FxHashMap<Input, ClientAc
         warn!("Unable to serialize bindings!");
     };
     bindings
+}
+
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+use serde::Deserialize;
+use winit::keyboard::KeyCode;
+
+use crate::client::cl_game_actions::Input;
+
+    #[test]
+    fn test() {
+        // let mut map: HashMap<String, String> = HashMap::default();
+        // map.insert(format!("{:?}", Input::Key(KeyCode::ArrowRight)), "jump".to_string());
+        // let str = toml::to_string(&map).unwrap();
+        // dbg!(str);
+
+        let key = "\"KeyS\"";
+        let deserializer = toml::de::ValueDeserializer::parse(key).unwrap();
+        let key = KeyCode::deserialize(deserializer).unwrap();
+        dbg!(key);
+    }
 }

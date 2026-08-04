@@ -2,16 +2,12 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use rg_common::{App, commands::CommandOwner};
 
-use crate::error::AppError;
+use crate::{client::Client, error::AppError};
 
-pub(crate) enum ClientCommand {
-    ToggleConsole,
-    ToggleMenu,
+
+impl Client {
+
 }
-
-/// If at sometime point it would be necessary to call state from command handler:
-///
-/// But note: callback should not call any methods which can access Vulkan pointers!!!
 
 pub(super) fn init_client_commands(
     app: Arc<App>,

@@ -1,61 +1,30 @@
 use std::{
-    sync::{Arc, RwLock},
+    sync::Arc,
     time::{Duration, Instant},
 };
 
 use glam::Vec3;
 use rg_common::{
     App,
-    commands::CommandOwner,
     gfx::world_renderer::{WorldRenderer, WorldRendererContext},
-    save_config,
     world::HyperCube,
     wrap_var_bag,
 };
 use rg_vulkan::renderer::VulkanRenderer;
-use tracing::{error, info, warn};
-use winit::{
-    application::ApplicationHandler,
-    event::{DeviceEvent, DeviceId, ElementState, MouseScrollDelta, StartCause, WindowEvent},
-    event_loop::ActiveEventLoop,
-    keyboard::{KeyCode, ModifiersState, PhysicalKey},
-    window::WindowId,
-};
+use tracing::{error, info};
+use winit::event_loop::ActiveEventLoop;
 
 use crate::{
-    app_logger::AppLoggerBuffer, application::{async_runtime::ClientChannel, trigger_exit}, client::{
-        cl_actions::{ClientAction, ClientActions}, cl_commands::init_client_commands, cl_config::ClientConfig, cl_console::Console, cl_context::ClientContext, cl_fps::FrameStats, cl_game_actions::GameActions, cl_game_overlay::GameOverlay, cl_menu::Menu, cl_net::ClientNetwork, cl_ui_layer::UiLayer,
-    }, error::AppError,
+    app_logger::AppLoggerBuffer,
+    application::async_runtime::ClientChannel,
+    client::{
+        Client, WindowState, cl_actions::ClientActions, cl_commands::init_client_commands,
+        cl_config::ClientConfig, cl_console::Console, cl_context::ClientContext,
+        cl_fps::FrameStats, cl_game_actions::GameActions, cl_game_overlay::GameOverlay,
+        cl_menu::Menu, cl_net::ClientNetwork, cl_ui_layer::UiLayer,
+    },
+    error::AppError,
 };
-
-pub enum ClientEvent {
-    Exiting,
-}
-
-#[derive(Debug, Default)]
-struct WindowState {
-    modifiers: ModifiersState,
-    focused: bool,
-    cursor_captured: bool,
-}
-
-pub struct Client {
-    app: Arc<App>,
-    config: Arc<RwLock<ClientConfig>>,
-    net: ClientNetwork,
-    renderer: Option<VulkanRenderer>,
-    renderer_failed: bool,
-    max_fps: f32,
-    frame_stats: FrameStats,
-    window_state: WindowState,
-    hyper_cube: HyperCube,
-    game_overlay: GameOverlay,
-    menu: Menu,
-    console: Console,
-    actions: ClientActions,
-    game_actions: GameActions,
-    _commands: CommandOwner,
-}
 
 impl Client {
     pub(crate) fn new(
@@ -73,12 +42,12 @@ impl Client {
         let menu = Menu::new();
         let console = Console::new(Arc::clone(&app), app_log_buffer);
         let guard = cfg.read()?;
-        
+
         let mut actions = ClientActions::default();
         actions.load(&guard.bindings);
-
-        let game_actions = GameActions::new(&guard.bindings);
         std::mem::drop(guard);
+
+        let game_actions = Arc::new(GameActions::default());
 
         let _commands = init_client_commands(Arc::clone(&app))?;
 
@@ -103,7 +72,7 @@ impl Client {
         Ok(client)
     }
 
-    fn update(&mut self, event_loop: &ActiveEventLoop, ctx: &ClientContext) {
+    pub(super) fn update(&mut self, event_loop: &ActiveEventLoop, _ctx: &ClientContext) {
         let frame_start = Instant::now();
         self.ensure_cursor();
         self.ensure_renderer(event_loop);
@@ -221,18 +190,6 @@ impl Client {
         }
     }
 
-    fn update_game_actions(&mut self, event: &DeviceEvent) {
-        match event {
-            DeviceEvent::Key(raw_key_event) => self
-                .game_actions
-                .update_from_key(raw_key_event.physical_key, raw_key_event.state),
-            DeviceEvent::Button { button, state } => {
-                self.game_actions.update_from_button(*button, *state)
-            }
-            _ => {}
-        }
-    }
-
     fn toggle_menu(&mut self) {
         self.menu.toggle();
     }
@@ -245,141 +202,5 @@ impl Client {
 impl Drop for Client {
     fn drop(&mut self) {
         let _ = self.renderer.take();
-    }
-}
-
-impl ApplicationHandler<ClientEvent> for Client {
-    fn new_events(&mut self, event_loop: &ActiveEventLoop, cause: StartCause) {
-        let _ = (event_loop, cause);
-    }
-
-    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        let _ = self.renderer.take();
-        match VulkanRenderer::new(&self.app, event_loop) {
-            Ok(renderer) => self.renderer = Some(renderer),
-            Err(e) => error!("Unable to create Vulkan renderer: {:?}", e),
-        }
-        event_loop.listen_device_events(winit::event_loop::DeviceEvents::Always);
-    }
-
-    fn user_event(&mut self, event_loop: &ActiveEventLoop, event: ClientEvent) {
-        let _ = (event_loop, event);
-        match event {
-            ClientEvent::Exiting => {
-                event_loop.exit();
-            }
-        }
-    }
-
-    fn device_event(
-        &mut self,
-        event_loop: &ActiveEventLoop,
-        _device_id: DeviceId,
-        event: DeviceEvent,
-    ) {
-        if self.menu.device_event(event_loop, &event) {
-            return;
-        }
-
-        if self.console.device_event(event_loop, &event) {
-            return;
-        }
-
-        if self.game_overlay.device_event(event_loop, &event) {
-            return;
-        }
-
-        self.update_game_actions(&event);
-    }
-
-    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        let _ = event_loop;
-    }
-
-    fn suspended(&mut self, event_loop: &ActiveEventLoop) {
-        let _ = event_loop;
-    }
-
-    fn exiting(&mut self, event_loop: &ActiveEventLoop) {
-        let _ = event_loop;
-
-        match self.app.vars.to_toml() {
-            Ok(toml) => {
-                save_config("config.toml", &self.app.files, toml);
-            }
-            Err(e) => {
-                warn!("Unable to export vars to toml: {:?}", e);
-            }
-        }
-        //self.state.destroy();
-    }
-
-    fn window_event(
-        &mut self,
-        event_loop: &ActiveEventLoop,
-        window_id: WindowId,
-        event: WindowEvent,
-    ) {
-        match event {
-            WindowEvent::CloseRequested => {
-                info!("Window close requested");
-                trigger_exit();
-            }
-            WindowEvent::Resized(_) => {
-                if let Some(renderer) = self.renderer.as_mut() {
-                    renderer.mark_resized();
-                }
-            }
-            WindowEvent::Focused(focused) => {
-                self.window_state.focused = focused;
-            }
-            WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
-                info!("Window={window_id:?} changed scale to {scale_factor}");
-            }
-            WindowEvent::ModifiersChanged(modifiers) => {
-                self.window_state.modifiers = modifiers.state();
-            }
-            WindowEvent::MouseWheel { delta, .. } => match delta {
-                MouseScrollDelta::LineDelta(x, y) => {
-                    info!("Mouse wheel Line Delta: ({x},{y})");
-                }
-                MouseScrollDelta::PixelDelta(px) => {
-                    info!("Mouse wheel Pixel Delta: ({},{})", px.x, px.y);
-                }
-            },
-            WindowEvent::RedrawRequested => {
-                if !event_loop.exiting() {
-                    let ctx = ClientContext::new();
-                    self.update(event_loop, &ctx);
-                }
-            }
-            WindowEvent::KeyboardInput { ref event, .. } => {
-                match event.physical_key {
-                    PhysicalKey::Code(key_code) if event.state == ElementState::Released => {
-                        match key_code {
-                            KeyCode::Escape => self.toggle_menu(),
-                            KeyCode::Backquote => self.toggle_console(),
-                            KeyCode::Space => {
-                                info!("fps: {:.2}", self.frame_stats.calc_fps());
-                            }
-                            _ => {}
-                        }
-                    }
-                    _ => {}
-                }
-
-                if self.menu.keyboard_input(event, self.window_state.modifiers) {
-                    return;
-                }
-
-                if self
-                    .console
-                    .keyboard_input(event, self.window_state.modifiers)
-                {
-                    return;
-                }
-            }
-            _ => (),
-        }
     }
 }
