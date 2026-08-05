@@ -267,14 +267,12 @@ mod test {
     use std::{
         cell::UnsafeCell,
         ffi::c_void,
-        iter::repeat,
         ops::Deref,
         sync::{
             Arc, Mutex,
             atomic::{AtomicUsize, Ordering},
         },
         thread,
-        time::{Duration, Instant},
     };
 
     use super::*;
@@ -333,13 +331,14 @@ mod test {
         let mut b = CommandBuilder::new(reg.as_ref());
         b.add("1", move |a: usize| {
             c2.fetch_add(a, Ordering::SeqCst);
-            invoke(r2.clone(), ["2", &(a * 2).to_string()]).unwrap();
+            invoke(r2.clone(), ["2", &(a * 2).to_string(), "Hello!"]).unwrap();
             Ok(())
         })
         .unwrap();
         let c3 = Arc::clone(&counter);
-        b.add("2", move |a: usize| {
+        b.add("2", move |a: usize, b: &str| {
             c3.fetch_add(a, Ordering::SeqCst);
+            println!("b={}", b);
             Ok(())
         })
         .unwrap();

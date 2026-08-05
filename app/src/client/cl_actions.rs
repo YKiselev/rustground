@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use argh::FromArgValue;
 use rustc_hash::FxHashMap;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use tracing::warn;
 use winit::{
     event::{DeviceEvent, ElementState},
@@ -21,7 +21,7 @@ impl ClientActions {
         self.bindings = parse_bindings(source);
     }
 
-    pub fn get_from_event(&mut self, event: &DeviceEvent) -> Option<&String> {
+    pub fn get_from_device_event(&mut self, event: &DeviceEvent) -> Option<&String> {
         match event {
             DeviceEvent::Key(raw_key_event) => match raw_key_event.physical_key {
                 PhysicalKey::Code(key_code) if raw_key_event.state == ElementState::Pressed => {
@@ -56,9 +56,14 @@ fn parse_bindings(source: &HashMap<String, String>) -> FxHashMap<Input, String> 
                     continue;
                 }
 
-                let key = format!("\"{}\"", key.trim());
                 let action = action.to_string();
+                let key = key.trim();
+                if let Ok(button) = MouseButton::from_arg_value(&key) {
+                    bindings.insert(Input::Button(button), action);
+                    continue;
+                }
 
+                let key = format!("\"{}\"", key);
                 if let Ok(deserializer) = toml::de::ValueDeserializer::parse(&key) {
                     if let Ok(key) = KeyCode::deserialize(deserializer) {
                         bindings.insert(Input::Key(key), action);
@@ -66,37 +71,11 @@ fn parse_bindings(source: &HashMap<String, String>) -> FxHashMap<Input, String> 
                     }
                 }
 
-                if let Ok(button) = MouseButton::from_arg_value(&key) {
-                    bindings.insert(Input::Button(button), action);
-                }
+                warn!("Unknown key: {}", key);
             }
         }
     } else {
         warn!("Unable to serialize bindings!");
     };
     bindings
-}
-
-
-#[cfg(test)]
-mod tests {
-    use std::collections::HashMap;
-
-use serde::Deserialize;
-use winit::keyboard::KeyCode;
-
-use crate::client::cl_game_actions::Input;
-
-    #[test]
-    fn test() {
-        // let mut map: HashMap<String, String> = HashMap::default();
-        // map.insert(format!("{:?}", Input::Key(KeyCode::ArrowRight)), "jump".to_string());
-        // let str = toml::to_string(&map).unwrap();
-        // dbg!(str);
-
-        let key = "\"KeyS\"";
-        let deserializer = toml::de::ValueDeserializer::parse(key).unwrap();
-        let key = KeyCode::deserialize(deserializer).unwrap();
-        dbg!(key);
-    }
 }

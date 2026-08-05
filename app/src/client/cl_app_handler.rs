@@ -11,7 +11,7 @@ use winit::{
 
 use crate::{
     application::trigger_exit,
-    client::{Client, ClientEvent, cl_context::ClientContext, cl_ui_layer::UiLayer},
+    client::{BoolFlag, Client, ClientEvent, cl_context::ClientContext, cl_ui_layer::UiLayer},
 };
 
 impl ApplicationHandler<ClientEvent> for Client {
@@ -43,19 +43,11 @@ impl ApplicationHandler<ClientEvent> for Client {
         _device_id: DeviceId,
         event: DeviceEvent,
     ) {
-        if self.menu.device_event(event_loop, &event) {
+        if !self.window_state.focused {
             return;
         }
 
-        if self.console.device_event(event_loop, &event) {
-            return;
-        }
-
-        if self.game_overlay.device_event(event_loop, &event) {
-            return;
-        }
-
-        if let Some(action) = self.actions.get_from_event(&event) {
+        if let Some(action) = self.actions.get_from_device_event(&event) {
             if let Err(e) = self.app.commands.execute(action) {
                 warn!("{}", e);
             }
@@ -81,7 +73,6 @@ impl ApplicationHandler<ClientEvent> for Client {
                 warn!("Unable to export vars to toml: {:?}", e);
             }
         }
-        //self.state.destroy();
     }
 
     fn window_event(
@@ -109,47 +100,28 @@ impl ApplicationHandler<ClientEvent> for Client {
             WindowEvent::ModifiersChanged(modifiers) => {
                 self.window_state.modifiers = modifiers.state();
             }
-            WindowEvent::MouseWheel { delta, .. } => match delta {
-                MouseScrollDelta::LineDelta(x, y) => {
-                    info!("Mouse wheel Line Delta: ({x},{y})");
-                }
-                MouseScrollDelta::PixelDelta(px) => {
-                    info!("Mouse wheel Pixel Delta: ({},{})", px.x, px.y);
-                }
-            },
             WindowEvent::RedrawRequested => {
                 if !event_loop.exiting() {
                     let ctx = ClientContext::new();
                     self.update(event_loop, &ctx);
                 }
             }
-            WindowEvent::KeyboardInput { ref event, .. } => {
-                match event.physical_key {
-                    PhysicalKey::Code(key_code) if event.state == ElementState::Released => {
-                        match key_code {
-                            //KeyCode::Escape => self.toggle_menu(),
-                            //KeyCode::Backquote => self.toggle_console(),
-                            KeyCode::Space => {
-                                info!("fps: {:.2}", self.frame_stats.calc_fps());
-                            }
-                            _ => {}
-                        }
-                    }
-                    _ => {}
-                }
-
-                if self.menu.keyboard_input(event, self.window_state.modifiers) {
-                    return;
-                }
-
-                if self
-                    .console
-                    .keyboard_input(event, self.window_state.modifiers)
-                {
-                    return;
-                }
-            }
             _ => (),
+        }
+
+        let skip_ui =
+            self.shared_state.toggle_console.is_set() || self.shared_state.toggle_menu.is_set();
+        if !skip_ui {
+            if self.menu.window_event(&event, self.window_state.modifiers) {
+                return;
+            }
+
+            if self
+                .console
+                .window_event(&event, self.window_state.modifiers)
+            {
+                return;
+            }
         }
     }
 }

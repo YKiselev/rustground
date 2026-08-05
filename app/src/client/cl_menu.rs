@@ -21,13 +21,6 @@ impl Menu {
 }
 
 impl UiLayer for Menu {
-    fn device_event(
-        &mut self,
-        event_loop: &winit::event_loop::ActiveEventLoop,
-        event: &winit::event::DeviceEvent,
-    ) -> bool {
-        false
-    }
 
     fn draw(&mut self, canvas: &mut VulkanCanvas) {
         canvas.set_color(Color::RED);

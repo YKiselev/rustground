@@ -1,18 +1,9 @@
 use rg_vulkan::renderer::VulkanCanvas;
-use winit::{event::{DeviceEvent, KeyEvent}, event_loop::ActiveEventLoop, keyboard::ModifiersState};
+use winit::{event::WindowEvent, keyboard::ModifiersState};
 
 pub trait UiLayer {
-    ///
-    /// Process device event.
-    /// Returns true if event is consumed and should not be passed further.
-    /// 
-    fn device_event(&mut self, event_loop: &ActiveEventLoop, event: &DeviceEvent) -> bool {
-        let _ = (event, event_loop);
-        false
-    }
-
-    fn keyboard_input(&mut self, event: &KeyEvent, modifiers: ModifiersState) -> bool {
-        let _ = event;
+    fn window_event(&mut self, event: &WindowEvent, modifiers: ModifiersState) -> bool {
+        let (_,_) = (event, modifiers);
         false
     }
 
@@ -22,8 +13,6 @@ pub trait UiLayer {
 
     ///
     /// Toggles layer visibility.
-    /// Returns 0 if there is no sublayers left (for e.g. menu)
-    /// 
-    fn toggle(&mut self) {
-    }
+    ///
+    fn toggle(&mut self) {}
 }

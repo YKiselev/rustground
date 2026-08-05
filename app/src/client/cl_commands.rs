@@ -1,38 +1,33 @@
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::Arc;
 
 use rg_common::{App, commands::CommandOwner};
 
-use crate::{client::Client, error::AppError};
-
-
-impl Client {
-
-}
+use crate::{
+    client::{BoolFlag, SharedState},
+    error::AppError,
+};
 
 pub(super) fn init_client_commands(
     app: Arc<App>,
-    //state: Arc<ClientState>,
+    state: Arc<SharedState>,
 ) -> Result<CommandOwner, AppError> {
     let mut builder = app.command_builder();
 
-    //let state_clone = Arc::clone(&state);
-    builder.add("cl_restart", || {
-        //state_clone.lock().unwrap().toggle_console();
-        //let _ = tx_clone.send(ClientCommand::Restart);
-        Ok(())
-    })?;
-
-    //let state_clone = Arc::clone(&state);
+    let state_clone = Arc::clone(&state);
     builder.add("toggle_menu", move || {
-        // if let Ok(guard) = state_clone.lock() {
-        //     guard.toggle_menu();
-        // }
+        state_clone.toggle_menu.toggle();
         Ok(())
     })?;
 
-    //let state_clone = Arc::clone(&state);
+    let state_clone = Arc::clone(&state);
     builder.add("toggle_console", move || {
-        //let _ = tx.send(ClientCommand::ToggleConsole);
+        state_clone.toggle_console.toggle();
+        Ok(())
+    })?;
+
+    let state_clone = Arc::clone(&state);
+    builder.add("print_fps", move || {
+        state_clone.print_fps.toggle();
         Ok(())
     })?;
 

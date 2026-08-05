@@ -1,4 +1,8 @@
-use std::{fmt::Write, sync::Arc, time::Instant};
+use std::{
+    fmt::Write,
+    sync::{Arc, Mutex, atomic::Ordering},
+    time::Instant,
+};
 
 use rg_common::{
     App,
@@ -10,11 +14,14 @@ use rg_common::{
 use rg_vulkan::renderer::VulkanCanvas;
 use tracing::warn;
 use winit::{
-    event::ElementState,
+    event::{ElementState, WindowEvent},
     keyboard::{Key, ModifiersState, NamedKey},
 };
 
-use crate::{app_logger::AppLoggerBuffer, client::cl_ui_layer::UiLayer};
+use crate::{
+    app_logger::AppLoggerBuffer,
+    client::{SharedState, cl_ui_layer::UiLayer},
+};
 
 #[derive(Default)]
 struct CommandLine {
@@ -28,7 +35,7 @@ pub struct Console {
     height: u32,
     scroll_offset: u32, // how many lines to show from start not end
     autoscroll: bool,
-    opening: bool,
+    opened_at: Option<Instant>,
     line_buf: String,
     cmd_line: CommandLine,
     cmd_line_offset: i32,
@@ -45,7 +52,7 @@ impl Console {
             height: 0,
             scroll_offset: 0,
             autoscroll: true,
-            opening: false,
+            opened_at: None,
             line_buf: String::with_capacity(200),
             cmd_line: CommandLine::default(),
             cmd_line_offset: 0,
@@ -153,50 +160,63 @@ impl Console {
         cmd_line_height
     }
 
-    fn dispatch_named_key(&mut self, key: &NamedKey) {
+    fn dispatch_named_key(&mut self, key: &NamedKey) -> bool {
         match key {
             NamedKey::PageUp => {
                 self.scroll_offset = self.scroll_offset.saturating_sub(10);
                 self.autoscroll = false;
+                true
             }
             NamedKey::PageDown => {
                 self.scroll_offset = self.scroll_offset.saturating_add(10);
                 self.autoscroll = false;
+                true
             }
             NamedKey::ArrowUp => {
                 self.cmd_line.prev_command();
+                true
             }
             NamedKey::ArrowDown => {
                 self.cmd_line.next_command();
+                true
             }
             NamedKey::ArrowLeft => {
                 self.cmd_line.move_caret(-1);
+                true
             }
             NamedKey::ArrowRight => {
                 self.cmd_line.move_caret(1);
+                true
             }
             NamedKey::Enter => {
                 self.execute();
+                true
             }
             NamedKey::Tab => {
                 self.complete_command();
+                true
             }
             NamedKey::Backspace => {
                 self.cmd_line.delete_char_before_cursor();
+                true
             }
             NamedKey::Delete => {
                 self.cmd_line.delete_char_at_cursor();
+                true
             }
             NamedKey::Home => {
                 self.cmd_line.move_caret_to_start();
+                true
             }
             NamedKey::End => {
                 self.cmd_line.move_caret_to_end();
+                true
             }
             NamedKey::Space => {
                 self.push_at_caret(&" ");
+                true
             }
-            _ => {}
+            _ => false,
         }
     }
 
@@ -243,58 +263,59 @@ impl Console {
         self.completion_buf.clear();
         self.completion_index = 0;
     }
+
+    fn is_opening(&self) -> bool {
+        self.opened_at.is_some()
+    }
+
+    fn is_input_ready(&self) -> bool {
+        self.opened_at
+            .map_or(false, |t| t.elapsed().as_millis() > 300)
+    }
 }
 
 impl UiLayer for Console {
-    fn device_event(
+    fn window_event(
         &mut self,
-        _event_loop: &winit::event_loop::ActiveEventLoop,
-        event: &winit::event::DeviceEvent,
+        event: &winit::event::WindowEvent,
+        modifiers: ModifiersState,
     ) -> bool {
+        if !self.is_input_ready() || self.height == 0 {
+            return false;
+        }
+
         match event {
-            winit::event::DeviceEvent::MouseWheel { delta } => match delta {
-                winit::event::MouseScrollDelta::LineDelta(_, _) => {}
-                winit::event::MouseScrollDelta::PixelDelta(_physical_position) => {}
-            },
+            WindowEvent::KeyboardInput { event, .. } => {
+                if event.state == ElementState::Pressed {
+                    match &event.logical_key.as_ref() {
+                        Key::Named(named_key) => {
+                            return self.dispatch_named_key(named_key);
+                        }
+                        Key::Character("c") if modifiers.control_key() => {
+                            // todo - process copy to clipboard
+                        }
+                        Key::Character("v") if modifiers.control_key() => {
+                            // todo - process paste from clipboard
+                        }
+                        Key::Character(s) => {
+                            if modifiers.control_key() || modifiers.alt_key() {
+                            } else {
+                                self.push_at_caret(s);
+                                return true;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
             _ => {}
         }
+
         false
     }
 
-    fn keyboard_input(
-        &mut self,
-        event: &winit::event::KeyEvent,
-        modifiers: ModifiersState,
-    ) -> bool {
-        if self.opening && self.height > 0 {
-            if event.state == ElementState::Pressed {
-                match &event.logical_key.as_ref() {
-                    Key::Named(named_key) => {
-                        self.dispatch_named_key(named_key);
-                    }
-                    Key::Character("c") if modifiers.control_key() => {
-                        // todo - process copy to clipboard
-                    }
-                    Key::Character("v") if modifiers.control_key() => {
-                        // todo - process paste from clipboard
-                    }
-                    Key::Character(s) => {
-                        if modifiers.control_key() {
-                        } else {
-                            self.push_at_caret(s);
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            true
-        } else {
-            false
-        }
-    }
-
     fn draw(&mut self, canvas: &mut VulkanCanvas) {
-        if self.opening {
+        if self.is_opening() {
             self.height = canvas.height();
         } else {
             self.height = 0;
@@ -332,11 +353,15 @@ impl UiLayer for Console {
     }
 
     fn toggle(&mut self) {
-        self.opening = !self.opening;
+        self.opened_at = if self.opened_at.is_none() {
+            Some(Instant::now())
+        } else {
+            None
+        }
     }
 
     fn is_visible(&self) -> bool {
-        self.height > 0 || self.opening
+        self.height > 0 || self.is_opening()
     }
 }
 

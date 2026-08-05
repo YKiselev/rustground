@@ -14,7 +14,10 @@ mod cl_ui_layer;
 mod cl_world;
 mod client;
 
-use std::sync::{Arc, RwLock};
+use std::sync::{
+    Arc, Mutex, RwLock,
+    atomic::{AtomicBool, Ordering},
+};
 
 pub(crate) use cl_async_dispatch::{Request, Response, run_client_worker};
 
@@ -39,6 +42,42 @@ struct WindowState {
     cursor_captured: bool,
 }
 
+struct SharedState {
+    game_actions: Arc<GameActions>,
+    toggle_console: AtomicBool,
+    toggle_menu: AtomicBool,
+    print_fps: AtomicBool,
+}
+
+trait BoolFlag {
+    fn is_set(&self) -> bool;
+
+    fn toggle(&self);
+
+    fn read(&self) -> bool;
+}
+
+impl BoolFlag for AtomicBool {
+    fn is_set(&self) -> bool {
+        self.load(Ordering::Relaxed)
+    }
+
+    ///
+    /// Sets flag to true
+    ///
+    fn toggle(&self) {
+        self.store(true, Ordering::Relaxed)
+    }
+
+    ///
+    /// Reads value and resets flag to false
+    ///
+    fn read(&self) -> bool {
+        self.compare_exchange(true, false, Ordering::Relaxed, Ordering::Relaxed)
+            .unwrap_or(false)
+    }
+}
+
 pub struct Client {
     app: Arc<App>,
     config: Arc<RwLock<ClientConfig>>,
@@ -53,6 +92,6 @@ pub struct Client {
     menu: Menu,
     console: Console,
     actions: ClientActions,
-    game_actions: Arc<GameActions>,
+    shared_state: Arc<SharedState>,
     _commands: CommandOwner,
 }

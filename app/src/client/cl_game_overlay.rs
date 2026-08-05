@@ -15,13 +15,6 @@ impl GameOverlay {
 }
 
 impl UiLayer for GameOverlay {
-    fn device_event(
-        &mut self,
-        _event_loop: &winit::event_loop::ActiveEventLoop,
-        _event: &winit::event::DeviceEvent,
-    ) -> bool {
-        false
-    }
 
     fn draw(&mut self, canvas: &mut rg_vulkan::renderer::VulkanCanvas) {
         let w = canvas.width();

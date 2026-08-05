@@ -1,5 +1,8 @@
 use std::{
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
 
@@ -11,6 +14,7 @@ use rg_common::{
     wrap_var_bag,
 };
 use rg_vulkan::renderer::VulkanRenderer;
+use std::sync::Mutex;
 use tracing::{error, info};
 use winit::event_loop::ActiveEventLoop;
 
@@ -18,10 +22,10 @@ use crate::{
     app_logger::AppLoggerBuffer,
     application::async_runtime::ClientChannel,
     client::{
-        Client, WindowState, cl_actions::ClientActions, cl_commands::init_client_commands,
-        cl_config::ClientConfig, cl_console::Console, cl_context::ClientContext,
-        cl_fps::FrameStats, cl_game_actions::GameActions, cl_game_overlay::GameOverlay,
-        cl_menu::Menu, cl_net::ClientNetwork, cl_ui_layer::UiLayer,
+        BoolFlag, Client, SharedState, WindowState, cl_actions::ClientActions,
+        cl_commands::init_client_commands, cl_config::ClientConfig, cl_console::Console,
+        cl_context::ClientContext, cl_fps::FrameStats, cl_game_actions::GameActions,
+        cl_game_overlay::GameOverlay, cl_menu::Menu, cl_net::ClientNetwork, cl_ui_layer::UiLayer,
     },
     error::AppError,
 };
@@ -37,6 +41,14 @@ impl Client {
         let cfg = wrap_var_bag(ClientConfig::new());
         app.vars.add("client", &cfg)?;
 
+        let game_actions = Arc::new(GameActions::default());
+        let shared_state = Arc::new(SharedState {
+            game_actions,
+            toggle_console: AtomicBool::default(),
+            toggle_menu: AtomicBool::default(),
+            print_fps: AtomicBool::default(),
+        });
+
         let net = ClientNetwork::new(&app, channel)?;
         let in_game_overlay = GameOverlay::new();
         let menu = Menu::new();
@@ -47,9 +59,7 @@ impl Client {
         actions.load(&guard.bindings);
         std::mem::drop(guard);
 
-        let game_actions = Arc::new(GameActions::default());
-
-        let _commands = init_client_commands(Arc::clone(&app))?;
+        let _commands = init_client_commands(Arc::clone(&app), Arc::clone(&shared_state))?;
 
         let client = Self {
             app,
@@ -65,7 +75,7 @@ impl Client {
             menu,
             console,
             actions,
-            game_actions,
+            shared_state,
             _commands,
         };
 
@@ -76,6 +86,7 @@ impl Client {
         let frame_start = Instant::now();
         self.ensure_cursor();
         self.ensure_renderer(event_loop);
+        self.ensure_ui_layers();
         self.frame_stats.add_sample();
 
         // Start frame
@@ -120,6 +131,20 @@ impl Client {
                     std::hint::spin_loop();
                 }
             }
+        }
+    }
+
+    fn ensure_ui_layers(&mut self) {
+        if self.shared_state.toggle_console.read() {
+            self.console.toggle();
+        }
+
+        if self.shared_state.toggle_menu.read() {
+            self.menu.toggle();
+        }
+
+        if self.shared_state.print_fps.read() {
+            info!("fps: {:.2}", self.frame_stats.calc_fps());
         }
     }
 
@@ -188,14 +213,6 @@ impl Client {
                 }
             });
         }
-    }
-
-    fn toggle_menu(&mut self) {
-        self.menu.toggle();
-    }
-
-    fn toggle_console(&mut self) {
-        self.console.toggle();
     }
 }
 
