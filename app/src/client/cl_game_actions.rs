@@ -1,30 +1,8 @@
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use argh::FromArgValue;
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
-use winit::keyboard::KeyCode;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash, FromArgValue)]
-#[repr(u32)]
-pub enum MouseButton {
-    Mouse1 = 0,
-    Mouse2 = 1,
-    Mouse3 = 2,
-}
-
-impl TryFrom<u32> for MouseButton {
-    type Error = &'static str;
-
-    fn try_from(value: u32) -> Result<Self, Self::Error> {
-        match value {
-            0 => Ok(Self::Mouse1),
-            1 => Ok(Self::Mouse2),
-            2 => Ok(Self::Mouse3),
-            _ => Err("Invalid button!"),
-        }
-    }
-}
+use winit::{event::MouseButton, keyboard::KeyCode};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Input {

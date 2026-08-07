@@ -4,7 +4,7 @@ use tracing::{error, info, warn};
 use winit::{
     application::ApplicationHandler,
     event::{DeviceEvent, DeviceId, ElementState, MouseScrollDelta, StartCause, WindowEvent},
-    event_loop::ActiveEventLoop,
+    event_loop::{self, ActiveEventLoop},
     keyboard::{KeyCode, PhysicalKey},
     window::WindowId,
 };
@@ -47,11 +47,7 @@ impl ApplicationHandler<ClientEvent> for Client {
             return;
         }
 
-        if let Some(action) = self.actions.get_from_device_event(&event) {
-            if let Err(e) = self.app.commands.execute(action) {
-                warn!("{}", e);
-            }
-        }
+        let (_, _) = (event_loop, event);
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
@@ -109,8 +105,10 @@ impl ApplicationHandler<ClientEvent> for Client {
             _ => (),
         }
 
-        let skip_ui =
-            self.shared_state.toggle_console.is_set() || self.shared_state.toggle_menu.is_set();
+        let action = self.actions.get_from_window_event(&event);
+        let skip_ui = self.shared_state.toggle_console.is_set()
+            || self.shared_state.toggle_menu.is_set()
+            || action.map_or(false, |a| a.starts_with("toggle"));
         if !skip_ui {
             if self.menu.window_event(&event, self.window_state.modifiers) {
                 return;
@@ -121,6 +119,12 @@ impl ApplicationHandler<ClientEvent> for Client {
                 .window_event(&event, self.window_state.modifiers)
             {
                 return;
+            }
+        }
+
+        if let Some(action) = action {
+            if let Err(e) = self.app.commands.execute(action) {
+                warn!("{}", e);
             }
         }
     }

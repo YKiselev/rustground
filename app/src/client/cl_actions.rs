@@ -1,15 +1,14 @@
 use std::collections::HashMap;
 
-use argh::FromArgValue;
 use rustc_hash::FxHashMap;
 use serde::Deserialize;
 use tracing::warn;
 use winit::{
-    event::{DeviceEvent, ElementState},
+    event::{ElementState, MouseButton, WindowEvent},
     keyboard::{KeyCode, PhysicalKey},
 };
 
-use crate::client::cl_game_actions::{Input, MouseButton};
+use crate::client::cl_game_actions::Input;
 
 #[derive(Default)]
 pub struct ClientActions {
@@ -21,22 +20,20 @@ impl ClientActions {
         self.bindings = parse_bindings(source);
     }
 
-    pub fn get_from_device_event(&mut self, event: &DeviceEvent) -> Option<&String> {
+    pub fn get_from_window_event(&mut self, event: &WindowEvent) -> Option<&String> {
         match event {
-            DeviceEvent::Key(raw_key_event) => match raw_key_event.physical_key {
-                PhysicalKey::Code(key_code) if raw_key_event.state == ElementState::Pressed => {
+            WindowEvent::KeyboardInput { event, .. } => match event.physical_key {
+                PhysicalKey::Code(key_code) if event.state == ElementState::Pressed => {
                     let key = Input::Key(key_code);
 
                     return self.bindings.get(&key);
                 }
                 _ => {}
             },
-            DeviceEvent::Button { button, state } if *state == ElementState::Pressed => {
-                if let Ok(button) = MouseButton::try_from(*button) {
-                    let key = Input::Button(button);
+            WindowEvent::MouseInput { state, button, .. } if *state == ElementState::Pressed => {
+                let key = Input::Button(*button);
 
-                    return self.bindings.get(&key);
-                }
+                return self.bindings.get(&key);
             }
             _ => {}
         }
@@ -56,14 +53,15 @@ fn parse_bindings(source: &HashMap<String, String>) -> FxHashMap<Input, String> 
                     continue;
                 }
 
-                let action = action.to_string();
-                let key = key.trim();
-                if let Ok(button) = MouseButton::from_arg_value(&key) {
-                    bindings.insert(Input::Button(button), action);
-                    continue;
+                let action = action.trim_matches('"').to_string();
+                let key = format!("\"{}\"", key.trim());
+                if let Ok(deserializer) = toml::de::ValueDeserializer::parse(&key) {
+                    if let Ok(btn) = MouseButton::deserialize(deserializer) {
+                        bindings.insert(Input::Button(btn), action);
+                        continue;
+                    }
                 }
 
-                let key = format!("\"{}\"", key);
                 if let Ok(deserializer) = toml::de::ValueDeserializer::parse(&key) {
                     if let Ok(key) = KeyCode::deserialize(deserializer) {
                         bindings.insert(Input::Key(key), action);

@@ -1,11 +1,12 @@
 use std::{
+    collections::VecDeque,
     fmt::Write,
     sync::{Arc, Mutex, atomic::Ordering},
     time::Instant,
 };
 
 use rg_common::{
-    App,
+    App, FromStrMutator,
     ui::{
         canvas::{Canvas, WrapMode},
         color::Color,
@@ -23,17 +24,20 @@ use crate::{
     client::{SharedState, cl_ui_layer::UiLayer},
 };
 
-#[derive(Default)]
 struct CommandLine {
     buffer: String,
     caret_pos: i32, // in characters
+    max_history: usize,
+    history: VecDeque<String>,
+    history_index: usize,
+    free: Vec<String>,
 }
 
 pub struct Console {
     app: Arc<App>,
     app_log_buffer: AppLoggerBuffer,
     height: u32,
-    scroll_offset: u32, // how many lines to show from start not end
+    scroll_offset: u32, // how many lines to show from start, not end
     autoscroll: bool,
     opened_at: Option<Instant>,
     line_buf: String,
@@ -43,6 +47,8 @@ pub struct Console {
     completion_buf: String,
     completion_index: usize,
 }
+
+const DEF_CMD_LINE: usize = 80;
 
 impl Console {
     pub fn new(app: Arc<App>, app_log_buffer: AppLoggerBuffer) -> Self {
@@ -54,7 +60,14 @@ impl Console {
             autoscroll: true,
             opened_at: None,
             line_buf: String::with_capacity(200),
-            cmd_line: CommandLine::default(),
+            cmd_line: CommandLine {
+                buffer: String::with_capacity(DEF_CMD_LINE),
+                caret_pos: 0,
+                max_history: 10,
+                history: VecDeque::default(),
+                history_index: 0,
+                free: Vec::default(),
+            },
             cmd_line_offset: 0,
             time: Instant::now(),
             completion_buf: String::with_capacity(200),
@@ -221,11 +234,12 @@ impl Console {
     }
 
     fn execute(&mut self) {
-        if let Err(e) = self.app.commands.execute(&self.cmd_line.buffer) {
-            warn!("{}", e);
+        if let Some(cmd_line) = self.cmd_line.remember() {
+            if let Err(e) = self.app.commands.execute(cmd_line) {
+                warn!("{}", e);
+            }
+            self.cmd_line_offset = 0;
         }
-        self.cmd_line.clear();
-        self.cmd_line_offset = 0;
     }
 
     fn complete_command(&mut self) {
@@ -367,13 +381,41 @@ impl UiLayer for Console {
 
 impl CommandLine {
     fn push_at_caret(&mut self, ch: &str) {
-        self.buffer.insert_str(self.caret_pos as usize, ch);
-        self.move_caret(ch.chars().count() as i32);
+        if let Some(idx) = self
+            .buffer
+            .char_indices()
+            .nth(self.caret_pos as usize)
+            .map(|(i, _)| i)
+            .or_else(|| {
+                if self.buffer.len() == self.caret_pos as usize {
+                    Some(self.buffer.len())
+                } else {
+                    None
+                }
+            })
+        {
+            self.buffer.insert_str(idx, ch);
+            self.move_caret(ch.chars().count() as i32);
+        }
     }
 
-    fn prev_command(&mut self) {}
+    fn prev_command(&mut self) {
+        self.history_index = self.history_index.saturating_sub(1);
+        self.set_from_history();
+    }
 
-    fn next_command(&mut self) {}
+    fn next_command(&mut self) {
+        self.history_index = (self.history_index + 1).clamp(0, self.history.len());
+        self.set_from_history();
+    }
+
+    fn set_from_history(&mut self) {
+        self.clear();
+        if let Some(s) = self.history.get(self.history_index) {
+            self.buffer.push_str(s);
+            self.caret_pos = self.buffer.len() as i32;
+        }
+    }
 
     fn move_caret(&mut self, delta: i32) {
         self.caret_pos = self
@@ -406,5 +448,23 @@ impl CommandLine {
     fn clear(&mut self) {
         self.buffer.clear();
         self.caret_pos = 0;
+    }
+
+    fn remember(&mut self) -> Option<&String> {
+        if let Some(index) = self.history.iter().position(|s| *s == self.buffer) {
+            self.history.remove(index);
+        }
+        if self.history.len() >= self.max_history {
+            if let Some(mut s) = self.history.pop_front() {
+                s.clear();
+                self.free.push(s);
+            }
+        }
+        let new_buf = self.free.pop().unwrap_or_else(|| String::with_capacity(80));
+        let buf = std::mem::replace(&mut self.buffer, new_buf);
+        self.clear();
+        self.history.push_back(buf);
+        self.history_index = self.history.len();
+        self.history.back()
     }
 }
