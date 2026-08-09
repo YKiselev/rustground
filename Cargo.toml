@@ -2,12 +2,12 @@
 resolver = "2"
 members = [
     "app",
-    "rg_common",
-    "rg_ecs",
-    "rg_math",
-    "rg_macros",
-    "rg_net",
-    "rg_vulkan",
+    "crates/rg_common",
+    "crates/rg_ecs",
+    "crates/rg_math",
+    "crates/rg_macros",
+    "crates/rg_net",
+    "crates/rg_vulkan", "crates/rg_db",
 ]
 
 [profile.dev]

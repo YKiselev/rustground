@@ -2025,6 +2025,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "rg_db"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+]
+
+[[package]]
 name = "rg_ecs"
 version = "0.1.0"
 dependencies = [

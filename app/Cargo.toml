@@ -4,11 +4,11 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-rg_common = { path = "../rg_common" }
-rg_math = { path = "../rg_math" }
-rg_macros = { path = "../rg_macros" }
-rg_net = { path = "../rg_net" }
-rg_vulkan = { path = "../rg_vulkan" }
+rg_common = { path = "../crates/rg_common" }
+rg_math = { path = "../crates/rg_math" }
+rg_macros = { path = "../crates/rg_macros" }
+rg_net = { path = "../crates/rg_net" }
+rg_vulkan = { path = "../crates/rg_vulkan" }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = [
     "env-filter",
