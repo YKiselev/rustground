@@ -3,6 +3,8 @@ use std::{marker::PhantomData, ptr::slice_from_raw_parts_mut};
 
 use bytes::{Buf, BytesMut};
 
+mod playground;
+
 pub const PAGE_SIZE: usize = 4096;
 
 #[derive(PartialEq, Eq, Clone, Copy)]
