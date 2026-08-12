@@ -13,7 +13,7 @@ use rg_common::{
     },
 };
 use rg_vulkan::renderer::VulkanCanvas;
-use tracing::warn;
+use tracing::{Level, warn};
 use winit::{
     event::{ElementState, WindowEvent},
     keyboard::{Key, ModifiersState, NamedKey},
@@ -88,6 +88,7 @@ impl Console {
         canvas: &mut VulkanCanvas,
     ) {
         canvas.set_scissor(x0, 0, line_width, y0 as u32);
+        canvas.set_wrap_mode(rg_common::ui::canvas::WrapMode::Character);
 
         let line_count = self.app_log_buffer.iter().count() as u32;
         if !self.autoscroll && self.scroll_offset == line_count {
@@ -105,6 +106,17 @@ impl Console {
 
         for record in self.app_log_buffer.iter() {
             self.line_buf.clear();
+
+            let color = match record.level{
+                Level::TRACE => Color::GRAY,
+                Level::DEBUG => Color::GRAY,
+                //Level::INFO => Color::WHITE,
+                Level::WARN => Color::YELLOW,
+                Level::ERROR => Color::RED,
+                _ => Color::WHITE
+            } ;
+
+            canvas.set_color(color);
 
             if let Ok(_) = write!(
                 self.line_buf,
@@ -322,6 +334,15 @@ impl UiLayer for Console {
                     }
                 }
             }
+            WindowEvent::MouseWheel { delta, .. } => match delta {
+                winit::event::MouseScrollDelta::LineDelta(_, y) => {
+                    let k = -((*y * 10.0) as i32).clamp(-1, 1);
+                    self.scroll_offset = self.scroll_offset.saturating_add_signed(k);
+                    self.autoscroll = false;
+                    return true;
+                }
+                winit::event::MouseScrollDelta::PixelDelta(_) => {}
+            },
             _ => {}
         }
 
@@ -346,11 +367,6 @@ impl UiLayer for Console {
         canvas.set_font(rg_common::ui::canvas::FontId::CONSOLE);
         canvas.set_color(Color::WHITE);
         canvas.set_line_spacing(line_spacing);
-        canvas.set_wrap_mode(rg_common::ui::canvas::WrapMode::Word);
-
-        // Check offset (should be multiple of font height to prevent text jumps)
-        //let extra = self.scroll_offset % (canvas.get_font_height() + line_spacing as u32);
-        //self.scroll_offset = self.scroll_offset.saturating_sub(extra);
 
         let font_height = canvas.get_font_height();
         let margin = 4;
