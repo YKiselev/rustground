@@ -3,13 +3,13 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use toml::Table;
-use tracing::warn;
+use tracing::{info, warn};
 
 use rg_common::arguments::Arguments;
 use rg_common::{CommandRegistry, Files, VarRegistry};
 
 use crate::asset::{AssetError, Assets};
-use crate::commands::CommandBuilder;
+use crate::commands::{CmdError, CommandBuilder};
 use crate::config::read_config;
 use crate::{Loader, LoaderError, save_config};
 
@@ -26,19 +26,46 @@ pub struct App {
 impl App {
     pub fn new(args: Arguments) -> Self {
         let files = Files::new(&args);
+        let vars = VarRegistry::new(None);
+        let commands = CommandRegistry::default();
         Self {
             name: "Rust Ground".to_string(),
             arguments: args,
             started_at: Instant::now(),
             files: files,
-            vars: VarRegistry::new(None),
-            commands: CommandRegistry::default(),
+            vars,
+            commands,
             assets: Assets::new(),
         }
     }
 
     pub fn command_builder<'a>(&'a self) -> CommandBuilder<'a> {
         CommandBuilder::new(&self.commands)
+    }
+
+    pub fn execute<S>(&self, command: S) -> Result<(), CmdError>
+    where
+        S: AsRef<str>,
+    {
+        let falback = |args: &[&str]| {
+            match args.len() {
+                1 => {
+                    if let Some(value) = self.vars.try_get_value(args[0]) {
+                        info!("{} = {}", args[0], value);
+                        return Ok(());
+                    }
+                }
+                2 => {
+                    if let Ok(()) = self.vars.try_set_value(args[0], args[1]) {
+                        info!("{} = {}", args[0], args[1]);
+                        return Ok(());
+                    }
+                }
+                _ => {}
+            }
+            Err(CmdError::NotFound)
+        };
+        self.commands.execute(command, Some(&falback))
     }
 
     pub fn elapsed(&self) -> Duration {

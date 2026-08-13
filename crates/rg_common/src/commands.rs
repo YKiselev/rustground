@@ -18,7 +18,7 @@ impl<T> CmdAdapter for T where T: Fn(&[&str]) -> Result<(), CmdError> + Send + S
 
 type CmdMap = HashMap<String, Weak<dyn CmdAdapter>>;
 
-#[derive(Default, Debug)]
+#[derive(Default)]
 pub struct CommandRegistry(Mutex<CmdMap>);
 
 impl CommandRegistry {
@@ -35,7 +35,11 @@ impl CommandRegistry {
     }
 
     /// Invokes command handler by name passed as first argument in [args]
-    pub fn invoke(&self, args: &[&str]) -> Result<(), CmdError> {
+    pub fn invoke(
+        &self,
+        args: &[&str],
+        fallback: Option<&dyn CmdAdapter>,
+    ) -> Result<(), CmdError> {
         if args.len() < 1 {
             return arg_num_mismatch(1, 0);
         }
@@ -44,17 +48,22 @@ impl CommandRegistry {
             drop(guard);
             return (adapter)(&args[1..]);
         }
-        Err(CmdError::NotFound)
+        fallback.ok_or(CmdError::NotFound).and_then(|f| (f)(args))
+        //Err(CmdError::NotFound)
     }
 
     /// Parses [command] script and invokes command handler for each found command
-    pub fn execute<S>(&self, command: S) -> Result<(), CmdError>
+    pub fn execute<S>(
+        &self,
+        command: S,
+        fallback: Option<&dyn CmdAdapter>,
+    ) -> Result<(), CmdError>
     where
         S: AsRef<str>,
     {
         let mut str = command.as_ref();
         while let (rest, Some(args)) = parse_command_line(str) {
-            self.invoke(&args[..])?;
+            self.invoke(&args[..], fallback)?;
             match rest {
                 Some(s) => str = s,
                 None => break,
@@ -281,7 +290,7 @@ mod test {
         reg: R,
         args: [&str; N],
     ) -> Result<(), CmdError> {
-        reg.invoke(args.as_slice())
+        reg.invoke(args.as_slice(), None)
     }
 
     #[test]
@@ -373,7 +382,7 @@ mod test {
             reg: R,
             args: [&str; N],
         ) -> Result<(), CmdError> {
-            reg.invoke(args.as_slice())
+            reg.invoke(args.as_slice(), None)
         }
     }
 
@@ -424,7 +433,12 @@ mod test {
 
         invoke(reg.as_ref(), ["name"]).unwrap();
 
-        arc.lock().unwrap().data.get_mut().invoke(reg.as_ref(), ["name", "Guffy"]).unwrap();
+        arc.lock()
+            .unwrap()
+            .data
+            .get_mut()
+            .invoke(reg.as_ref(), ["name", "Guffy"])
+            .unwrap();
 
         assert_eq!("Guffy", arc.lock().unwrap().data.get_mut().name);
         invoke(reg.as_ref(), ["data"]).unwrap();
@@ -448,5 +462,19 @@ mod test {
             assert_eq!("Duffy", guard.data.get_mut().name);
             assert_eq!(88, guard.data.get_mut().value);
         }
+    }
+
+    #[test]
+    fn fallback() {
+        let count = Arc::new(AtomicUsize::default());
+        let count_clone = Arc::clone(&count);
+        let fallback = move |_: &[&str]| {
+            count_clone.fetch_add(1, Ordering::Relaxed);
+            Err(CmdError::NotFound)
+        };
+        let r = CommandRegistry::default();
+        let _ = r.execute("a", Some(&fallback));
+
+        assert_eq!(1, count.load(Ordering::Relaxed));
     }
 }

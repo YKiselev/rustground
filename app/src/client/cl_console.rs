@@ -247,7 +247,7 @@ impl Console {
 
     fn execute(&mut self) {
         if let Some(cmd_line) = self.cmd_line.remember() {
-            if let Err(e) = self.app.commands.execute(cmd_line) {
+            if let Err(e) = self.app.execute(cmd_line) {
                 warn!("{}", e);
             }
             self.cmd_line_offset = 0;

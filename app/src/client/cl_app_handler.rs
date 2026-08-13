@@ -123,7 +123,7 @@ impl ApplicationHandler<ClientEvent> for Client {
         }
 
         if let Some(action) = action {
-            if let Err(e) = self.app.commands.execute(action) {
+            if let Err(e) = self.app.execute(action) {
                 warn!("{}", e);
             }
         }
